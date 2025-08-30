@@ -1,0 +1,68 @@
+version: 2.1
+
+executors:
+  go-exec:
+    docker:
+      - image: cimg/go:1.22
+    working_directory: ~/project
+
+commands:
+  restore-go-cache:
+    steps:
+      - restore_cache:
+          keys:
+            - go-mod-v1-{{ .Branch }}-{{ checksum "go.sum" }}
+            - go-mod-v1-{{ .Branch }}
+            - go-mod-v1
+  save-go-cache:
+    steps:
+      - save_cache:
+          key: go-mod-v1-{{ .Branch }}-{{ checksum "go.sum" }}
+          paths:
+            - ~/go/pkg/mod
+            - ~/.cache/go-build
+
+jobs:
+  test:
+    executor: go-exec
+    steps:
+      - checkout
+      - run: go version
+      - run: go env
+      - restore-go-cache
+      - run: go mod download
+      - run:
+          name: Run tests
+          command: go test -v ./...
+      - save-go-cache
+
+  build-linux:
+    executor: go-exec
+    parameters:
+      arch:
+        type: enum
+        enum: ["amd64", "arm64"]
+    steps:
+      - checkout
+      - restore-go-cache
+      - run:
+          name: Build linux/<< parameters.arch >>
+          command: |
+            mkdir -p dist/linux_<< parameters.arch >>
+            CGO_ENABLED=0 GOOS=linux GOARCH=<< parameters.arch >> \
+              go build -trimpath -ldflags "-s -w" -o dist/linux_<< parameters.arch >>/urnet-client ./
+      - store_artifacts:
+          path: dist/linux_<< parameters.arch >>
+          destination: dist/linux_<< parameters.arch >>
+
+workflows:
+  build_and_test:
+    jobs:
+      - test
+      - build-linux:
+          name: build-<< matrix.arch >>
+          requires:
+            - test
+          matrix:
+            parameters:
+              arch: ["amd64", "arm64"]

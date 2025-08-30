@@ -1,0 +1,14 @@
+# Binaries
+dist/
+urnet-client
+
+# Editors
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Go
+*.test
+coverage.out
