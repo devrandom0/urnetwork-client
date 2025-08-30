@@ -5,7 +5,8 @@ services:
     build:
       context: ../../..
       dockerfile: connect/cmd/urnet-client/Dockerfile
-    image: urnetwork/urnet-client:local
+  # Local build tag; replace with moghaddas/urnetwork-client:<version> to pull a published image
+  image: moghaddas/urnetwork-client:local
     container_name: urnet-client
     environment:
       - URNETWORK_USERNAME=${URNETWORK_USERNAME:-}

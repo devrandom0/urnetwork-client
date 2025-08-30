@@ -264,10 +264,10 @@ Build the image (multi-stage, small runtime):
 
 ```bash
 # from repo root
-DOCKER_BUILDKIT=1 docker build -f connect/cmd/urnet-client/Dockerfile -t urnetwork/urnet-client:local .
+DOCKER_BUILDKIT=1 docker build -f connect/cmd/urnet-client/Dockerfile -t moghaddas/urnetwork-client:local .
 ```
 
-Run the CLI in a container. Mount a host directory to persist the JWT across runs (the Makefile has shortcuts: `make docker-build`, `make docker-mint-client`, `make docker-vpn`):
+Run the CLI in a container. Mount a host directory to persist the JWT across runs (the Makefile has shortcuts: `make docker-build`, `make docker-mint-client`, `make docker-vpn`). This repo also includes multi-arch buildx targets to publish to Docker Hub under `moghaddas/urnetwork-client`.
 
 ```bash
 # create a local dir to hold JWT
@@ -277,32 +277,32 @@ mkdir -p ~/.urnetwork
 docker run --rm \
   -e URNETWORK_HOME=/data \
   -v ~/.urnetwork:/data \
-  urnetwork/urnet-client:local --help
+  moghaddas/urnetwork-client:local --help
 
 # login
 docker run --rm \
   -e URNETWORK_HOME=/data \
   -v ~/.urnetwork:/data \
-  urnetwork/urnet-client:local login --user_auth me@example.com --password 'secret'
+  moghaddas/urnetwork-client:local login --user_auth me@example.com --password 'secret'
 
 # mint a client-scoped JWT (includes client_id), saved to /data/jwt
 docker run --rm \
   -e URNETWORK_HOME=/data \
   -v ~/.urnetwork:/data \
-  urnetwork/urnet-client:local mint-client
+  moghaddas/urnetwork-client:local mint-client
 
 # find providers
 docker run --rm \
   -e URNETWORK_HOME=/data \
   -v ~/.urnetwork:/data \
-  urnetwork/urnet-client:local find-providers
+  moghaddas/urnetwork-client:local find-providers
 
 # open (press Ctrl+C to stop)
 # Note: this only validates control-plane connectivity; it is not a full VPN.
 docker run --rm -it \
   -e URNETWORK_HOME=/data \
   -v ~/.urnetwork:/data \
-  urnetwork/urnet-client:local open
+  moghaddas/urnetwork-client:local open
 
 # start VPN dataplane (Linux only; needs TUN and NET_ADMIN)
 docker run --rm -it \
@@ -310,7 +310,7 @@ docker run --rm -it \
   --device /dev/net/tun \
   -e URNETWORK_HOME=/data \
   -v ~/.urnetwork:/data \
-  urnetwork/urnet-client:local vpn --tun urnet0
+  moghaddas/urnetwork-client:local vpn --tun urnet0
 
 # then on the host (outside container), set IP and routes, e.g.:
 # ip addr add 10.0.0.2/24 dev urnet0
@@ -349,7 +349,7 @@ curl --interface urnet0 https://icanhazip.com
 
 ## docker-compose
 
-A basic compose file is provided at `docker-compose.yml` in this directory. It builds the image, enables NET_ADMIN and /dev/net/tun, uses host networking, and persists JWTs to a named volume. Examples:
+A basic compose file is provided at `docker-compose.yml` in this directory. It builds the image, enables NET_ADMIN and /dev/net/tun, uses host networking, and persists JWTs to a named volume. By default it tags the local image as `moghaddas/urnetwork-client:local`. To use a published image, set the `image:` to `moghaddas/urnetwork-client:<version>`. Examples:
 
 ```bash
 # build
@@ -362,6 +362,40 @@ docker compose -f docker-compose.yml run --rm urnet-client --help
 docker compose -f docker-compose.yml run --rm \
   --cap-add=NET_ADMIN --device=/dev/net/tun \
   urnet-client vpn --tun urnet0
+
+## Publish a multi-arch image (amd64+arm64)
+
+You can build and push multi-architecture images to Docker Hub `moghaddas/urnetwork-client` using Docker Buildx. Ensure you're logged in (`docker login`). The Makefile will tag with the current version inferred from Git and also tag `latest`.
+
+Option A: with Makefile helpers
+
+```bash
+# Build locally for both platforms (loads into local Docker; no push)
+make dockerx-build IMAGE_BASENAME=moghaddas/urnetwork-client
+
+# Build and push to Docker Hub with tags :$(git describe) and :latest
+make dockerx-release IMAGE_BASENAME=moghaddas/urnetwork-client
+```
+
+Option B: raw docker buildx commands
+
+```bash
+# one-time setup
+docker buildx create --name urnetx --use
+docker buildx inspect --bootstrap
+
+# set a version tag
+VER=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
+
+# build and push (amd64+arm64)
+DOCKER_BUILDKIT=1 docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -f connect/cmd/urnet-client/Dockerfile \
+  -t moghaddas/urnetwork-client:${VER} \
+  -t moghaddas/urnetwork-client:latest \
+  . \
+  --push
+```
 ```
 
 ## Notes and limitations
