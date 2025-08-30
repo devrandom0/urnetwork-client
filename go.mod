@@ -1,4 +1,4 @@
-module github.com/urnetwork/urnet-client
+module github.com/devrandom0/urnetwork-client
 
 go 1.24.4
 
@@ -8,7 +8,7 @@ require (
 	github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
-	github.com/urnetwork/connect v0.0.0-00010101000000-000000000000
+	github.com/urnetwork/connect v0.0.0-20250830042024-61d718d7a66b
 )
 
 require (
@@ -29,5 +29,3 @@ require (
 	google.golang.org/protobuf v1.36.6 // indirect
 	src.agwa.name/tlshacks v0.0.0-20250628001001-c92050511ef4 // indirect
 )
-
-replace github.com/urnetwork/connect => ../..
