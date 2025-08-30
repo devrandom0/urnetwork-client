@@ -15,7 +15,7 @@ ARG TARGETARCH
 
 # Work inside repo root and copy full source (needed for replace ../.. in nested module)
 WORKDIR /src
-COPY . .
+COPY . ./connect
 
 # Build the urnet-client binary from nested module
 WORKDIR /src/connect/cmd/urnet-client

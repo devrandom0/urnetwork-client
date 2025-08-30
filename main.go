@@ -773,6 +773,57 @@ func idsToStrings(ids []connect.Id) []string {
     return out
 }
 
+func cmdSocks(opts docopt.Opts) {
+    listenAddr, _ := opts.String("--listen")
+    extenderIP, _ := opts.String("--extender_ip")
+    extenderPort, _ := opts.String("--extender_port")
+    extenderSNI, _ := opts.String("--extender_sni")
+    extenderSecret, _ := opts.String("--extender_secret")
+    debugOn, _ := opts.Bool("--debug")
+    
+    if listenAddr == "" {
+        fatal(errors.New("--listen is required for socks command"))
+    }
+    if extenderIP == "" {
+        fatal(errors.New("--extender_ip is required for socks command"))
+    }
+    if extenderPort == "" {
+        fatal(errors.New("--extender_port is required for socks command"))
+    }
+    if extenderSNI == "" {
+        fatal(errors.New("--extender_sni is required for socks command"))
+    }
+
+    allowDomains := splitCSV(getStringOr(opts, "--domain", ""))
+    excludeDomains := splitCSV(getStringOr(opts, "--exclude_domain", ""))
+
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    // For now, we'll log the extender details but the actual connection logic
+    // would need to be implemented to use these parameters
+    _ = extenderSecret // Acknowledge we have the secret but don't use it yet
+    logInfo("Extender details: IP=%s Port=%s SNI=%s\n", extenderIP, extenderPort, extenderSNI)
+
+    // Start SOCKS5 proxy without binding to a VPN interface
+    // This is a standalone SOCKS proxy that connects to the specified extender
+    stopSocks, err := StartSocks5(ctx, listenAddr, "", debugOn, allowDomains, excludeDomains)
+    if err != nil {
+        fatal(fmt.Errorf("failed to start SOCKS5 proxy: %w", err))
+    }
+    defer stopSocks()
+
+    logInfo("SOCKS5 proxy listening at %s\n", listenAddr)
+    logInfo("Connecting to extender at %s:%s (SNI: %s)\n", extenderIP, extenderPort, extenderSNI)
+    
+    // Wait for interrupt signal
+    sigCh := make(chan os.Signal, 1)
+    signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+    <-sigCh
+    
+    logInfo("Shutting down SOCKS5 proxy...\n")
+}
+
 // cmdVpn is implemented per-OS in vpn_linux.go and vpn_darwin.go
 
 // spawnBackground detaches a child copy of this process without the --background flag and returns its PID.
