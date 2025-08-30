@@ -46,7 +46,7 @@ Options:
     --rank_mode=<rank_mode>      quality|speed [default: quality]
     --transports=<n>             Number of transports to open [default: 4]
     --jwt=<jwt>                  BY network JWT (falls back to ~/.urnetwork/jwt)
-    --tun=<name>                 TUN interface name [default: urnet0]
+	--tun=<name>                 TUN interface name (omit or use 'none' to disable; SOCKS-only)
         --ip_cidr=<cidr>             Assign CIDR to TUN [default: 10.255.0.2/24]
     --mtu=<mtu>                  Set MTU on TUN [default: 1420]
     --default_route              Route all traffic via TUN (disabled by default)
