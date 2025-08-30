@@ -4,10 +4,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -94,15 +96,42 @@ func cmdVpn(opts docopt.Opts) {
 	_ = run("ip", "link", "set", tunName, "up")
 
 	// Routes: default or extra
+	var origGw, origDev string
+	var origMetric int = -1
 	if defRoute {
-		_ = run("ip", "route", "add", "default", "dev", tunName)
+		// Add a lower-metric default via the TUN, and bump current default route metric higher.
+		// 1) Detect existing default route
+		if gw, dev, met, err := linuxGetDefaultRoute(); err == nil {
+			origGw, origDev, origMetric = gw, dev, met
+		}
+		// 2) Add TUN default with metric 50 (fallback to replace if exists)
+		if err := run("ip", "route", "add", "default", "dev", tunName, "metric", "50"); err != nil {
+			_ = run("ip", "route", "replace", "default", "dev", tunName, "metric", "50")
+		}
+		// 3) Bump original default metric to 200 so TUN takes precedence
+		if origDev != "" {
+			var err error
+			if origGw != "" {
+				// Route via a gateway
+				err = run("ip", "route", "change", "default", "via", origGw, "dev", origDev, "metric", "200")
+				if err != nil {
+					_ = run("ip", "route", "replace", "default", "via", origGw, "dev", origDev, "metric", "200")
+				}
+			} else {
+				// Link-scope default route (no gateway)
+				err = run("ip", "route", "change", "default", "dev", origDev, "metric", "200")
+				if err != nil {
+					_ = run("ip", "route", "replace", "default", "dev", origDev, "metric", "200")
+				}
+			}
+		}
+		// 4) Excludes: prefer unreachable so they avoid default
 		if strings.TrimSpace(excludeRoutes) != "" {
 			for _, r := range strings.Split(excludeRoutes, ",") {
 				r = strings.TrimSpace(r)
 				if r == "" {
 					continue
 				}
-				// Exclude by adding unreachable route so traffic won't go via default TUN
 				_ = run("ip", "route", "add", r, "unreachable")
 			}
 		}
@@ -235,7 +264,21 @@ func cmdVpn(opts docopt.Opts) {
 		_ = stopSocks()
 	}
 	if defRoute {
-		_ = run("ip", "route", "del", "default")
+		// Remove our TUN default
+		_ = run("ip", "route", "del", "default", "dev", tunName)
+		// Restore the original default route metric if known
+		if origDev != "" {
+			var args []string
+			if origGw != "" {
+				args = []string{"route", "replace", "default", "via", origGw, "dev", origDev}
+			} else {
+				args = []string{"route", "replace", "default", "dev", origDev}
+			}
+			if origMetric >= 0 {
+				args = append(args, "metric", strconv.Itoa(origMetric))
+			}
+			_ = run("ip", args...)
+		}
 		if strings.TrimSpace(excludeRoutes) != "" {
 			for _, r := range strings.Split(excludeRoutes, ",") {
 				r = strings.TrimSpace(r)
@@ -273,4 +316,58 @@ func run(name string, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// linuxGetDefaultRoute parses the current default route via `ip -o route show default`.
+// Returns gw (may be empty), dev, metric (or -1 if not present).
+func linuxGetDefaultRoute() (string, string, int, error) {
+	out, err := runCapture("ip", "-o", "route", "show", "default")
+	if err != nil {
+		return "", "", -1, err
+	}
+	line := strings.TrimSpace(out)
+	if line == "" {
+		return "", "", -1, errors.New("no default route")
+	}
+	// Example: "default via 172.17.0.254 dev eth0 proto dhcp src 172.17.0.11 metric 100"
+	// Or:     "default dev eth0 proto kernel  scope link src 10.0.2.15"
+	toks := strings.Fields(line)
+	var gw, dev string
+	met := -1
+	for i := 0; i < len(toks); i++ {
+		switch toks[i] {
+		case "via":
+			if i+1 < len(toks) {
+				gw = toks[i+1]
+				i++
+			}
+		case "dev":
+			if i+1 < len(toks) {
+				dev = toks[i+1]
+				i++
+			}
+		case "metric":
+			if i+1 < len(toks) {
+				if v, e := strconv.Atoi(toks[i+1]); e == nil {
+					met = v
+				}
+				i++
+			}
+		}
+	}
+	if dev == "" {
+		return "", "", -1, errors.New("default route parse failed: no dev")
+	}
+	return gw, dev, met, nil
+}
+
+// runCapture runs a command and returns stdout as string.
+func runCapture(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Stderr = os.Stderr
+	b, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
