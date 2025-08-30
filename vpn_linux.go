@@ -5,6 +5,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -96,68 +98,78 @@ func cmdVpn(opts docopt.Opts) {
 
 	// Routes: default or extra
 	var origGw, origDev string
-	var origMetric int = -1
-	var bumpedDefault bool
+	var addedBypass []string
+	var addedExclude []string
 	if defRoute {
-		// Strategy: ensure a single, preferred TUN default (metric 50),
-		// then remove all existing non-tun defaults and re-add the best one with metric 200.
-		// 1) Snapshot existing defaults
-		if routes, err := linuxListDefaultRoutes(); err == nil {
-			// choose best original (prefer one with gateway, then lowest metric)
-			bestMet := 1 << 30
-			for _, r := range routes {
-				if r.Dev == tunName {
-					continue
-				}
-				candMet := r.Metric
-				if candMet < 0 {
-					candMet = 0
-				}
-				// prefer via gw
-				prefer := r.Gw != ""
-				if origDev == "" || (prefer && candMet <= bestMet) || (!prefer && origGw == "" && candMet <= bestMet) {
-					origGw, origDev, origMetric = r.Gw, r.Dev, r.Metric
-					bestMet = candMet
-				}
-			}
-		}
-		// 2) Add TUN default with metric 50 (fallback to replace if exists)
-		if err := run("ip", "route", "add", "default", "dev", tunName, "metric", "50"); err != nil {
-			_ = run("ip", "route", "replace", "default", "dev", tunName, "metric", "50")
-		}
-		// 3) Remove all existing non-tun defaults to avoid duplicates (DHCP may add multiple)
+		// macOS-like split default: add two /1 routes via the TUN so default traffic prefers it.
+		// 1) Determine current default route (for bypass/excludes)
 		if routes, err := linuxListDefaultRoutes(); err == nil {
 			for _, r := range routes {
 				if r.Dev == tunName {
 					continue
 				}
-				if r.Gw != "" {
-					_ = run("ip", "route", "del", "default", "via", r.Gw, "dev", r.Dev)
-					// Some stacks may have multiple identical entries; try again once
-					_ = run("ip", "route", "del", "default", "via", r.Gw, "dev", r.Dev)
-				} else {
-					_ = run("ip", "route", "del", "default", "dev", r.Dev)
-					_ = run("ip", "route", "del", "default", "dev", r.Dev)
+				// prefer route with gateway
+				if origDev == "" || (origGw == "" && r.Gw != "") {
+					origGw, origDev = r.Gw, r.Dev
 				}
 			}
 		}
-		// 4) Re-add the best original default with a higher metric (so TUN wins)
-		if origDev != "" {
-			if origGw != "" {
-				_ = run("ip", "route", "add", "default", "via", origGw, "dev", origDev, "metric", "200")
+		// 2) Add control-plane bypass host routes (API and connect endpoints) via original gateway/dev
+		addBypass := func(raw string) {
+			raw = strings.TrimSpace(raw)
+			if raw == "" || origDev == "" {
+				return
+			}
+			u, err := neturl.Parse(raw)
+			var host string
+			if err == nil && u.Host != "" {
+				host = u.Host
+				if i := strings.Index(host, ":"); i >= 0 {
+					host = host[:i]
+				}
 			} else {
-				_ = run("ip", "route", "add", "default", "dev", origDev, "metric", "200")
+				host = raw
+				if i := strings.Index(host, "/"); i >= 0 {
+					host = host[:i]
+				}
 			}
-			bumpedDefault = true
+			ips, _ := net.LookupIP(host)
+			for _, ip := range ips {
+				v4 := ip.To4()
+				if v4 == nil {
+					continue
+				}
+				ipStr := v4.String()
+				if origGw != "" {
+					_ = run("ip", "route", "add", ipStr, "via", origGw, "dev", origDev)
+				} else {
+					_ = run("ip", "route", "add", ipStr, "dev", origDev)
+				}
+				addedBypass = append(addedBypass, ipStr)
+			}
 		}
-		// 4) Excludes: prefer unreachable so they avoid default
+		addBypass(apiUrl)
+		addBypass(connectUrl)
+		// 3) Add split default to send all non-bypass traffic via TUN
+		_ = run("ip", "route", "add", "0.0.0.0/1", "dev", tunName)
+		_ = run("ip", "route", "add", "128.0.0.0/1", "dev", tunName)
+		// 4) Optional excludes: route them via original gateway or reject (unreachable)
 		if strings.TrimSpace(excludeRoutes) != "" {
 			for _, r := range strings.Split(excludeRoutes, ",") {
 				r = strings.TrimSpace(r)
 				if r == "" {
 					continue
 				}
-				_ = run("ip", "route", "add", r, "unreachable")
+				if origDev != "" && origGw != "" {
+					_ = run("ip", "route", "add", r, "via", origGw, "dev", origDev)
+					addedExclude = append(addedExclude, r)
+				} else if origDev != "" {
+					_ = run("ip", "route", "add", r, "dev", origDev)
+					addedExclude = append(addedExclude, r)
+				} else {
+					_ = run("ip", "route", "add", r, "unreachable")
+					addedExclude = append(addedExclude, r)
+				}
 			}
 		}
 	}
@@ -289,37 +301,15 @@ func cmdVpn(opts docopt.Opts) {
 		_ = stopSocks()
 	}
 	if defRoute {
-		// Remove our TUN default
-		_ = run("ip", "route", "del", "default", "dev", tunName)
-		// Remove the bumped default we added (metric 200)
-		if bumpedDefault && origDev != "" {
-			if origGw != "" {
-				_ = run("ip", "route", "del", "default", "via", origGw, "dev", origDev, "metric", "200")
-			} else {
-				_ = run("ip", "route", "del", "default", "dev", origDev, "metric", "200")
-			}
+		// Remove split defaults
+		_ = run("ip", "route", "del", "0.0.0.0/1")
+		_ = run("ip", "route", "del", "128.0.0.0/1")
+		// Remove added bypass and exclude routes
+		for _, ip := range addedBypass {
+			_ = run("ip", "route", "del", ip)
 		}
-		// Restore the original default route exactly as it was
-		if origDev != "" {
-			var args []string
-			if origGw != "" {
-				args = []string{"route", "add", "default", "via", origGw, "dev", origDev}
-			} else {
-				args = []string{"route", "add", "default", "dev", origDev}
-			}
-			if origMetric >= 0 {
-				args = append(args, "metric", strconv.Itoa(origMetric))
-			}
-			_ = run("ip", args...)
-		}
-		if strings.TrimSpace(excludeRoutes) != "" {
-			for _, r := range strings.Split(excludeRoutes, ",") {
-				r = strings.TrimSpace(r)
-				if r == "" {
-					continue
-				}
-				_ = run("ip", "route", "del", r)
-			}
+		for _, r := range addedExclude {
+			_ = run("ip", "route", "del", r)
 		}
 	}
 	if strings.TrimSpace(extraRoutes) != "" {
@@ -352,7 +342,10 @@ func run(name string, args ...string) error {
 }
 
 // linuxListDefaultRoutes parses all current default routes via `ip -o route show default`.
-type defaultRoute struct { Gw, Dev string; Metric int }
+type defaultRoute struct {
+	Gw, Dev string
+	Metric  int
+}
 
 func linuxListDefaultRoutes() ([]defaultRoute, error) {
 	out, err := runCapture("ip", "-o", "route", "show", "default")
@@ -363,21 +356,36 @@ func linuxListDefaultRoutes() ([]defaultRoute, error) {
 	routes := []defaultRoute{}
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line == "" { continue }
+		if line == "" {
+			continue
+		}
 		toks := strings.Fields(line)
 		var gw, dev string
 		met := -1
 		for i := 0; i < len(toks); i++ {
 			switch toks[i] {
 			case "via":
-				if i+1 < len(toks) { gw = toks[i+1]; i++ }
+				if i+1 < len(toks) {
+					gw = toks[i+1]
+					i++
+				}
 			case "dev":
-				if i+1 < len(toks) { dev = toks[i+1]; i++ }
+				if i+1 < len(toks) {
+					dev = toks[i+1]
+					i++
+				}
 			case "metric":
-				if i+1 < len(toks) { if v, e := strconv.Atoi(toks[i+1]); e == nil { met = v }; i++ }
+				if i+1 < len(toks) {
+					if v, e := strconv.Atoi(toks[i+1]); e == nil {
+						met = v
+					}
+					i++
+				}
 			}
 		}
-		if dev == "" { continue }
+		if dev == "" {
+			continue
+		}
 		routes = append(routes, defaultRoute{Gw: gw, Dev: dev, Metric: met})
 	}
 	return routes, nil
