@@ -1,24 +1,30 @@
 # syntax=docker/dockerfile:1
 
-# Multi-stage build for urnet-client
+# Multi-stage build for urnet-client (repo-local layout)
 FROM golang:1.24-alpine AS build
 
-# Enable module caching and ensure certs are present during build
+# Dependencies and certs for go tooling
 RUN apk add --no-cache git ca-certificates && update-ca-certificates
 
-# Ensure the correct Go toolchain can be used if the module requests it
+# Honor go toolchain directives in go.mod if present
 ENV GOTOOLCHAIN=auto
 
-# Build args provided by BuildKit for cross-arch builds
+# Build args for cross-compilation (used by BuildKit/buildx)
 ARG TARGETOS
 ARG TARGETARCH
 
-# Work inside repo root and copy full source (needed for replace ../.. in nested module)
 WORKDIR /src
-COPY . ./connect
 
-# Build the urnet-client binary from nested module
-WORKDIR /src/connect/cmd/urnet-client
+# Leverage build cache for modules
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
+
+# Copy the rest of the source
+COPY . .
+
+# Build the CLI from repository root (main.go is at root)
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
