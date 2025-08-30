@@ -33,6 +33,7 @@ Usage:
     urnet-client save-jwt --jwt=<jwt>
     urnet-client mint-client [--api_url=<api_url>] [--jwt=<jwt>]
     urnet-client quick-connect [--user_auth=<user_auth> --password=<password> [--code=<code>] | --jwt=<jwt>] [--api_url=<api_url>] [--connect_url=<connect_url>] [--tun=<name>] [--ip_cidr=<cidr>] [--mtu=<mtu>] [--default_route] [--route=<list>] [--exclude_route=<list>] [--domain=<list>] [--exclude_domain=<list>] [--dns=<list>] [--dns_service=<name>] [--dns_bootstrap=<mode>] [--location_query=<q>] [--location_id=<id>] [--location_group_id=<id>] [--socks=<addr>] [--socks_listen=<addr>] [--background] [--log_file=<path>] [--log_level=<level>] [--debug] [--stats_interval=<sec>] [--force_jwt] [--jwt_renew_interval=<dur>]
+    urnet-client socks --listen=<addr> --extender_ip=<ip> --extender_port=<port> --extender_sni=<sni> [--extender_secret=<secret>] [--domain=<list>] [--exclude_domain=<list>] [--debug]
     urnet-client find-providers [--count=<count>] [--rank_mode=<rank_mode>] [--api_url=<api_url>] [--jwt=<jwt>]
     urnet-client open [--transports=<n>] [--connect_url=<connect_url>] [--api_url=<api_url>] [--jwt=<jwt>]
     urnet-client locations [--query=<q>] [--api_url=<api_url>] [--jwt=<jwt>]
@@ -59,6 +60,11 @@ Options:
     --location_group_id=<id>     Select providers in a specific location group id
     --domain=<list>              Comma-separated domains that should go via VPN (SOCKS only). If set, non-matching domains bypass VPN
     --exclude_domain=<list>      Comma-separated domains that should bypass VPN (SOCKS only)
+    --listen=<addr>              socks: listen address (e.g., 0.0.0.0:1080)
+    --extender_ip=<ip>           socks: extender IP to connect through
+    --extender_port=<port>       socks: extender TCP port (e.g., 443)
+    --extender_sni=<sni>         socks: TLS SNI for extender (domain-like)
+    --extender_secret=<secret>   socks: optional pre-shared secret for extender auth
     --socks=<addr>               Start a SOCKS5 proxy (e.g., 127.0.0.1:1080) and bind traffic to the VPN
     --socks_listen=<addr>        Alias for --socks
     --background                 Run vpn in the background and print the child process id
@@ -103,6 +109,8 @@ Options:
         cmdOpen(opts)
     case mustBool(opts, "locations"):
         cmdLocations(opts)
+    case mustBool(opts, "socks"):
+        cmdSocks(opts)
     case mustBool(opts, "vpn"):
         // If requested, spawn a detached child and print its PID
         if bg, _ := opts.Bool("--background"); bg {

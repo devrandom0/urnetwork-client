@@ -261,6 +261,38 @@ sudo ./urnet-client vpn \
 ## Docker
 
 Build the image (multi-stage, small runtime):
+## SOCKS-only mode (no TUN) — RouterOS-friendly
+
+Use the new `socks` subcommand to run a local SOCKS5 proxy that sends TCP via the overlay extender without creating a TUN device. This works on MikroTik RouterOS containers where `/dev/net/tun` and `NET_ADMIN` are unavailable.
+
+Limitations:
+- TCP CONNECT only; UDP ASSOCIATE is not supported in this mode.
+- Only common TLS ports are allowed by default (443, 853, 993, 995, 465, 2376, 3269, 4460).
+
+Run directly:
+
+```bash
+./urnet-client socks \
+  --listen=0.0.0.0:1080 \
+  --extender_ip=<IP> \
+  --extender_port=443 \
+  --extender_sni=<hostname> \
+  --extender_secret='<optional-psk>' \
+  --domain='example.org,*.example.net' \
+  --exclude_domain='internal.local'
+# Point your app/browser to SOCKS5 at 0.0.0.0:1080
+```
+
+Docker Compose variant (no NET_ADMIN, no /dev/net/tun):
+
+```bash
+# Edit docker-compose.socks.yml and set your extender_ip/extender_sni/port (and optional secret)
+docker compose -f docker-compose.socks.yml up -d
+```
+
+Notes for RouterOS:
+- RouterOS does not support exposing `/dev/net/tun` or `cap-add NET_ADMIN` into containers; VPN mode won’t work.
+- This SOCKS-only mode routes only proxied TCP via the overlay; system-wide routing is unchanged.
 
 ```bash
 # from repo root
