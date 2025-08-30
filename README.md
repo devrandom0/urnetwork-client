@@ -4,10 +4,10 @@ A minimal CLI for BringYour that can:
 - Authenticate and mint a client-scoped JWT
 - Discover and connect to providers
 - Run a real VPN dataplane (userspace TUN) on macOS and Linux
-- Optionally run a SOCKS5 proxy that sends only proxy traffic through the VPN
-- Discover locations and select providers by country/region/group
-- Run in the background and optionally log to a file
-- Manage JWTs: reuse existing client JWTs by default, optionally force mint, and auto-renew on an interval
+ - Optionally run a SOCKS5 proxy that sends only proxy traffic through the VPN
+ - Discover locations and select providers by country/region/group
+ - Run in the background and optionally log to a file
+ - Manage JWTs: reuse existing client JWTs by default, optionally force mint, and auto-renew on an interval
 
 ## Build
 
@@ -166,6 +166,9 @@ Background/logging notes:
 Linux specifics:
 
 - Requires `sudo` and TUN support. We configure IP/MTU and routes.
+- Full-tunnel now uses macOS-style split defaults on Linux as well: adds `0.0.0.0/1` and `128.0.0.0/1` via the TUN, leaving your original `default` route untouched.
+- Control-plane endpoints (API/connect) get temporary host routes via your current default gateway so the tunnel can establish and stay reachable.
+- `--exclude_route` prefixes are sent via your original default path when known (gateway/dev), otherwise marked `unreachable`. All added routes are removed on exit.
 - SOCKS binds to the TUN interface; if your kernel ignores binding for some flows, you may need policy routing (not yet enabled by default).
 
 ## Examples
@@ -179,11 +182,12 @@ sudo ./urnet-client vpn \
 # Configure your app/browser to use 127.0.0.1:1080 (SOCKS5)
 ```
 
-- Full tunnel with excludes (macOS):
+- Full tunnel with excludes:
 
 ```bash
 sudo ./urnet-client vpn \
   --tun utun10 \
+  # on Linux use urnet0 (or your chosen TUN name)
   --default_route \
   --exclude_route=10.0.0.0/8,169.254.0.0/16,1.1.1.1/32 \
   --debug --stats_interval=5
@@ -261,11 +265,13 @@ sudo ./urnet-client vpn \
 ## Docker
 
 Build the image (multi-stage, small runtime):
+
 ## SOCKS-only mode (no TUN) — RouterOS-friendly
 
 Use the new `socks` subcommand to run a local SOCKS5 proxy that sends TCP via the overlay extender without creating a TUN device. This works on MikroTik RouterOS containers where `/dev/net/tun` and `NET_ADMIN` are unavailable.
 
 Limitations:
+
 - TCP CONNECT only; UDP ASSOCIATE is not supported in this mode.
 - Only common TLS ports are allowed by default (443, 853, 993, 995, 465, 2376, 3269, 4460).
 
@@ -291,6 +297,7 @@ docker compose -f docker-compose.socks.yml up -d
 ```
 
 Notes for RouterOS:
+
 - RouterOS does not support exposing `/dev/net/tun` or `cap-add NET_ADMIN` into containers; VPN mode won’t work.
 - This SOCKS-only mode routes only proxied TCP via the overlay; system-wide routing is unchanged.
 
@@ -427,7 +434,6 @@ DOCKER_BUILDKIT=1 docker buildx build \
   -t moghaddas/urnetwork-client:latest \
   . \
   --push
-```
 ```
 
 ## Notes and limitations
