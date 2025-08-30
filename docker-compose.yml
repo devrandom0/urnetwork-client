@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  urnet-client:
+    build:
+      context: ../../..
+      dockerfile: connect/cmd/urnet-client/Dockerfile
+    image: urnetwork/urnet-client:local
+    container_name: urnet-client
+    environment:
+      - URNETWORK_USERNAME=${URNETWORK_USERNAME:-}
+      - URNETWORK_PASSWORD=${URNETWORK_PASSWORD:-}
+      - URNETWORK_HOME=/data/.urnetwork
+    volumes:
+      - urnet-data:/data
+      # Optional: persist a custom log file outside the container
+      # - ./logs:/logs
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - "/dev/net/tun:/dev/net/tun"
+    network_mode: host
+    restart: unless-stopped
+    command: ["--help"]
+
+volumes:
+  urnet-data:
+    driver: local

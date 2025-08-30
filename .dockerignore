@@ -1,0 +1,16 @@
+# Reduce build context size
+**/.git
+**/.github
+**/.gitignore
+**/.idea
+**/.vscode
+**/.DS_Store
+
+# Build outputs
+**/bin
+**/out
+**/dist
+**/build
+
+# Go caches
+**/vendor
