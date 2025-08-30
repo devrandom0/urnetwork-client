@@ -3,7 +3,7 @@ version: 2.1
 executors:
   go-exec:
     docker:
-    - image: cimg/go:1.24
+      - image: cimg/go:1.24
     working_directory: ~/project
 
 commands:
@@ -23,6 +23,26 @@ commands:
             - ~/.cache/go-build
 
 jobs:
+  lint:
+    executor: go-exec
+    steps:
+      - checkout
+      - run: go version
+      - restore-go-cache
+      - run:
+          name: gofmt (enforce formatting)
+          command: |
+            fmt_out=$(gofmt -s -l . | grep -v '^vendor/' || true)
+            if [ -n "$fmt_out" ]; then
+              echo "gofmt found unformatted files:" >&2
+              echo "$fmt_out" >&2
+              echo "Run: gofmt -s -w <files>" >&2
+              exit 1
+            fi
+      - run:
+          name: go vet
+          command: go vet ./...
+      - save-go-cache
   test:
     executor: go-exec
     steps:
@@ -107,7 +127,10 @@ jobs:
 workflows:
   build_and_test:
     jobs:
-      - test
+      - lint
+      - test:
+          requires:
+            - lint
       - build-linux:
           name: build-<< matrix.arch >>
           requires:
