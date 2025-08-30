@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -98,32 +97,58 @@ func cmdVpn(opts docopt.Opts) {
 	// Routes: default or extra
 	var origGw, origDev string
 	var origMetric int = -1
+	var bumpedDefault bool
 	if defRoute {
-		// Add a lower-metric default via the TUN, and bump current default route metric higher.
-		// 1) Detect existing default route
-		if gw, dev, met, err := linuxGetDefaultRoute(); err == nil {
-			origGw, origDev, origMetric = gw, dev, met
+		// Strategy: ensure a single, preferred TUN default (metric 50),
+		// then remove all existing non-tun defaults and re-add the best one with metric 200.
+		// 1) Snapshot existing defaults
+		if routes, err := linuxListDefaultRoutes(); err == nil {
+			// choose best original (prefer one with gateway, then lowest metric)
+			bestMet := 1 << 30
+			for _, r := range routes {
+				if r.Dev == tunName {
+					continue
+				}
+				candMet := r.Metric
+				if candMet < 0 {
+					candMet = 0
+				}
+				// prefer via gw
+				prefer := r.Gw != ""
+				if origDev == "" || (prefer && candMet <= bestMet) || (!prefer && origGw == "" && candMet <= bestMet) {
+					origGw, origDev, origMetric = r.Gw, r.Dev, r.Metric
+					bestMet = candMet
+				}
+			}
 		}
 		// 2) Add TUN default with metric 50 (fallback to replace if exists)
 		if err := run("ip", "route", "add", "default", "dev", tunName, "metric", "50"); err != nil {
 			_ = run("ip", "route", "replace", "default", "dev", tunName, "metric", "50")
 		}
-		// 3) Bump original default metric to 200 so TUN takes precedence
-		if origDev != "" {
-			var err error
-			if origGw != "" {
-				// Route via a gateway
-				err = run("ip", "route", "change", "default", "via", origGw, "dev", origDev, "metric", "200")
-				if err != nil {
-					_ = run("ip", "route", "replace", "default", "via", origGw, "dev", origDev, "metric", "200")
+		// 3) Remove all existing non-tun defaults to avoid duplicates (DHCP may add multiple)
+		if routes, err := linuxListDefaultRoutes(); err == nil {
+			for _, r := range routes {
+				if r.Dev == tunName {
+					continue
 				}
-			} else {
-				// Link-scope default route (no gateway)
-				err = run("ip", "route", "change", "default", "dev", origDev, "metric", "200")
-				if err != nil {
-					_ = run("ip", "route", "replace", "default", "dev", origDev, "metric", "200")
+				if r.Gw != "" {
+					_ = run("ip", "route", "del", "default", "via", r.Gw, "dev", r.Dev)
+					// Some stacks may have multiple identical entries; try again once
+					_ = run("ip", "route", "del", "default", "via", r.Gw, "dev", r.Dev)
+				} else {
+					_ = run("ip", "route", "del", "default", "dev", r.Dev)
+					_ = run("ip", "route", "del", "default", "dev", r.Dev)
 				}
 			}
+		}
+		// 4) Re-add the best original default with a higher metric (so TUN wins)
+		if origDev != "" {
+			if origGw != "" {
+				_ = run("ip", "route", "add", "default", "via", origGw, "dev", origDev, "metric", "200")
+			} else {
+				_ = run("ip", "route", "add", "default", "dev", origDev, "metric", "200")
+			}
+			bumpedDefault = true
 		}
 		// 4) Excludes: prefer unreachable so they avoid default
 		if strings.TrimSpace(excludeRoutes) != "" {
@@ -266,13 +291,21 @@ func cmdVpn(opts docopt.Opts) {
 	if defRoute {
 		// Remove our TUN default
 		_ = run("ip", "route", "del", "default", "dev", tunName)
-		// Restore the original default route metric if known
+		// Remove the bumped default we added (metric 200)
+		if bumpedDefault && origDev != "" {
+			if origGw != "" {
+				_ = run("ip", "route", "del", "default", "via", origGw, "dev", origDev, "metric", "200")
+			} else {
+				_ = run("ip", "route", "del", "default", "dev", origDev, "metric", "200")
+			}
+		}
+		// Restore the original default route exactly as it was
 		if origDev != "" {
 			var args []string
 			if origGw != "" {
-				args = []string{"route", "replace", "default", "via", origGw, "dev", origDev}
+				args = []string{"route", "add", "default", "via", origGw, "dev", origDev}
 			} else {
-				args = []string{"route", "replace", "default", "dev", origDev}
+				args = []string{"route", "add", "default", "dev", origDev}
 			}
 			if origMetric >= 0 {
 				args = append(args, "metric", strconv.Itoa(origMetric))
@@ -318,47 +351,36 @@ func run(name string, args ...string) error {
 	return cmd.Run()
 }
 
-// linuxGetDefaultRoute parses the current default route via `ip -o route show default`.
-// Returns gw (may be empty), dev, metric (or -1 if not present).
-func linuxGetDefaultRoute() (string, string, int, error) {
+// linuxListDefaultRoutes parses all current default routes via `ip -o route show default`.
+type defaultRoute struct { Gw, Dev string; Metric int }
+
+func linuxListDefaultRoutes() ([]defaultRoute, error) {
 	out, err := runCapture("ip", "-o", "route", "show", "default")
 	if err != nil {
-		return "", "", -1, err
+		return nil, err
 	}
-	line := strings.TrimSpace(out)
-	if line == "" {
-		return "", "", -1, errors.New("no default route")
-	}
-	// Example: "default via 172.17.0.254 dev eth0 proto dhcp src 172.17.0.11 metric 100"
-	// Or:     "default dev eth0 proto kernel  scope link src 10.0.2.15"
-	toks := strings.Fields(line)
-	var gw, dev string
-	met := -1
-	for i := 0; i < len(toks); i++ {
-		switch toks[i] {
-		case "via":
-			if i+1 < len(toks) {
-				gw = toks[i+1]
-				i++
-			}
-		case "dev":
-			if i+1 < len(toks) {
-				dev = toks[i+1]
-				i++
-			}
-		case "metric":
-			if i+1 < len(toks) {
-				if v, e := strconv.Atoi(toks[i+1]); e == nil {
-					met = v
-				}
-				i++
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	routes := []defaultRoute{}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" { continue }
+		toks := strings.Fields(line)
+		var gw, dev string
+		met := -1
+		for i := 0; i < len(toks); i++ {
+			switch toks[i] {
+			case "via":
+				if i+1 < len(toks) { gw = toks[i+1]; i++ }
+			case "dev":
+				if i+1 < len(toks) { dev = toks[i+1]; i++ }
+			case "metric":
+				if i+1 < len(toks) { if v, e := strconv.Atoi(toks[i+1]); e == nil { met = v }; i++ }
 			}
 		}
+		if dev == "" { continue }
+		routes = append(routes, defaultRoute{Gw: gw, Dev: dev, Metric: met})
 	}
-	if dev == "" {
-		return "", "", -1, errors.New("default route parse failed: no dev")
-	}
-	return gw, dev, met, nil
+	return routes, nil
 }
 
 // runCapture runs a command and returns stdout as string.
