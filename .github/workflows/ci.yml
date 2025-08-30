@@ -71,6 +71,11 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=tag
+            # Add semantic version tags when pushing a tag like v1.2.3
+            # Produces: 1.2.3, 1.2, 1
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
             type=sha
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
       - name: Log in to GHCR
