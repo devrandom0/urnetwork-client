@@ -27,7 +27,8 @@ import (
 func cmdVpn(opts docopt.Opts) {
 	apiUrl := getStringOr(opts, "--api_url", DefaultApiUrl)
 	connectUrl := getStringOr(opts, "--connect_url", DefaultConnectUrl)
-	tunName := getStringOr(opts, "--tun", "utun0") // Name is advisory on darwin; kernel assigns utunX
+	// Default: no TUN unless explicitly provided
+	tunName := getStringOr(opts, "--tun", "") // Name is advisory on darwin; kernel assigns utunX
 	ipCIDR := getStringOr(opts, "--ip_cidr", "10.255.0.2/24")
 	mtu := getIntOr(opts, "--mtu", 1420)
 	defRoute, _ := opts.Bool("--default_route")
@@ -49,6 +50,32 @@ func cmdVpn(opts docopt.Opts) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// If user disables TUN (e.g., --tun=none/non/no/off/false/disable/0) or omits it (empty), run SOCKS-only without creating a utun.
+	if func(n string) bool {
+		s := strings.ToLower(strings.TrimSpace(n))
+		switch s {
+		case "", "none", "non", "no", "off", "false", "disable", "disabled", "0":
+			return true
+		default:
+			return false
+		}
+	}(tunName) {
+		if socksListen == "" {
+			logError("--tun=none specified but no --socks provided; nothing to do\n")
+			return
+		}
+		stopSocks, err := StartSocks5(ctx, socksListen, "", debugOn, allowDomains, excludeDomains)
+		if err != nil {
+			fatal(fmt.Errorf("start socks failed: %w", err))
+		}
+		defer stopSocks()
+		logInfo("SOCKS started without TUN (system routes only). Press Ctrl+C to exit.\n")
+		sigc := make(chan os.Signal, 1)
+		signal.Notify(sigc, os.Interrupt, syscall.SIGTERM)
+		<-sigc
+		return
+	}
 
 	cfg := water.Config{DeviceType: water.TUN}
 	cfg.Name = tunName
@@ -410,7 +437,7 @@ func cmdVpn(opts docopt.Opts) {
 			deadline := time.After(3 * time.Second)
 			ticker := time.NewTicker(200 * time.Millisecond)
 			defer ticker.Stop()
-			loop:
+		loop:
 			for {
 				select {
 				case <-deadline:

@@ -19,6 +19,7 @@ LDFLAGS := -s -w -X 'main.Version=$(VERSION)'
 help:
 	@echo "Targets:"
 	@echo "  build                 Build for host platform -> $(DIST)/$(BINARY)"
+	@echo "  test                  Run Go tests"
 	@echo "  build-linux-amd64     Build Linux/amd64 -> $(DIST)/linux_amd64/$(BINARY)"
 	@echo "  build-linux-arm64     Build Linux/arm64 -> $(DIST)/linux_arm64/$(BINARY)"
 	@echo "  build-darwin-amd64    Build macOS/amd64 -> $(DIST)/darwin_amd64/$(BINARY)"
@@ -41,6 +42,10 @@ $(DIST):
 .PHONY: build
 build: $(DIST)
 	GOFLAGS=-trimpath go build -ldflags "$(LDFLAGS)" -o $(DIST)/$(BINARY) ./
+
+.PHONY: test
+test:
+	go test ./...
 
 .PHONY: build-linux-amd64
 build-linux-amd64:
