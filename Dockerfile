@@ -41,7 +41,8 @@ RUN apk add --no-cache ca-certificates tzdata iproute2 && adduser -D -u 10001 ap
 COPY --from=build /out/urnet-client /usr/local/bin/urnet-client
 
 # App runtime
-USER appuser
+## 'root' is needed for tunnel in Mikrotik containers
+USER root
 WORKDIR /home/appuser
 ENV URNETWORK_HOME=/home/appuser/.urnetwork
 RUN mkdir -p "$URNETWORK_HOME"
