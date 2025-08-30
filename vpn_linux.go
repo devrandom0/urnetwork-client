@@ -25,6 +25,8 @@ func cmdVpn(opts docopt.Opts) {
 	connectUrl := getStringOr(opts, "--connect_url", DefaultConnectUrl)
 	// Default: no TUN unless explicitly provided
 	tunName := getStringOr(opts, "--tun", "")
+	rawTun := strings.TrimSpace(tunName)
+	tunLikelyMissingArg := rawTun != "" && strings.HasPrefix(rawTun, "-")
 	ipCIDR := getStringOr(opts, "--ip_cidr", "10.255.0.2/24")
 	mtu := getIntOr(opts, "--mtu", 1420)
 	defRoute, _ := opts.Bool("--default_route")
@@ -45,16 +47,16 @@ func cmdVpn(opts docopt.Opts) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// TUN-less mode for SOCKS-only usage (none/non/no/off/false/disable/0 or empty)
+	// TUN-less mode for SOCKS-only usage (none/non/no/off/false/disable/0 or empty and not a missing-arg case)
 	if func(n string) bool {
 		s := strings.ToLower(strings.TrimSpace(n))
 		switch s {
-		case "", "none", "non", "no", "off", "false", "disable", "disabled", "0":
+		case "none", "non", "no", "off", "false", "disable", "disabled", "0":
 			return true
 		default:
 			return false
 		}
-	}(tunName) {
+	}(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
 		if socksListen == "" {
 			logError("--tun=none specified but no --socks provided; nothing to do\n")
 			return
@@ -69,6 +71,12 @@ func cmdVpn(opts docopt.Opts) {
 		signal.Notify(sigc, os.Interrupt, syscall.SIGTERM)
 		<-sigc
 		return
+	}
+
+	// If tun name looks like a flag (missing value), choose a sane default name
+	if tunLikelyMissingArg {
+		logWarn("--tun provided without a valid name (got %q); using default 'urnet0'\n", rawTun)
+		tunName = "urnet0"
 	}
 
 	cfg := water.Config{DeviceType: water.TUN}

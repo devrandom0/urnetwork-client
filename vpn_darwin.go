@@ -29,6 +29,10 @@ func cmdVpn(opts docopt.Opts) {
 	connectUrl := getStringOr(opts, "--connect_url", DefaultConnectUrl)
 	// Default: no TUN unless explicitly provided
 	tunName := getStringOr(opts, "--tun", "") // Name is advisory on darwin; kernel assigns utunX
+	rawTun := strings.TrimSpace(tunName)
+	// If user passed `--tun` without a value, docopt may consume the next flag token (e.g., "--default_route").
+	// Detect such cases and treat as a request for an auto-assigned utun.
+	tunLikelyMissingArg := rawTun != "" && strings.HasPrefix(rawTun, "-")
 	ipCIDR := getStringOr(opts, "--ip_cidr", "10.255.0.2/24")
 	mtu := getIntOr(opts, "--mtu", 1420)
 	defRoute, _ := opts.Bool("--default_route")
@@ -51,16 +55,17 @@ func cmdVpn(opts docopt.Opts) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// If user disables TUN (e.g., --tun=none/non/no/off/false/disable/0) or omits it (empty), run SOCKS-only without creating a utun.
+	// If user disables TUN (e.g., --tun=none/non/no/off/false/disable/0) or omits it (empty and not a missing-arg case),
+	// run SOCKS-only without creating a utun.
 	if func(n string) bool {
 		s := strings.ToLower(strings.TrimSpace(n))
 		switch s {
-		case "", "none", "non", "no", "off", "false", "disable", "disabled", "0":
+		case "none", "non", "no", "off", "false", "disable", "disabled", "0":
 			return true
 		default:
 			return false
 		}
-	}(tunName) {
+	}(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
 		if socksListen == "" {
 			logError("--tun=none specified but no --socks provided; nothing to do\n")
 			return
@@ -78,7 +83,13 @@ func cmdVpn(opts docopt.Opts) {
 	}
 
 	cfg := water.Config{DeviceType: water.TUN}
-	cfg.Name = tunName
+	if tunLikelyMissingArg {
+		// Auto-assign utun: kernel picks a free name when Name is empty
+		cfg.Name = ""
+		logWarn("--tun provided without a valid name (got %q); using auto utun\n", rawTun)
+	} else {
+		cfg.Name = tunName
+	}
 	dev, err := water.New(cfg)
 	if err != nil {
 		// If a specific utun name fails (format or in use), retry with auto assignment
