@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Multi-stage build for urnet-client (repo-local layout)
-FROM golang:1.24-alpine AS build
+FROM golang:1.25-alpine AS build
 
 # Dependencies and certs for go tooling
 RUN apk add --no-cache git ca-certificates && update-ca-certificates
