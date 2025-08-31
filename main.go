@@ -32,12 +32,12 @@ Usage:
     urnet-client verify --user_auth=<user_auth> --code=<code> [--api_url=<api_url>]
     urnet-client save-jwt --jwt=<jwt>
     urnet-client mint-client [--api_url=<api_url>] [--jwt=<jwt>]
-	urnet-client quick-connect [--user_auth=<user_auth> --password=<password> [--code=<code>] | --jwt=<jwt>] [--api_url=<api_url>] [--connect_url=<connect_url>] [--tun=<name>] [--ip_cidr=<cidr>] [--mtu=<mtu>] [--default_route] [--route=<list>] [--exclude_route=<list>] [--domain=<list>] [--exclude_domain=<list>] [--dns=<list>] [--dns_service=<name>] [--dns_bootstrap=<mode>] [--location_query=<q>] [--location_id=<id>] [--location_group_id=<id>] [--socks=<addr>] [--socks_listen=<addr>] [--block_new_inbound] [--background] [--log_file=<path>] [--log_level=<level>] [--debug] [--stats_interval=<sec>] [--force_jwt] [--jwt_renew_interval=<dur>]
+	urnet-client quick-connect [--user_auth=<user_auth> --password=<password> [--code=<code>] | --jwt=<jwt>] [--api_url=<api_url>] [--connect_url=<connect_url>] [--tun=<name>] [--ip_cidr=<cidr>] [--mtu=<mtu>] [--default_route] [--route=<list>] [--exclude_route=<list>] [--domain=<list>] [--exclude_domain=<list>] [--dns=<list>] [--dns_service=<name>] [--dns_bootstrap=<mode>] [--location_query=<q>] [--location_id=<id>] [--location_group_id=<id>] [--socks=<addr>] [--socks_listen=<addr>] [--allow_inbound_src=<list>] [--allow_inbound_local] [--background] [--log_file=<path>] [--log_level=<level>] [--debug] [--stats_interval=<sec>] [--force_jwt] [--jwt_renew_interval=<dur>]
     urnet-client socks --listen=<addr> --extender_ip=<ip> --extender_port=<port> --extender_sni=<sni> [--extender_secret=<secret>] [--domain=<list>] [--exclude_domain=<list>] [--debug]
     urnet-client find-providers [--count=<count>] [--rank_mode=<rank_mode>] [--api_url=<api_url>] [--jwt=<jwt>]
     urnet-client open [--transports=<n>] [--connect_url=<connect_url>] [--api_url=<api_url>] [--jwt=<jwt>]
     urnet-client locations [--query=<q>] [--api_url=<api_url>] [--jwt=<jwt>]
-			urnet-client vpn [--tun=<name>] [--connect_url=<connect_url>] [--api_url=<api_url>] [--jwt=<jwt>] [--ip_cidr=<cidr>] [--mtu=<mtu>] [--default_route] [--route=<list>] [--exclude_route=<list>] [--domain=<list>] [--exclude_domain=<list>] [--dns=<list>] [--dns_service=<name>] [--dns_bootstrap=<mode>] [--location_query=<q>] [--location_id=<id>] [--location_group_id=<id>] [--socks=<addr>] [--socks_listen=<addr>] [--block_new_inbound] [--background] [--log_file=<path>] [--log_level=<level>] [--debug] [--stats_interval=<sec>]
+			urnet-client vpn [--tun=<name>] [--connect_url=<connect_url>] [--api_url=<api_url>] [--jwt=<jwt>] [--ip_cidr=<cidr>] [--mtu=<mtu>] [--default_route] [--route=<list>] [--exclude_route=<list>] [--domain=<list>] [--exclude_domain=<list>] [--dns=<list>] [--dns_service=<name>] [--dns_bootstrap=<mode>] [--location_query=<q>] [--location_id=<id>] [--location_group_id=<id>] [--socks=<addr>] [--socks_listen=<addr>] [--allow_inbound_src=<list>] [--allow_inbound_local] [--background] [--log_file=<path>] [--log_level=<level>] [--debug] [--stats_interval=<sec>]
 
 Options:
     --api_url=<api_url>          API base URL [default: %s]
@@ -67,7 +67,8 @@ Options:
     --extender_secret=<secret>   socks: optional pre-shared secret for extender auth
     --socks=<addr>               Start a SOCKS5 proxy (e.g., 127.0.0.1:1080) and bind traffic to the VPN
     --socks_listen=<addr>        Alias for --socks
-	--block_new_inbound          Drop new inbound connections from the remote side (userspace: drops inbound TCP SYN)
+	--allow_inbound_src=<list>   Comma-separated CIDRs to allow for new inbound connections (e.g., 10.0.0.0/8,192.168.0.0/16)
+	--allow_inbound_local        Also allow from local ranges (RFC1918, loopback, CGNAT, link-local) and the TUN subnet from --ip_cidr
     --background                 Run vpn in the background and print the child process id
     --log_file=<path>            If set, write logs to this file (default: console)
     --log_level=<level>          quiet|error|warn|info|debug (default: info). --debug implies debug unless a level is set
@@ -523,7 +524,8 @@ func buildVpnArgsFromOpts(opts docopt.Opts, apiUrl, connectUrl string) []string 
 	add("--domain", getStringOr(opts, "--domain", ""))
 	add("--exclude_domain", getStringOr(opts, "--exclude_domain", ""))
 	// Forwarding and filtering controls
-	addBool("--block_new_inbound", mustBool(opts, "--block_new_inbound"))
+	add("--allow_inbound_src", getStringOr(opts, "--allow_inbound_src", ""))
+	addBool("--allow_inbound_local", mustBool(opts, "--allow_inbound_local"))
 	// Logging and stats
 	add("--log_file", getStringOr(opts, "--log_file", ""))
 	add("--log_level", getStringOr(opts, "--log_level", ""))

@@ -71,8 +71,48 @@ func vpnRunCore(
 		ctx, specs, strat, nil, apiUrl, jwt, fmt.Sprintf("%s/", connectUrl), "", "", appVer, nil,
 	)
 
-	// New userspace control: drop new inbound connections when requested
-	blockNewInbound, _ := opts.Bool("--block_new_inbound")
+	// New userspace control: drop new inbound connections when allowlists are provided.
+	// Behavior: if --allow_inbound_src or --allow_inbound_local is set, block new inbound TCP SYNs
+	// and allow only sources matching those allowlists.
+	allowInboundSrcList := stringsTrim(getStringOr(opts, "--allow_inbound_src", ""))
+	allowInboundLocal, _ := opts.Bool("--allow_inbound_local")
+	blockNewInbound := allowInboundLocal || (allowInboundSrcList != "")
+	var allowInboundCIDRs []*net.IPNet
+	if allowInboundSrcList != "" {
+		for _, s := range splitCSV(allowInboundSrcList) {
+			if n := parseCIDRHost(s); n != nil {
+				allowInboundCIDRs = append(allowInboundCIDRs, n)
+			}
+		}
+	}
+	// If allow-local requested, append local ranges and the TUN subnet (if provided)
+	if allowInboundLocal {
+		appendNet := func(cidr string) {
+			if n := parseCIDRHost(cidr); n != nil {
+				allowInboundCIDRs = append(allowInboundCIDRs, n)
+			}
+		}
+		// Common local ranges
+		appendNet("127.0.0.0/8")    // loopback
+		appendNet("169.254.0.0/16") // link-local
+		appendNet("10.0.0.0/8")     // RFC1918
+		appendNet("172.16.0.0/12")  // RFC1918
+		appendNet("192.168.0.0/16") // RFC1918
+		appendNet("100.64.0.0/10")  // CGNAT
+		// TUN subnet from --ip_cidr, if provided
+		if cidr := stringsTrim(getStringOr(opts, "--ip_cidr", "")); cidr != "" {
+			if strings.Contains(cidr, "/") {
+				if n := parseCIDRHost(cidr); n != nil {
+					allowInboundCIDRs = append(allowInboundCIDRs, n)
+				}
+			} else {
+				// Single host provided; treat as /32
+				if n := parseCIDRHost(cidr); n != nil {
+					allowInboundCIDRs = append(allowInboundCIDRs, n)
+				}
+			}
+		}
+	}
 
 	// Provider receive: optional userspace filtering, then write to TUN and update counters
 	receive := func(source connect.TransferPath, provideMode protocol.ProvideMode, ipPath *connect.IpPath, packet []byte) {
@@ -91,14 +131,37 @@ func vpnRunCore(
 						syn := tcpFlags&0x02 != 0
 						ack := tcpFlags&0x10 != 0
 						if syn && !ack {
-							if debugOn || isDebugEnabled() {
+							// If allowlist is provided, permit new inbound from those sources
+							if len(allowInboundCIDRs) > 0 {
 								srcIP := net.IPv4(packet[12], packet[13], packet[14], packet[15])
-								dstIP := net.IPv4(packet[16], packet[17], packet[18], packet[19])
-								srcPort := binary.BigEndian.Uint16(packet[ihl : ihl+2])
-								dstPort := binary.BigEndian.Uint16(packet[ihl+2 : ihl+4])
-								logInfo("dropped new inbound TCP SYN %s:%d -> %s:%d\n", srcIP.String(), srcPort, dstIP.String(), dstPort)
+								allowed := false
+								for _, n := range allowInboundCIDRs {
+									if n != nil && n.Contains(srcIP) {
+										allowed = true
+										break
+									}
+								}
+								if allowed {
+									// pass through
+								} else {
+									if debugOn || isDebugEnabled() {
+										dstIP := net.IPv4(packet[16], packet[17], packet[18], packet[19])
+										srcPort := binary.BigEndian.Uint16(packet[ihl : ihl+2])
+										dstPort := binary.BigEndian.Uint16(packet[ihl+2 : ihl+4])
+										logInfo("dropped new inbound TCP SYN %s:%d -> %s:%d (not in allowlist)\n", srcIP.String(), srcPort, dstIP.String(), dstPort)
+									}
+									return
+								}
+							} else {
+								if debugOn || isDebugEnabled() {
+									srcIP := net.IPv4(packet[12], packet[13], packet[14], packet[15])
+									dstIP := net.IPv4(packet[16], packet[17], packet[18], packet[19])
+									srcPort := binary.BigEndian.Uint16(packet[ihl : ihl+2])
+									dstPort := binary.BigEndian.Uint16(packet[ihl+2 : ihl+4])
+									logInfo("dropped new inbound TCP SYN %s:%d -> %s:%d\n", srcIP.String(), srcPort, dstIP.String(), dstPort)
+								}
+								return
 							}
-							return
 						}
 					}
 				}
@@ -190,6 +253,34 @@ func vpnRunCore(
 
 // tiny helper to avoid repeated TrimSpace everywhere
 func stringsTrim(s string) string { return strings.TrimSpace(s) }
+
+// parseCIDRHost parses a CIDR or single IPv4 host into *net.IPNet. Returns nil on failure or non-IPv4.
+func parseCIDRHost(s string) *net.IPNet {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	if !strings.Contains(s, "/") {
+		ip := net.ParseIP(s)
+		if ip == nil {
+			return nil
+		}
+		ip4 := ip.To4()
+		if ip4 == nil {
+			return nil
+		}
+		return &net.IPNet{IP: ip4, Mask: net.CIDRMask(32, 32)}
+	}
+	ip, ipn, err := net.ParseCIDR(s)
+	if err != nil {
+		return nil
+	}
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return nil
+	}
+	return &net.IPNet{IP: ip4, Mask: ipn.Mask}
+}
 
 // waitForInterrupt blocks until SIGINT or SIGTERM, then calls cancel.
 func waitForInterrupt(cancel context.CancelFunc) {
