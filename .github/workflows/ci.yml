@@ -77,6 +77,10 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+      - name: Mask credentials
+        run: |
+          [ -n "${URNETWORK_USERNAME:-}" ] && echo "::add-mask::${URNETWORK_USERNAME}" || true
+          [ -n "${URNETWORK_PASSWORD:-}" ] && echo "::add-mask::${URNETWORK_PASSWORD}" || true
       - name: Build CLI
         run: make build
       - name: Login (save BY JWT)
