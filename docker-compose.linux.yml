@@ -1,0 +1,18 @@
+services:
+  urnet-client:
+    # On Linux, host networking exposes the SOCKS port directly on the host
+    network_mode: host
+    # Ensure TUN setup works (safe to repeat in overrides)
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - "/dev/net/tun:/dev/net/tun"
+    # Start VPN + SOCKS together. Provide credentials via env or pre-saved JWT in /data/.urnetwork/jwt
+    command:
+      - quick-connect
+      - --tun=urnet0
+      - --default_route
+      - --exclude_route=8.8.8.8/32
+      - --dns=8.8.8.8
+      - --socks=0.0.0.0:1080
+      - --log_level=info

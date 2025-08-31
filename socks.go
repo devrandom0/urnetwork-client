@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -164,48 +165,20 @@ func handleSocksConn(
 	}
 
 	d := net.Dialer{Timeout: 30 * time.Second}
-	if bindIf != "" {
-		// Platform-specific binding
-		d.Control = func(network, address string, c syscall.RawConn) error {
-			var cerr error
-			if strings.Contains(network, "tcp") {
-				err := c.Control(func(fd uintptr) {
-					// macOS: IP_BOUND_IF (if_nametoindex)
-					ifi, _ := net.InterfaceByName(bindIf)
-					if ifi != nil {
-						// IPPROTO_IP=0, IP_BOUND_IF=25
-						cerr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, 25, ifi.Index)
-						return
-					}
-					// Linux: SO_BINDTODEVICE
-					// 15 is SO_BINDTODEVICE; requires root
-					_ = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, 25, bindIf)
-				})
-				if err != nil {
-					return err
-				}
-			}
-			return cerr
-		}
-	}
-	// Add a per-destination host route via the VPN interface if provided
 	if useVPN && bindIf != "" {
-		d.Control = func(network, address string, c syscall.RawConn) error {
-			var cerr error
-			if strings.Contains(network, "tcp") {
-				err := c.Control(func(fd uintptr) {
-					ifi, _ := net.InterfaceByName(bindIf)
-					if ifi != nil {
-						cerr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, 25, ifi.Index)
-						return
-					}
-					_ = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, 25, bindIf)
-				})
-				if err != nil {
-					return err
-				}
+		// Bind outbound socket to VPN interface
+		d.Control = func(network, address string, rc syscall.RawConn) error {
+			if !strings.Contains(network, "tcp") {
+				return nil
 			}
-			return cerr
+			var retErr error
+			ctlErr := rc.Control(func(fd uintptr) {
+				retErr = bindFDToInterface(int(fd), bindIf)
+			})
+			if ctlErr != nil {
+				return ctlErr
+			}
+			return retErr
 		}
 	}
 
@@ -293,24 +266,15 @@ func runUDPAssociate(ctx context.Context, ctrl net.Conn, bindIf string, debug bo
 	var pcVPN, pcSys net.PacketConn
 	// VPN-bound packet conn
 	if bindIf != "" {
-		lc := net.ListenConfig{Control: func(network, address string, c syscall.RawConn) error {
-			var cerr error
-			err := c.Control(func(fd uintptr) {
-				ifi, _ := net.InterfaceByName(bindIf)
-				if ifi != nil {
-					// IPv4 binding
-					_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, 25, ifi.Index) // IP_BOUND_IF
-					// Best-effort IPv6 binding (125)
-					// _ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, 125, ifi.Index)
-				} else {
-					// Linux SO_BINDTODEVICE (25)
-					_ = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, 25, bindIf)
-				}
+		lc := net.ListenConfig{Control: func(network, address string, rc syscall.RawConn) error {
+			var retErr error
+			ctlErr := rc.Control(func(fd uintptr) {
+				retErr = bindFDToInterface(int(fd), bindIf)
 			})
-			if err != nil {
-				return err
+			if ctlErr != nil {
+				return ctlErr
 			}
-			return cerr
+			return retErr
 		}}
 		pcVPN, _ = lc.ListenPacket(ctx, "udp", ":0")
 	}
@@ -477,4 +441,35 @@ func runUDPAssociate(ctx context.Context, ctrl net.Conn, bindIf string, debug bo
 	// Keep TCP control channel open until client closes
 	tmp := make([]byte, 1)
 	_, _ = ctrl.Read(tmp)
+}
+
+// bindFDToInterface tries to bind a socket file descriptor to an interface by name.
+// On macOS, it prefers IP_BOUND_IF using the interface index; on Linux, it uses SO_BINDTODEVICE.
+// Returns nil if binding is best-effort and the option is unavailable, to avoid breaking connectivity.
+func bindFDToInterface(fd int, ifName string) error {
+	if strings.TrimSpace(ifName) == "" {
+		return nil
+	}
+	// Try to find the interface index first (macOS & Linux helpful)
+	ifi, _ := net.InterfaceByName(ifName)
+	// Darwin: IP_BOUND_IF (25) for IPv4; IPv6 variant is 125
+	if runtime.GOOS == "darwin" {
+		if ifi != nil {
+			// Ignore errors to stay best-effort; some sockets may not accept this option
+			_ = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, 25, ifi.Index)
+			// Optionally try IPv6 too; ignore error
+			// _ = syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, 125, ifi.Index)
+			return nil
+		}
+		// If interface not found, nothing to do
+		return nil
+	}
+	// Linux: SO_BINDTODEVICE is 25 on SOL_SOCKET; requires CAP_NET_RAW or root
+	if runtime.GOOS == "linux" {
+		// Use provided name directly; ignore error to be best-effort
+		_ = syscall.SetsockoptString(fd, syscall.SOL_SOCKET, 25, ifName)
+		return nil
+	}
+	// Other OS: no-op
+	return nil
 }
