@@ -111,7 +111,9 @@ func cmdVpn(opts docopt.Opts) {
 		allowDropInstalled = true
 		for _, cidr := range strings.Split(allowSrcList, ",") {
 			cidr = strings.TrimSpace(cidr)
-			if cidr == "" { continue }
+			if cidr == "" {
+				continue
+			}
 			// Allow forwarding of packets with source in cidr to go out via TUN
 			_ = run("iptables", "-I", "FORWARD", "-s", cidr, "-o", tunName, "-j", "ACCEPT")
 			allowRules = append(allowRules, [8]string{"FORWARD", "-s", cidr, "-o", tunName, "ACCEPT", "", ""})
@@ -125,7 +127,9 @@ func cmdVpn(opts docopt.Opts) {
 	if denySrcList != "" && !noFwRules {
 		for _, cidr := range strings.Split(denySrcList, ",") {
 			cidr = strings.TrimSpace(cidr)
-			if cidr == "" { continue }
+			if cidr == "" {
+				continue
+			}
 			// Drop any packet entering from those sources heading out via TUN
 			_ = run("iptables", "-I", "FORWARD", "-s", cidr, "-o", tunName, "-j", "DROP")
 			denyRules = append(denyRules, [6]string{"FORWARD", "-s", cidr, "-o", tunName, "DROP"})

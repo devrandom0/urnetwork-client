@@ -310,10 +310,10 @@ func cmdQuickConnect(opts docopt.Opts) {
 			fatal(errors.New("no JWT available; provide --user_auth/--password to login or --jwt to use an existing token"))
 		}
 		// If already client-scoped and not forced, validate and reuse if working; otherwise try to refresh.
-	if id := parseClientID(jwt); id != "" && !forceJWT {
+		if id := parseClientID(jwt); id != "" && !forceJWT {
 			if validateClientJWT(apiUrl, jwt) {
 				api.SetByJwt(jwt)
-		logInfo("using existing client JWT (client_id=%s)\n", id)
+				logInfo("using existing client JWT (client_id=%s)\n", id)
 			} else {
 				// Try to refresh by obtaining a new client token; prefer credentials when available
 				retryEvery := renewInterval
