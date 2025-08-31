@@ -19,6 +19,13 @@
 * Image tagging: add semver tags; cancel in-progress runs; semantic-release for auto versioning ([af44cd4](https://github.com/devrandom0/urnetwork-client/commit/af44cd4), [e8d1476](https://github.com/devrandom0/urnetwork-client/commit/e8d1476))
 * semantic-release: fix missing plugin; use outputs for image tagging ([6e048e1](https://github.com/devrandom0/urnetwork-client/commit/6e048e1), [49da177](https://github.com/devrandom0/urnetwork-client/commit/49da177))
 * GHCR: PAT fallback auth; add manual force tag and publish workflow ([229602a](https://github.com/devrandom0/urnetwork-client/commit/229602a), [7ca8259](https://github.com/devrandom0/urnetwork-client/commit/7ca8259))
+* CI tests via Makefile: lint, unit (race), integration (JWT from secrets), docker build test ([cf61582](https://github.com/devrandom0/urnetwork-client/commit/cf61582))
+* Fix job conditions and mask credentials in get-jwt step ([7b86066](https://github.com/devrandom0/urnetwork-client/commit/7b86066))
+
+### Build/Docker
+
+* Narrow Docker context and COPY to Go sources for better cache reuse; ignore tests/docs/CI in .dockerignore ([72c4276](https://github.com/devrandom0/urnetwork-client/commit/72c4276))
+* Update runtime base image to alpine:3.22 ([user])
 
 ## 1.0.0 (2025-08-30)
 

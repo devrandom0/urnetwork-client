@@ -1,10 +1,14 @@
 # Binaries
 dist/
 urnet-client
+bin/
+out/
+build/
 
 # Editors
 .vscode/
 .idea/
+.fleet/
 
 # OS
 .DS_Store
@@ -12,3 +16,11 @@ urnet-client
 # Go
 *.test
 coverage.out
+*.coverprofile
+coverage/
+go.work
+go.work.sum
+
+# Env
+.env
+.envrc
