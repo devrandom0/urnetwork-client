@@ -338,6 +338,7 @@ jobs:
             @semantic-release/github
             conventional-changelog-conventionalcommits
         env:
+          DEBUG: semantic-release:*,@semantic-release:*,semantic-release
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   force-tag-and-publish:
