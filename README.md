@@ -1,13 +1,16 @@
 # urnet-client (experimental)
 
+[![CI](https://github.com/devrandom0/urnetwork-client/actions/workflows/ci.yml/badge.svg)](https://github.com/devrandom0/urnetwork-client/actions/workflows/ci.yml)
+
 A minimal CLI for BringYour that can:
+
 - Authenticate and mint a client-scoped JWT
 - Discover and connect to providers
 - Run a real VPN dataplane (userspace TUN) on macOS and Linux
- - Optionally run a SOCKS5 proxy that sends only proxy traffic through the VPN
- - Discover locations and select providers by country/region/group
- - Run in the background and optionally log to a file
- - Manage JWTs: reuse existing client JWTs by default, optionally force mint, and auto-renew on an interval
+  - Optionally run a SOCKS5 proxy that sends only proxy traffic through the VPN
+  - Discover locations and select providers by country/region/group
+  - Run in the background and optionally log to a file
+  - Manage JWTs: reuse existing client JWTs by default, optionally force mint, and auto-renew on an interval
 
 ## Build
 
