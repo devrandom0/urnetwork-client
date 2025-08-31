@@ -1,3 +1,5 @@
+## [1.3.2](https://github.com/devrandom0/urnetwork-client/compare/v1.3.1...v1.3.2) (2025-08-31)
+
 # Changelog
 
 All notable changes to this project will be documented in this file by semantic-release.
@@ -66,4 +68,3 @@ All notable changes to this project will be documented in this file by semantic-
 * because of mikrotik, changed Dockerfile user to root ([739ef84](https://github.com/devrandom0/urnetwork-client/commit/739ef84371e133ce839577b4200821467d19845d))
 * Docker build and missing cmdSocks function ([063beb7](https://github.com/devrandom0/urnetwork-client/commit/063beb7b56872c4ef40a27b7b1ba3531bff601e6))
 * update go mod ([df392c6](https://github.com/devrandom0/urnetwork-client/commit/df392c6a805a740be62bda8a284cdae34d587dbe))
-
