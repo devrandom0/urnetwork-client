@@ -430,3 +430,60 @@ jobs:
           cache-to: |
             type=gha,mode=max
             type=registry,ref=ghcr.io/${{ github.repository_owner }}/urnetwork-client:buildcache,mode=max
+
+  release-on-tag:
+    runs-on: ubuntu-latest
+    # Run on tag pushes like refs/tags/v1.2.3, or allow manual run with input version
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.version != '')
+    permissions:
+      contents: write  # needed to create/update releases
+    steps:
+      - name: Compute tag name
+        id: compute
+        run: |
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ inputs.version }}" ]; then
+            echo "tag=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "No tag provided" >&2
+            exit 1
+          fi
+      - name: Checkout (tag)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.compute.outputs.tag }}
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Build cross-platform binaries
+        run: |
+          set -euo pipefail
+          make build-linux-amd64
+          make build-linux-arm64
+          make build-darwin-amd64
+          make build-darwin-arm64
+      - name: Prepare release assets
+        run: |
+          set -euo pipefail
+          cp dist/linux_amd64/urnet-client  dist/urnet-client_linux_amd64
+          cp dist/linux_arm64/urnet-client  dist/urnet-client_linux_arm64
+          cp dist/darwin_amd64/urnet-client dist/urnet-client_darwin_amd64
+          cp dist/darwin_arm64/urnet-client dist/urnet-client_darwin_arm64
+      - name: Publish GitHub Release with assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.compute.outputs.tag }}
+          name: urnetwork-client ${{ steps.compute.outputs.tag }}
+          draft: false
+          prerelease: false
+          files: |
+            dist/urnet-client_linux_amd64
+            dist/urnet-client_linux_arm64
+            dist/urnet-client_darwin_amd64
+            dist/urnet-client_darwin_arm64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
