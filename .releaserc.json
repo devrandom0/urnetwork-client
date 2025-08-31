@@ -14,6 +14,13 @@
       "assets": ["CHANGELOG.md"],
       "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
     }],
-    ["@semantic-release/github"]
+    ["@semantic-release/github", {
+      "assets": [
+        { "path": "dist/urnet-client_linux_amd64",  "label": "urnet-client Linux amd64" },
+        { "path": "dist/urnet-client_linux_arm64",  "label": "urnet-client Linux arm64" },
+        { "path": "dist/urnet-client_darwin_amd64", "label": "urnet-client macOS amd64" },
+        { "path": "dist/urnet-client_darwin_arm64", "label": "urnet-client macOS arm64" }
+      ]
+    }]
   ]
 }
