@@ -40,6 +40,26 @@ jobs:
       - name: Lint
         run: make lint
 
+  build-cli:
+    runs-on: ubuntu-latest
+    needs: lint
+    name: Build CLI (once)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Build
+        run: make build
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-linux-amd64
+          path: dist/urnet-client
+
   test:
     runs-on: ubuntu-latest
     needs: lint
@@ -52,15 +72,13 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - name: Build
-        run: make build
       - name: Test
         run: make test-race
 
   get-jwt:
     runs-on: ubuntu-latest
     name: Obtain JWT (login + mint-client)
-    needs: lint
+    needs: [lint, build-cli]
     env:
       URNETWORK_USERNAME: ${{ secrets.URNETWORK_USERNAME }}
       URNETWORK_PASSWORD: ${{ secrets.URNETWORK_PASSWORD }}
@@ -70,11 +88,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
       - name: Check secrets gate
         id: gate
         run: |
@@ -89,9 +102,15 @@ jobs:
         run: |
           [ -n "${URNETWORK_USERNAME:-}" ] && echo "::add-mask::${URNETWORK_USERNAME}" || true
           [ -n "${URNETWORK_PASSWORD:-}" ] && echo "::add-mask::${URNETWORK_PASSWORD}" || true
-      - name: Build CLI
+      - name: Download CLI artifact
         if: steps.gate.outputs.enabled == 'true'
-        run: make build
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-linux-amd64
+          path: dist
+      - name: Ensure CLI is executable
+        if: steps.gate.outputs.enabled == 'true'
+        run: chmod +x dist/urnet-client || true
       - name: Login (save BY JWT)
         if: steps.gate.outputs.enabled == 'true'
         run: |
