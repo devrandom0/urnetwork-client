@@ -146,11 +146,11 @@ Common flags for `vpn`:
   - `--socks=<addr>` (or `--socks_listen`) start a local SOCKS5 proxy (TCP + UDP)
   - `--domain=<list>` only these domains go via VPN (SOCKS only)
   - `--exclude_domain=<list>` these domains bypass VPN (SOCKS only)
-- Forwarding controls (router use)
-  - `--local_only` best-effort: disable forwarding and drop forwarding via the TUN (prevents exit-node behavior on hosts)
-  - `--allow_forward_src=<list>` Linux only: comma-separated source CIDRs explicitly allowed to forward via the VPN; others are dropped
-  - `--deny_forward_src=<list>` Linux only: comma-separated source CIDRs to block from forwarding via the VPN
-  - `--no_fw_rules` userspace-only mode: do not modify iptables/routes/DNS; enforce `--local_only`, `--allow_forward_src`, and `--deny_forward_src` in code
+- Inbound connection control
+  - `--allow_inbound_local` allow only “local” sources to initiate new inbound TCP connections from the tunnel:
+    - 127.0.0.0/8, 169.254.0.0/16, 10/8, 172.16/12, 192.168/16, 100.64/10, and your `--ip_cidr` subnet
+  - `--allow_inbound_src=<list>` allow new inbound TCP connections only from the specified IPv4 CIDRs/hosts (comma-separated)
+  - Behavior: specifying either flag automatically blocks new inbound TCP SYNs by default, allowing only the listed sources. No OS firewall changes are made; filtering happens in userspace.
 - Debug
   - `--debug`, `--stats_interval=<sec>`
   - `--background` run vpn detached and print child PID
@@ -178,11 +178,7 @@ Linux specifics:
 - Control-plane endpoints (API/connect) get temporary host routes via your current default gateway so the tunnel can establish and stay reachable.
 - `--exclude_route` prefixes are sent via your original default path when known (gateway/dev), otherwise marked `unreachable`. All added routes are removed on exit.
 - SOCKS binds to the TUN interface; if your kernel ignores binding for some flows, you may need policy routing (not yet enabled by default).
-- Router/forwarding controls:
-  - `--allow_forward_src` installs iptables rules to only allow forwarding for the listed source CIDRs and default-drop others on the TUN in/out.
-  - `--deny_forward_src` installs iptables rules to drop forwarding for the listed source CIDRs to/from the TUN.
-  - `--local_only` turns off IP forwarding (sysctl) and drops all FORWARD traffic via the TUN.
-  - All rules are removed on exit. Requires root and `iptables` available.
+  (Router/forwarding iptables controls were removed; use application-level or host firewall if needed.)
 
 ## Examples
 
@@ -206,39 +202,34 @@ sudo ./urnet-client vpn \
   --debug --stats_interval=5
 ```
 
-- Router allowlist (only 192.168.10.0/24 clients allowed to egress via VPN):
+### Inbound allowlist examples
+
+- Allow new inbound only from local ranges and your TUN subnet:
 
 ```bash
 sudo ./urnet-client vpn \
-  --tun urnet0 \
+  --tun utun10 \
   --default_route \
-  --allow_forward_src=192.168.10.0/24
+  --allow_inbound_local
 ```
 
-- Router denylist (block 192.168.20.0/24 clients from egress via VPN):
+- Allow new inbound only from specific CIDRs/hosts:
 
 ```bash
 sudo ./urnet-client vpn \
-  --tun urnet0 \
+  --tun utun10 \
   --default_route \
-  --deny_forward_src=192.168.20.0/24
+  --allow_inbound_src=192.168.1.50/32,10.0.0.0/8
 ```
 
-- Userspace-only filtering (no iptables / no route changes):
+- Combine local and explicit sources:
 
 ```bash
-# Enforce local_only and allowlist entirely in code; does not touch iptables or routes/DNS
 sudo ./urnet-client vpn \
-  --tun urnet0 \
-  --no_fw_rules \
-  --local_only \
-  --allow_forward_src=192.168.10.0/24 \
-  --socks=0.0.0.0:1080
-# Notes:
-# - In this mode, --default_route and other route/DNS changes are skipped.
-# - Only IPv4 packets are filtered in userspace today.
-# - local_only drops any TUN egress whose source is not a local interface IP, and drops inbound packets whose
-#   destination is not a local interface IP, preventing exit-node behavior without firewall rules.
+  --tun utun10 \
+  --default_route \
+  --allow_inbound_local \
+  --allow_inbound_src=203.0.113.7/32
 ```
 
 - Full tunnel plus DNS via VPN, with temporary DNS bootstrap:
