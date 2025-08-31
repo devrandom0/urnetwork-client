@@ -1,3 +1,9 @@
+## [1.4.0](https://github.com/devrandom0/urnetwork-client/compare/v1.3.2...v1.4.0) (2025-08-31)
+
+### Features
+
+* **vpn:** add --no_fw_rules to enforce local_only/allow/deny in userspace; implement IPv4 packet filtering in TUN loop and provider receive; gate OS-level iptables/route/DNS changes; docs ([512fb4a](https://github.com/devrandom0/urnetwork-client/commit/512fb4a218e630ab34e969026c9c6bcfde5164ab))
+
 ## [1.3.2](https://github.com/devrandom0/urnetwork-client/compare/v1.3.1...v1.3.2) (2025-08-31)
 
 # Changelog
