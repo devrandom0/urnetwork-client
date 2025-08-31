@@ -1,0 +1,35 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:base",
+    ":enableVulnerabilityAlerts"
+  ],
+  "labels": ["dependencies", "renovate"],
+  "rebaseWhen": "auto",
+  "timezone": "UTC",
+  "semanticCommits": "enabled",
+  "commitMessagePrefix": "chore(deps): ",
+  "branchPrefix": "renovate/",
+  "prHourlyLimit": 5,
+  "prConcurrentLimit": 10,
+  "dependencyDashboard": true,
+  "enabledManagers": ["gomod", "dockerfile", "github-actions"],
+  "packageRules": [
+    {
+      "matchManagers": ["gomod"],
+      "postUpdateOptions": ["gomodTidy"]
+    },
+    {
+      "matchManagers": ["gomod", "dockerfile"],
+      "matchUpdateTypes": ["patch", "digest"],
+      "automerge": true,
+      "automergeType": "pr",
+      "labels": ["dependencies", "automerge"]
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions (minor+patch)",
+      "matchUpdateTypes": ["minor", "patch"]
+    }
+  ]
+}
