@@ -150,7 +150,7 @@ Common flags for `vpn`:
   - `--allow_inbound_local` allow only “local” sources to initiate new inbound TCP connections from the tunnel:
     - 127.0.0.0/8, 169.254.0.0/16, 10/8, 172.16/12, 192.168/16, 100.64/10, and your `--ip_cidr` subnet
   - `--allow_inbound_src=<list>` allow new inbound TCP connections only from the specified IPv4 CIDRs/hosts (comma-separated)
-  - Behavior: specifying either flag automatically blocks new inbound TCP SYNs by default, allowing only the listed sources. No OS firewall changes are made; filtering happens in userspace.
+  - Behavior: specifying either flag automatically blocks new inbound TCP SYNs by default, allowing only the listed sources. TCP segments without ACK (e.g., unsolicited RST) are also dropped. No OS firewall changes are made; filtering happens in userspace.
 - Debug
   - `--debug`, `--stats_interval=<sec>`
   - `--background` run vpn detached and print child PID

@@ -73,7 +73,8 @@ func vpnRunCore(
 
 	// New userspace control: drop new inbound connections when allowlists are provided.
 	// Behavior: if --allow_inbound_src or --allow_inbound_local is set, block new inbound TCP SYNs
-	// and allow only sources matching those allowlists.
+	// and allow only sources matching those allowlists. Additionally, drop inbound TCP segments
+	// without the ACK flag (e.g., stray RST) since they cannot belong to an established flow we initiated.
 	allowInboundSrcList := stringsTrim(getStringOr(opts, "--allow_inbound_src", ""))
 	allowInboundLocal, _ := opts.Bool("--allow_inbound_local")
 	blockNewInbound := allowInboundLocal || (allowInboundSrcList != "")
@@ -114,6 +115,10 @@ func vpnRunCore(
 		}
 	}
 
+	if blockNewInbound && isInfoEnabled() {
+		logInfo("inbound-control: enabled (allowlist=%d entries); policy: drop new inbound SYN not in allowlist, and drop inbound TCP without ACK\n", len(allowInboundCIDRs))
+	}
+
 	// Provider receive: optional userspace filtering, then write to TUN and update counters
 	receive := func(source connect.TransferPath, provideMode protocol.ProvideMode, ipPath *connect.IpPath, packet []byte) {
 		if debugOn || isDebugEnabled() {
@@ -130,6 +135,7 @@ func vpnRunCore(
 						tcpFlags := packet[ihl+13]
 						syn := tcpFlags&0x02 != 0
 						ack := tcpFlags&0x10 != 0
+						// 1) Drop new inbound SYN if not allowlisted
 						if syn && !ack {
 							// If allowlist is provided, permit new inbound from those sources
 							if len(allowInboundCIDRs) > 0 {
@@ -162,6 +168,16 @@ func vpnRunCore(
 								}
 								return
 							}
+							// 2) Drop any inbound TCP segment without ACK (e.g., stray RST), since it can't be part of a valid response path
+						} else if !ack {
+							srcIP := net.IPv4(packet[12], packet[13], packet[14], packet[15])
+							dstIP := net.IPv4(packet[16], packet[17], packet[18], packet[19])
+							srcPort := binary.BigEndian.Uint16(packet[ihl : ihl+2])
+							dstPort := binary.BigEndian.Uint16(packet[ihl+2 : ihl+4])
+							if debugOn || isDebugEnabled() {
+								logInfo("dropped inbound TCP without ACK %s:%d -> %s:%d (flags=0x%02x)\n", srcIP.String(), srcPort, dstIP.String(), dstPort, tcpFlags)
+							}
+							return
 						}
 					}
 				}
