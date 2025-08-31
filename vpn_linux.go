@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"net"
 	neturl "net/url"
-	"os/exec"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +27,10 @@ func cmdVpn(opts docopt.Opts) {
 	ipCIDR := getStringOr(opts, "--ip_cidr", "10.255.0.2/24")
 	mtu := getIntOr(opts, "--mtu", 1420)
 	defRoute, _ := opts.Bool("--default_route")
+	localOnly, _ := opts.Bool("--local_only")
+	noFwRules, _ := opts.Bool("--no_fw_rules")
+	denySrcList := strings.TrimSpace(getStringOr(opts, "--deny_forward_src", ""))
+	allowSrcList := strings.TrimSpace(getStringOr(opts, "--allow_forward_src", ""))
 	extraRoutes := getStringOr(opts, "--route", "")
 	excludeRoutes := getStringOr(opts, "--exclude_route", "")
 	dnsList := getStringOr(opts, "--dns", "")
@@ -58,14 +62,14 @@ func cmdVpn(opts docopt.Opts) {
 			logError("--tun=none specified but no --socks provided; nothing to do\n")
 			return
 		}
-	stopSocks, err := StartSocks5(ctx, socksListen, "", debugOn, allowDomains, excludeDomains)
+		stopSocks, err := StartSocks5(ctx, socksListen, "", debugOn, allowDomains, excludeDomains)
 		if err != nil {
 			fatal(fmt.Errorf("start socks failed: %w", err))
 		}
-	defer stopSocks()
-	logInfo("SOCKS started without TUN (system routes only). Press Ctrl+C to exit.\n")
-	waitForInterrupt(cancel)
-	return
+		defer stopSocks()
+		logInfo("SOCKS started without TUN (system routes only). Press Ctrl+C to exit.\n")
+		waitForInterrupt(cancel)
+		return
 	}
 
 	// If tun name looks like a flag (missing value), choose a sane default name
@@ -88,11 +92,54 @@ func cmdVpn(opts docopt.Opts) {
 	_ = run("ip", "link", "set", "dev", tunName, "mtu", fmt.Sprintf("%d", mtu))
 	_ = run("ip", "link", "set", tunName, "up")
 
+	// If requested, harden against acting as an exit node on Linux.
+	// Best-effort steps:
+	// 1) Disable IPv4 forwarding during the session.
+	// 2) Add iptables filter rules to drop FORWARD traffic via the TUN interface.
+	if localOnly && !noFwRules {
+		_ = run("sh", "-c", "sysctl -w net.ipv4.ip_forward=0 >/dev/null 2>&1 || true")
+		_ = run("iptables", "-I", "FORWARD", "-i", tunName, "-j", "DROP")
+		_ = run("iptables", "-I", "FORWARD", "-o", tunName, "-j", "DROP")
+	}
+	// If allowlist is provided, enforce default DROP for forwarding via TUN, then allow listed sources.
+	var allowRules [][8]string
+	var allowDropInstalled bool
+	if allowSrcList != "" && !noFwRules {
+		// Install DROP first
+		_ = run("iptables", "-I", "FORWARD", "-o", tunName, "-j", "DROP")
+		_ = run("iptables", "-I", "FORWARD", "-i", tunName, "-j", "DROP")
+		allowDropInstalled = true
+		for _, cidr := range strings.Split(allowSrcList, ",") {
+			cidr = strings.TrimSpace(cidr)
+			if cidr == "" { continue }
+			// Allow forwarding of packets with source in cidr to go out via TUN
+			_ = run("iptables", "-I", "FORWARD", "-s", cidr, "-o", tunName, "-j", "ACCEPT")
+			allowRules = append(allowRules, [8]string{"FORWARD", "-s", cidr, "-o", tunName, "ACCEPT", "", ""})
+			// And allow return traffic from TUN destined to that subnet
+			_ = run("iptables", "-I", "FORWARD", "-i", tunName, "-d", cidr, "-j", "ACCEPT")
+			allowRules = append(allowRules, [8]string{"FORWARD", "-i", tunName, "-d", cidr, "ACCEPT", "", ""})
+		}
+	}
+	// Deny specific source networks from being forwarded via the VPN (router B clients).
+	var denyRules [][6]string
+	if denySrcList != "" && !noFwRules {
+		for _, cidr := range strings.Split(denySrcList, ",") {
+			cidr = strings.TrimSpace(cidr)
+			if cidr == "" { continue }
+			// Drop any packet entering from those sources heading out via TUN
+			_ = run("iptables", "-I", "FORWARD", "-s", cidr, "-o", tunName, "-j", "DROP")
+			denyRules = append(denyRules, [6]string{"FORWARD", "-s", cidr, "-o", tunName, "DROP"})
+			// And drop packets entering from TUN destined to those sources on LAN (both directions)
+			_ = run("iptables", "-I", "FORWARD", "-i", tunName, "-d", cidr, "-j", "DROP")
+			denyRules = append(denyRules, [6]string{"FORWARD", "-i", tunName, "-d", cidr, "DROP"})
+		}
+	}
+
 	// Routes: default or extra
 	var origGw, origDev string
 	var addedBypass []string
 	var addedExclude []string
-	if defRoute {
+	if defRoute && !noFwRules {
 		// macOS-like split default: add two /1 routes via the TUN so default traffic prefers it.
 		// 1) Determine current default route (for bypass/excludes)
 		if routes, err := linuxListDefaultRoutes(); err == nil {
@@ -165,7 +212,7 @@ func cmdVpn(opts docopt.Opts) {
 			}
 		}
 	}
-	if strings.TrimSpace(extraRoutes) != "" {
+	if strings.TrimSpace(extraRoutes) != "" && !noFwRules {
 		for _, r := range strings.Split(extraRoutes, ",") {
 			r = strings.TrimSpace(r)
 			if r == "" {
@@ -174,7 +221,7 @@ func cmdVpn(opts docopt.Opts) {
 			_ = run("ip", "route", "add", r, "dev", tunName)
 		}
 	}
-	if !defRoute && strings.TrimSpace(dnsList) != "" {
+	if !defRoute && strings.TrimSpace(dnsList) != "" && !noFwRules {
 		for _, d := range strings.Split(dnsList, ",") {
 			d = strings.TrimSpace(d)
 			if d == "" {
@@ -190,7 +237,7 @@ func cmdVpn(opts docopt.Opts) {
 	vpnRunCore(ctx, dev, tunName, opts, jwt, &pktsIn, &pktsOut, &bytesIn, &bytesOut, func() {})
 
 	// Cleanup on exit: delete routes, bring link down, and delete address
-	if defRoute {
+	if defRoute && !noFwRules {
 		// Remove split defaults
 		_ = run("ip", "route", "del", "0.0.0.0/1")
 		_ = run("ip", "route", "del", "128.0.0.0/1")
@@ -202,7 +249,7 @@ func cmdVpn(opts docopt.Opts) {
 			_ = run("ip", "route", "del", r)
 		}
 	}
-	if strings.TrimSpace(extraRoutes) != "" {
+	if strings.TrimSpace(extraRoutes) != "" && !noFwRules {
 		for _, r := range strings.Split(extraRoutes, ",") {
 			r = strings.TrimSpace(r)
 			if r == "" {
@@ -211,7 +258,7 @@ func cmdVpn(opts docopt.Opts) {
 			_ = run("ip", "route", "del", r)
 		}
 	}
-	if !defRoute && strings.TrimSpace(dnsList) != "" {
+	if !defRoute && strings.TrimSpace(dnsList) != "" && !noFwRules {
 		for _, d := range strings.Split(dnsList, ",") {
 			d = strings.TrimSpace(d)
 			if d == "" {
@@ -219,6 +266,30 @@ func cmdVpn(opts docopt.Opts) {
 			}
 			_ = run("ip", "route", "del", d)
 		}
+	}
+	if localOnly && !noFwRules {
+		// Remove iptables rules we inserted. Use -D to delete matching rules.
+		_ = run("iptables", "-D", "FORWARD", "-o", tunName, "-j", "DROP")
+		_ = run("iptables", "-D", "FORWARD", "-i", tunName, "-j", "DROP")
+	}
+	if len(denyRules) > 0 && !noFwRules {
+		// Delete in reverse order
+		for i := len(denyRules) - 1; i >= 0; i-- {
+			r := denyRules[i]
+			// r layout: chain, x1, v1, x2, v2, target
+			_ = run("iptables", "-D", r[0], r[1], r[2], r[3], r[4], "-j", r[5])
+		}
+	}
+	if len(allowRules) > 0 && !noFwRules {
+		for i := len(allowRules) - 1; i >= 0; i-- {
+			r := allowRules[i]
+			// chain, -s/-i, v, -o/-d, v, target
+			_ = run("iptables", "-D", r[0], r[1], r[2], r[3], r[4], "-j", r[5])
+		}
+	}
+	if allowDropInstalled && !noFwRules {
+		_ = run("iptables", "-D", "FORWARD", "-i", tunName, "-j", "DROP")
+		_ = run("iptables", "-D", "FORWARD", "-o", tunName, "-j", "DROP")
 	}
 	_ = run("ip", "link", "set", tunName, "down")
 	_ = run("ip", "addr", "flush", "dev", tunName)
