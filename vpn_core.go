@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
@@ -70,67 +71,35 @@ func vpnRunCore(
 		ctx, specs, strat, nil, apiUrl, jwt, fmt.Sprintf("%s/", connectUrl), "", "", appVer, nil,
 	)
 
-	// Precompute userspace filtering configuration if requested; used by both directions
-	noFwRules, _ := opts.Bool("--no_fw_rules")
-	localOnly, _ := opts.Bool("--local_only")
-	allowSrcList := stringsTrim(getStringOr(opts, "--allow_forward_src", ""))
-	denySrcList := stringsTrim(getStringOr(opts, "--deny_forward_src", ""))
-	var allowCIDRs []*net.IPNet
-	var denyCIDRs []*net.IPNet
-	// Capture local IPv4 addresses set for local_only userspace enforcement
-	localIPv4 := map[string]struct{}{}
-	if noFwRules {
-		if allowSrcList != "" {
-			for _, s := range splitCSV(allowSrcList) {
-				if c := parseCIDR(s); c != nil {
-					allowCIDRs = append(allowCIDRs, c)
-				}
-			}
-		}
-		if denySrcList != "" {
-			for _, s := range splitCSV(denySrcList) {
-				if c := parseCIDR(s); c != nil {
-					denyCIDRs = append(denyCIDRs, c)
-				}
-			}
-		}
-		if localOnly {
-			// Snapshot local IPv4s
-			ifs, _ := net.Interfaces()
-			for _, inf := range ifs {
-				addrs, _ := inf.Addrs()
-				for _, a := range addrs {
-					var ip net.IP
-					switch v := a.(type) {
-					case *net.IPNet:
-						ip = v.IP
-					case *net.IPAddr:
-						ip = v.IP
-					}
-					if v4 := ip.To4(); v4 != nil {
-						localIPv4[v4.String()] = struct{}{}
-					}
-				}
-			}
-		}
-	}
+	// New userspace control: drop new inbound connections when requested
+	blockNewInbound, _ := opts.Bool("--block_new_inbound")
 
 	// Provider receive: optional userspace filtering, then write to TUN and update counters
 	receive := func(source connect.TransferPath, provideMode protocol.ProvideMode, ipPath *connect.IpPath, packet []byte) {
 		if debugOn || isDebugEnabled() {
 			logInfo("<- provider len=%d src=%v mode=%v ipPath=%v\n", len(packet), source, provideMode, ipPath)
 		}
-		if noFwRules && localOnly {
-			// Drop if destination isn't a local interface IP (prevents forwarding to other LAN hosts)
-			if len(packet) >= 20 && (packet[0]>>4) == 4 { // IPv4 only
+		// If enabled: drop new inbound TCP connections (SYN set, ACK not set)
+		if blockNewInbound {
+			if len(packet) >= 20 && (packet[0]>>4) == 4 { // IPv4
 				ihl := int(packet[0]&0x0F) * 4
-				if ihl >= 20 && len(packet) >= ihl {
-					dst := net.IPv4(packet[16], packet[17], packet[18], packet[19])
-					if _, ok := localIPv4[dst.String()]; !ok {
-						if debugOn || isDebugEnabled() {
-							logInfo("dropped inbound by userspace local_only filter: dst=%s\n", dst.String())
+				if ihl >= 20 && len(packet) >= ihl+20 { // ensure room for TCP header
+					proto := packet[9]
+					if proto == 6 { // TCP
+						// TCP header starts at ihl; flags are at offset 13 of TCP header
+						tcpFlags := packet[ihl+13]
+						syn := tcpFlags&0x02 != 0
+						ack := tcpFlags&0x10 != 0
+						if syn && !ack {
+							if debugOn || isDebugEnabled() {
+								srcIP := net.IPv4(packet[12], packet[13], packet[14], packet[15])
+								dstIP := net.IPv4(packet[16], packet[17], packet[18], packet[19])
+								srcPort := binary.BigEndian.Uint16(packet[ihl : ihl+2])
+								dstPort := binary.BigEndian.Uint16(packet[ihl+2 : ihl+4])
+								logInfo("dropped new inbound TCP SYN %s:%d -> %s:%d\n", srcIP.String(), srcPort, dstIP.String(), dstPort)
+							}
+							return
 						}
-						return
 					}
 				}
 			}
@@ -163,15 +132,7 @@ func vpnRunCore(
 			if debugOn || isDebugEnabled() {
 				logInfo("-> provider len=%d\n", len(pkt))
 			}
-			// Optional userspace filtering
-			if noFwRules {
-				if dropPacketUserspace(pkt, localOnly, allowCIDRs, denyCIDRs, localIPv4) {
-					if debugOn || isDebugEnabled() {
-						logInfo("dropped by userspace filter\n")
-					}
-					continue
-				}
-			}
+			// No egress userspace filtering
 			mc.SendPacket(connect.TransferPath{}, protocol.ProvideMode_Network, pkt, -1)
 			if pktsOut != nil {
 				atomic.AddUint64(pktsOut, 1)
@@ -238,75 +199,4 @@ func waitForInterrupt(cancel context.CancelFunc) {
 	cancel()
 }
 
-// parseCIDR returns a *net.IPNet for a CIDR string or single IPv4 host.
-func parseCIDR(s string) *net.IPNet {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return nil
-	}
-	if !strings.Contains(s, "/") {
-		// Treat as /32
-		if ip := net.ParseIP(s); ip != nil {
-			ip4 := ip.To4()
-			if ip4 == nil {
-				return nil
-			}
-			return &net.IPNet{IP: ip4, Mask: net.CIDRMask(32, 32)}
-		}
-		return nil
-	}
-	ip, ipnet, err := net.ParseCIDR(s)
-	if err != nil {
-		return nil
-	}
-	if ip4 := ip.To4(); ip4 != nil {
-		return &net.IPNet{IP: ip4, Mask: ipnet.Mask}
-	}
-	return nil
-}
-
-// dropPacketUserspace inspects an IPv4 packet and decides whether to drop it based on:
-// - localOnly: only permit packets whose source is a local interface IP
-// - allowCIDRs: if non-empty, only allow sources within these ranges
-// - denyCIDRs: drop if source is within these ranges
-// Returns true when the packet should be dropped.
-func dropPacketUserspace(pkt []byte, localOnly bool, allowCIDRs, denyCIDRs []*net.IPNet, localIPv4 map[string]struct{}) bool {
-	if len(pkt) < 20 {
-		return false
-	}
-	// IPv4 only
-	if (pkt[0] >> 4) != 4 {
-		return false
-	}
-	ihl := int(pkt[0]&0x0F) * 4
-	if ihl < 20 || len(pkt) < ihl {
-		return false
-	}
-	src := net.IPv4(pkt[12], pkt[13], pkt[14], pkt[15])
-	// local_only: only allow packets originating from local interface addresses
-	if localOnly {
-		if _, ok := localIPv4[src.String()]; !ok {
-			return true
-		}
-	}
-	// deny list first
-	for _, n := range denyCIDRs {
-		if n != nil && n.Contains(src) {
-			return true
-		}
-	}
-	// allow list: if present, require membership
-	if len(allowCIDRs) > 0 {
-		allowed := false
-		for _, n := range allowCIDRs {
-			if n != nil && n.Contains(src) {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return true
-		}
-	}
-	return false
-}
+// (removed legacy userspace filtering helpers)
