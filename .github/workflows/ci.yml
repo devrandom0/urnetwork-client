@@ -65,14 +65,61 @@ jobs:
       - name: Test
         run: go test -race -count=1 ./...
 
+  get-jwt:
+    runs-on: ubuntu-latest
+    name: Obtain JWT (login + mint-client)
+    needs: lint
+    env:
+      URNETWORK_USERNAME: ${{ secrets.URNETWORK_USERNAME }}
+      URNETWORK_PASSWORD: ${{ secrets.URNETWORK_PASSWORD }}
+      URNETWORK_API_URL: ${{ secrets.URNETWORK_API_URL }}
+    if: env.URNETWORK_USERNAME != '' && env.URNETWORK_PASSWORD != ''
+    outputs:
+      jwt: ${{ steps.export.outputs.jwt }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Build CLI
+        run: make build
+      - name: Login (save BY JWT)
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -n "${URNETWORK_API_URL:-}" ]; then args+=(--api_url="$URNETWORK_API_URL"); fi
+          ./dist/urnet-client login --user_auth="$URNETWORK_USERNAME" --password="$URNETWORK_PASSWORD" "${args[@]}"
+      - name: Mint client JWT (optional)
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -n "${URNETWORK_API_URL:-}" ]; then args+=(--api_url="$URNETWORK_API_URL"); fi
+          # Try to mint a client-scoped JWT; if the BY JWT is sufficient, continue even if mint fails.
+          ./dist/urnet-client mint-client "${args[@]}" || echo "mint-client failed or not required; proceeding"
+      - name: Export JWT
+        id: export
+        run: |
+          set -euo pipefail
+          JWT_PATH="$HOME/.urnetwork/jwt"
+          if [ ! -f "$JWT_PATH" ]; then
+            echo "JWT not found at $JWT_PATH" >&2
+            exit 1
+          fi
+          jwt=$(tr -d '\n' < "$JWT_PATH" | tr -d '\r')
+          echo "::add-mask::$jwt"
+          echo "jwt=$jwt" >> "$GITHUB_OUTPUT"
+
   integration-test:
     runs-on: ubuntu-latest
-    needs: lint
+    needs: [lint, get-jwt]
     name: Integration tests (opt-in)
+    if: needs.get-jwt.result == 'success' && needs.get-jwt.outputs.jwt != ''
     env:
       URNETWORK_TEST_INTEGRATION: '1'
-      # Provide this secret to actually hit remote API; otherwise tests will skip.
-      URNETWORK_JWT: ${{ secrets.URNETWORK_JWT }}
+      URNETWORK_JWT: ${{ needs.get-jwt.outputs.jwt }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
