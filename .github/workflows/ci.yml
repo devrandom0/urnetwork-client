@@ -359,11 +359,18 @@ jobs:
         run: |
           target_ref="${{ inputs.ref }}"
           if [ -z "$target_ref" ]; then target_ref="main"; fi
-          git fetch origin "$target_ref" --depth=1 || true
-          if git show-ref --verify --quiet "refs/heads/$target_ref"; then
+          git fetch --no-tags --depth=1 origin "$target_ref" || true
+          # Prefer remote branch if it exists
+          if git rev-parse --verify --quiet "refs/remotes/origin/$target_ref"; then
             sha=$(git rev-parse "refs/remotes/origin/$target_ref")
+          # Fallback to local branch if present
+          elif git rev-parse --verify --quiet "refs/heads/$target_ref"; then
+            sha=$(git rev-parse "refs/heads/$target_ref")
+          # Try tag
+          elif git rev-parse --verify --quiet "refs/tags/$target_ref"; then
+            sha=$(git rev-parse "refs/tags/$target_ref^{commit}")
           else
-            # try resolve as sha or tag
+            # Finally, allow raw sha or any rev-spec
             sha=$(git rev-parse "$target_ref^{commit}")
           fi
           echo "sha=$sha" >> $GITHUB_OUTPUT
