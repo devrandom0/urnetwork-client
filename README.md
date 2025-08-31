@@ -405,6 +405,31 @@ docker compose -f docker-compose.yml run --rm \
   --cap-add=NET_ADMIN --device=/dev/net/tun \
   urnet-client vpn --tun urnet0
 
+### OS-specific overrides: VPN + SOCKS together
+
+Two overrides are included to run VPN (TUN) and a SOCKS5 proxy together with sensible networking for each OS:
+
+- `docker-compose.linux.yml` (Linux host): uses host networking so `--socks=0.0.0.0:1080` is reachable directly; keeps NET_ADMIN and `/dev/net/tun`.
+- `docker-compose.macos.yml` (Docker Desktop macOS): uses bridge networking with `ports: ["1080:1080"]` because host networking isn’t supported; keeps NET_ADMIN and `/dev/net/tun` in the Linux VM.
+
+Usage:
+
+```bash
+# Linux host: starts quick-connect with TUN+SOCKS (SOCKS on host:1080)
+docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d
+
+# macOS host (Docker Desktop): starts quick-connect with TUN+SOCKS (SOCKS on localhost:1080)
+docker compose -f docker-compose.yml -f docker-compose.macos.yml up -d
+
+# optional: login once to persist a JWT in the volume instead of passing creds every time
+docker compose run --rm urnet-client login --user_auth "$URNETWORK_USERNAME" --password "$URNETWORK_PASSWORD"
+```
+
+Notes:
+
+- The VPN inside Docker only affects the container’s traffic. Use the SOCKS proxy from your host/apps to route selected flows through the tunnel.
+- You can edit the override `command` array to add flags (e.g., `--location_query`, `--log_level`, `--default_route`).
+
 ## Publish a multi-arch image (amd64+arm64)
 
 You can build and push multi-architecture images to Docker Hub `moghaddas/urnetwork-client` using Docker Buildx. Ensure you're logged in (`docker login`). The Makefile will tag with the current version inferred from Git and also tag `latest`.
