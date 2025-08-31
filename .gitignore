@@ -5,6 +5,8 @@ bin/
 out/
 build/
 
+rust/**/target/
+rust/**/Cargo.lock
 # Editors
 .vscode/
 .idea/
