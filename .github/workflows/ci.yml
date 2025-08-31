@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -53,7 +53,7 @@ jobs:
     needs: lint
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -73,7 +73,7 @@ jobs:
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
@@ -135,7 +135,7 @@ jobs:
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
@@ -183,7 +183,7 @@ jobs:
       tag: ${{ steps.semrel.outputs.new_release_git_tag }}
     steps:
       - name: Checkout (full history)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Setup Node.js
@@ -215,7 +215,7 @@ jobs:
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
     steps:
       - name: Checkout (full history)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Resolve target ref
