@@ -49,6 +49,51 @@ func cmdVpn(opts docopt.Opts) {
 		fatal(err)
 	}
 
+	// Startup configuration summary (omit secrets)
+	{
+		cfg := []string{
+			fmt.Sprintf("api_url=%s", apiUrl),
+			fmt.Sprintf("connect_url=%s", connectUrl),
+			fmt.Sprintf("tun=%s", tunName),
+			fmt.Sprintf("ip_cidr=%s", ipCIDR),
+			fmt.Sprintf("mtu=%d", mtu),
+			fmt.Sprintf("default_route=%t", defRoute),
+			fmt.Sprintf("local_only=%t", localOnly),
+			fmt.Sprintf("no_fw_rules=%t", noFwRules),
+		}
+		if strings.TrimSpace(extraRoutes) != "" {
+			cfg = append(cfg, fmt.Sprintf("route=%s", strings.TrimSpace(extraRoutes)))
+		}
+		if strings.TrimSpace(excludeRoutes) != "" {
+			cfg = append(cfg, fmt.Sprintf("exclude_route=%s", strings.TrimSpace(excludeRoutes)))
+		}
+		if strings.TrimSpace(dnsList) != "" {
+			cfg = append(cfg, fmt.Sprintf("dns=%s", strings.TrimSpace(dnsList)))
+		}
+		if strings.TrimSpace(dnsService) != "" {
+			cfg = append(cfg, fmt.Sprintf("dns_service=%s", strings.TrimSpace(dnsService)))
+		}
+		if strings.TrimSpace(dnsBootstrap) != "" {
+			cfg = append(cfg, fmt.Sprintf("dns_bootstrap=%s", strings.TrimSpace(dnsBootstrap)))
+		}
+		if socksListen != "" {
+			cfg = append(cfg, fmt.Sprintf("socks=%s", socksListen))
+		}
+		if len(allowDomains) > 0 {
+			cfg = append(cfg, fmt.Sprintf("domain=%s", strings.Join(allowDomains, ",")))
+		}
+		if len(excludeDomains) > 0 {
+			cfg = append(cfg, fmt.Sprintf("exclude_domain=%s", strings.Join(excludeDomains, ",")))
+		}
+		cfg = append(cfg, fmt.Sprintf("debug=%t", debugOn))
+		if strings.TrimSpace(jwt) != "" {
+			cfg = append(cfg, "jwt=provided")
+		} else {
+			cfg = append(cfg, "jwt=missing")
+		}
+		logInfo("startup: %s\n", strings.Join(cfg, " "))
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
