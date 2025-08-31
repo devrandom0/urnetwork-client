@@ -32,12 +32,12 @@ Usage:
     urnet-client verify --user_auth=<user_auth> --code=<code> [--api_url=<api_url>]
     urnet-client save-jwt --jwt=<jwt>
     urnet-client mint-client [--api_url=<api_url>] [--jwt=<jwt>]
-    urnet-client quick-connect [--user_auth=<user_auth> --password=<password> [--code=<code>] | --jwt=<jwt>] [--api_url=<api_url>] [--connect_url=<connect_url>] [--tun=<name>] [--ip_cidr=<cidr>] [--mtu=<mtu>] [--default_route] [--route=<list>] [--exclude_route=<list>] [--domain=<list>] [--exclude_domain=<list>] [--dns=<list>] [--dns_service=<name>] [--dns_bootstrap=<mode>] [--location_query=<q>] [--location_id=<id>] [--location_group_id=<id>] [--socks=<addr>] [--socks_listen=<addr>] [--background] [--log_file=<path>] [--log_level=<level>] [--debug] [--stats_interval=<sec>] [--force_jwt] [--jwt_renew_interval=<dur>]
+	urnet-client quick-connect [--user_auth=<user_auth> --password=<password> [--code=<code>] | --jwt=<jwt>] [--api_url=<api_url>] [--connect_url=<connect_url>] [--tun=<name>] [--ip_cidr=<cidr>] [--mtu=<mtu>] [--default_route] [--route=<list>] [--exclude_route=<list>] [--domain=<list>] [--exclude_domain=<list>] [--dns=<list>] [--dns_service=<name>] [--dns_bootstrap=<mode>] [--location_query=<q>] [--location_id=<id>] [--location_group_id=<id>] [--socks=<addr>] [--socks_listen=<addr>] [--local_only] [--allow_forward_src=<list>] [--deny_forward_src=<list>] [--no_fw_rules] [--background] [--log_file=<path>] [--log_level=<level>] [--debug] [--stats_interval=<sec>] [--force_jwt] [--jwt_renew_interval=<dur>]
     urnet-client socks --listen=<addr> --extender_ip=<ip> --extender_port=<port> --extender_sni=<sni> [--extender_secret=<secret>] [--domain=<list>] [--exclude_domain=<list>] [--debug]
     urnet-client find-providers [--count=<count>] [--rank_mode=<rank_mode>] [--api_url=<api_url>] [--jwt=<jwt>]
     urnet-client open [--transports=<n>] [--connect_url=<connect_url>] [--api_url=<api_url>] [--jwt=<jwt>]
     urnet-client locations [--query=<q>] [--api_url=<api_url>] [--jwt=<jwt>]
-            urnet-client vpn [--tun=<name>] [--connect_url=<connect_url>] [--api_url=<api_url>] [--jwt=<jwt>] [--ip_cidr=<cidr>] [--mtu=<mtu>] [--default_route] [--route=<list>] [--exclude_route=<list>] [--domain=<list>] [--exclude_domain=<list>] [--dns=<list>] [--dns_service=<name>] [--dns_bootstrap=<mode>] [--location_query=<q>] [--location_id=<id>] [--location_group_id=<id>] [--socks=<addr>] [--socks_listen=<addr>] [--background] [--log_file=<path>] [--log_level=<level>] [--debug] [--stats_interval=<sec>]
+			urnet-client vpn [--tun=<name>] [--connect_url=<connect_url>] [--api_url=<api_url>] [--jwt=<jwt>] [--ip_cidr=<cidr>] [--mtu=<mtu>] [--default_route] [--route=<list>] [--exclude_route=<list>] [--domain=<list>] [--exclude_domain=<list>] [--dns=<list>] [--dns_service=<name>] [--dns_bootstrap=<mode>] [--location_query=<q>] [--location_id=<id>] [--location_group_id=<id>] [--socks=<addr>] [--socks_listen=<addr>] [--local_only] [--allow_forward_src=<list>] [--deny_forward_src=<list>] [--no_fw_rules] [--background] [--log_file=<path>] [--log_level=<level>] [--debug] [--stats_interval=<sec>]
 
 Options:
     --api_url=<api_url>          API base URL [default: %s]
@@ -67,6 +67,10 @@ Options:
     --extender_secret=<secret>   socks: optional pre-shared secret for extender auth
     --socks=<addr>               Start a SOCKS5 proxy (e.g., 127.0.0.1:1080) and bind traffic to the VPN
     --socks_listen=<addr>        Alias for --socks
+	--local_only                 Block acting as exit node: drop non-local TUN traffic and disable forwarding (best-effort)
+	--allow_forward_src=<list>   Linux only: comma-separated source CIDRs to allow forwarding via the VPN (others dropped)
+	--deny_forward_src=<list>    Linux only: comma-separated source CIDRs to block from forwarding via the VPN (e.g., 192.168.2.0/24)
+	--no_fw_rules                Don’t modify iptables/route; enforce filters in userspace only
     --background                 Run vpn in the background and print the child process id
     --log_file=<path>            If set, write logs to this file (default: console)
     --log_level=<level>          quiet|error|warn|info|debug (default: info). --debug implies debug unless a level is set
@@ -295,7 +299,6 @@ func cmdQuickConnect(opts docopt.Opts) {
 
 	// 2) Ensure we have a working client-scoped JWT; if current JWT is network-scoped, mint a client JWT.
 	//    If an existing client JWT is present but not working, try to fetch a fresh one and retry within an interval.
-	var clientIDStr string
 	{
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -307,11 +310,10 @@ func cmdQuickConnect(opts docopt.Opts) {
 			fatal(errors.New("no JWT available; provide --user_auth/--password to login or --jwt to use an existing token"))
 		}
 		// If already client-scoped and not forced, validate and reuse if working; otherwise try to refresh.
-		if id := parseClientID(jwt); id != "" && !forceJWT {
+	if id := parseClientID(jwt); id != "" && !forceJWT {
 			if validateClientJWT(apiUrl, jwt) {
 				api.SetByJwt(jwt)
-				clientIDStr = id
-				logInfo("using existing client JWT (client_id=%s)\n", clientIDStr)
+		logInfo("using existing client JWT (client_id=%s)\n", id)
 			} else {
 				// Try to refresh by obtaining a new client token; prefer credentials when available
 				retryEvery := renewInterval
@@ -351,7 +353,7 @@ func cmdQuickConnect(opts docopt.Opts) {
 									newJWT := mres.ByClientJwt
 									if validateClientJWT(apiUrl, newJWT) {
 										if id2 := parseClientID(newJWT); id2 != "" {
-											clientIDStr = id2
+											_ = id2 // not used further; kept for potential future logging
 										}
 										logInfo("obtained new client JWT; proceeding\n")
 										refreshed = true
@@ -391,9 +393,8 @@ func cmdQuickConnect(opts docopt.Opts) {
 			if err := saveJWT(res.ByClientJwt); err != nil {
 				fatal(err)
 			}
-			clientIDStr = parseClientID(res.ByClientJwt)
-			if clientIDStr != "" {
-				logInfo("saved client JWT (client_id=%s) -> %s\n", clientIDStr, jwtPath())
+			if id := parseClientID(res.ByClientJwt); id != "" {
+				logInfo("saved client JWT (client_id=%s) -> %s\n", id, jwtPath())
 			} else {
 				logInfo("saved client JWT -> %s\n", jwtPath())
 			}
@@ -524,6 +525,11 @@ func buildVpnArgsFromOpts(opts docopt.Opts, apiUrl, connectUrl string) []string 
 	add("--socks", getStringOr(opts, "--socks", getStringOr(opts, "--socks_listen", "")))
 	add("--domain", getStringOr(opts, "--domain", ""))
 	add("--exclude_domain", getStringOr(opts, "--exclude_domain", ""))
+	// Forwarding and filtering controls
+	addBool("--local_only", mustBool(opts, "--local_only"))
+	add("--allow_forward_src", getStringOr(opts, "--allow_forward_src", ""))
+	add("--deny_forward_src", getStringOr(opts, "--deny_forward_src", ""))
+	addBool("--no_fw_rules", mustBool(opts, "--no_fw_rules"))
 	// Logging and stats
 	add("--log_file", getStringOr(opts, "--log_file", ""))
 	add("--log_level", getStringOr(opts, "--log_level", ""))
@@ -1176,8 +1182,5 @@ func validateClientJWT(apiUrl, clientJwt string) bool {
 	// Use a tiny call: FindProviders2 with BestAvailable spec and Count=1
 	specs := []*connect.ProviderSpec{{BestAvailable: true}}
 	_, err := api.FindProviders2Sync(&connect.FindProviders2Args{Specs: specs, Count: 1, RankMode: "quality"})
-	if err != nil {
-		return false
-	}
-	return true
+	return err == nil
 }

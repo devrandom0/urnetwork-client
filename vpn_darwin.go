@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"net"
 	neturl "net/url"
-	"os/exec"
 	"os"
+	"os/exec"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -31,6 +31,8 @@ func cmdVpn(opts docopt.Opts) {
 	ipCIDR := getStringOr(opts, "--ip_cidr", "10.255.0.2/24")
 	mtu := getIntOr(opts, "--mtu", 1420)
 	defRoute, _ := opts.Bool("--default_route")
+	localOnly, _ := opts.Bool("--local_only")
+	noFwRules, _ := opts.Bool("--no_fw_rules")
 	extraRoutes := getStringOr(opts, "--route", "")
 	excludeRoutes := getStringOr(opts, "--exclude_route", "")
 	dnsList := getStringOr(opts, "--dns", "")
@@ -65,14 +67,14 @@ func cmdVpn(opts docopt.Opts) {
 			logError("--tun=none specified but no --socks provided; nothing to do\n")
 			return
 		}
-	stopSocks, err := StartSocks5(ctx, socksListen, "", debugOn, allowDomains, excludeDomains)
+		stopSocks, err := StartSocks5(ctx, socksListen, "", debugOn, allowDomains, excludeDomains)
 		if err != nil {
 			fatal(fmt.Errorf("start socks failed: %w", err))
 		}
-	defer stopSocks()
-	logInfo("SOCKS started without TUN (system routes only). Press Ctrl+C to exit.\n")
-	waitForInterrupt(cancel)
-	return
+		defer stopSocks()
+		logInfo("SOCKS started without TUN (system routes only). Press Ctrl+C to exit.\n")
+		waitForInterrupt(cancel)
+		return
 	}
 
 	cfg := water.Config{DeviceType: water.TUN}
@@ -145,7 +147,7 @@ func cmdVpn(opts docopt.Opts) {
 	}
 
 	// Routes: default or specific ones
-	if defRoute {
+	if defRoute && !noFwRules {
 		// Before changing default routes, ensure we can still reach control-plane endpoints
 		if defGw != "" {
 			addBypass := func(raw string) {
@@ -304,7 +306,7 @@ func cmdVpn(opts docopt.Opts) {
 	}
 	// SOCKS-only scoped routing: when SOCKS is enabled but no global route flags,
 	// install split defaults scoped to utun so only SOCKS-bound sockets use them.
-	if socksListen != "" && !defRoute && strings.TrimSpace(extraRoutes) == "" && strings.TrimSpace(excludeRoutes) == "" {
+	if socksListen != "" && !defRoute && !noFwRules && strings.TrimSpace(extraRoutes) == "" && strings.TrimSpace(excludeRoutes) == "" {
 		// Reuse the addVariant helper style locally
 		addScoped := func(dest, mask string) {
 			// Prefer peer next-hop with -ifscope, then fall back to -interface CIDR
@@ -312,6 +314,15 @@ func cmdVpn(opts docopt.Opts) {
 				if out, err := runCapture("route", "-n", "add", "-net", dest, "-netmask", mask, peerIP, "-ifscope", actualName); err == nil || strings.Contains(out, "File exists") {
 					if err == nil {
 						addedSplits = append(addedSplits, splitAdded{dest: dest, mask: mask, usedCIDR: false})
+					}
+					// Local-only: prevent acting as exit node by rejecting forwarding via utun.
+					// We add interface-scoped reject for default so forwarding via utun fails locally.
+					if localOnly {
+						if strings.TrimSpace(peerIP) != "" {
+							_ = runSudo("route", "-n", "add", "-net", "0.0.0.0", "-netmask", "0.0.0.0", "-reject", "-ifscope", actualName)
+						} else {
+							_ = runSudo("route", "-n", "add", "-net", "0.0.0.0/0", "-reject", "-ifscope", actualName)
+						}
 					}
 				}
 			} else {
@@ -327,7 +338,7 @@ func cmdVpn(opts docopt.Opts) {
 		addScoped("128.0.0.0", "128.0.0.0")
 	}
 	// Scoped excludes for SOCKS-only mode: keep certain prefixes off the utun
-	if socksListen != "" && !defRoute && strings.TrimSpace(excludeRoutes) != "" {
+	if socksListen != "" && !defRoute && !noFwRules && strings.TrimSpace(excludeRoutes) != "" {
 		for _, r := range splitCSV(excludeRoutes) {
 			if strings.Contains(r, "/") {
 				_ = runSudo("route", "-n", "add", "-net", r, "-reject", "-ifscope", actualName)
@@ -336,7 +347,7 @@ func cmdVpn(opts docopt.Opts) {
 			}
 		}
 	}
-	if strings.TrimSpace(extraRoutes) != "" {
+	if strings.TrimSpace(extraRoutes) != "" && !noFwRules {
 		for _, r := range strings.Split(extraRoutes, ",") {
 			r = strings.TrimSpace(r)
 			if r == "" {
@@ -367,7 +378,7 @@ func cmdVpn(opts docopt.Opts) {
 
 	// DNS configuration (system-wide for a Network Service)
 	var dnsConfigured bool
-	if strings.TrimSpace(dnsList) != "" && dnsService != "" {
+	if strings.TrimSpace(dnsList) != "" && dnsService != "" && !noFwRules {
 		servers := splitCSV(dnsList)
 		if len(servers) > 0 {
 			args := append([]string{"-setdnsservers", dnsService}, servers...)
@@ -383,7 +394,7 @@ func cmdVpn(opts docopt.Opts) {
 	}
 
 	// If not default route, ensure DNS servers route via utun so queries prefer tunnel
-	if !defRoute && strings.TrimSpace(dnsList) != "" {
+	if !defRoute && strings.TrimSpace(dnsList) != "" && !noFwRules {
 		for _, d := range splitCSV(dnsList) {
 			if strings.Contains(d, "/") {
 				_ = runSudo("route", "-n", "add", d, "-interface", actualName)
@@ -394,7 +405,7 @@ func cmdVpn(opts docopt.Opts) {
 	}
 	// If default route is enabled, try to keep DNS working by ensuring resolvers are reachable via the original gateway.
 	// Case A: No --dns provided -> use current system resolvers from scutil
-	if defRoute && strings.TrimSpace(dnsList) == "" && defGw != "" && (dnsBootstrap == "bypass" || dnsBootstrap == "cache") {
+	if defRoute && !noFwRules && strings.TrimSpace(dnsList) == "" && defGw != "" && (dnsBootstrap == "bypass" || dnsBootstrap == "cache") {
 		if resolvers, err := getSystemDNSResolvers(); err == nil {
 			for _, ip := range resolvers {
 				if ip == "" {
@@ -414,7 +425,7 @@ func cmdVpn(opts docopt.Opts) {
 		}
 	}
 	// Case B: --dns provided -> also add bypass routes to those DNS IPs via original gateway so we don't break bootstrap
-	if defRoute && strings.TrimSpace(dnsList) != "" && defGw != "" && (dnsBootstrap == "bypass" || dnsBootstrap == "cache") {
+	if defRoute && !noFwRules && strings.TrimSpace(dnsList) != "" && defGw != "" && (dnsBootstrap == "bypass" || dnsBootstrap == "cache") {
 		for _, ip := range splitCSV(dnsList) {
 			ip = strings.TrimSpace(ip)
 			if ip == "" {
@@ -435,7 +446,7 @@ func cmdVpn(opts docopt.Opts) {
 	}
 
 	// If cache mode: after tunnel sends/receives some traffic, remove DNS bypass so DNS goes through VPN only
-	if defRoute && (dnsBootstrap == "cache") {
+	if defRoute && !noFwRules && (dnsBootstrap == "cache") {
 		go func() {
 			// wait until some packets in and out or a brief delay, whichever first
 			deadline := time.After(3 * time.Second)
@@ -466,7 +477,7 @@ func cmdVpn(opts docopt.Opts) {
 	vpnRunCore(ctx, dev, actualName, opts, jwt, &pktsIn, &pktsOut, &bytesIn, &bytesOut, func() {})
 
 	// After core returns, perform OS-specific cleanup
-	if defRoute {
+	if defRoute && !noFwRules {
 		// Remove whichever split-default variant(s) we added
 		if len(addedSplits) > 0 {
 			for _, s := range addedSplits {
@@ -503,7 +514,7 @@ func cmdVpn(opts docopt.Opts) {
 			}
 		}
 	}
-	if strings.TrimSpace(extraRoutes) != "" {
+	if strings.TrimSpace(extraRoutes) != "" && !noFwRules {
 		for _, r := range strings.Split(extraRoutes, ",") {
 			r = strings.TrimSpace(r)
 			if r == "" {
@@ -512,7 +523,7 @@ func cmdVpn(opts docopt.Opts) {
 			_ = runSudo("route", "-n", "delete", r)
 		}
 	}
-	if socksListen != "" && !defRoute && strings.TrimSpace(excludeRoutes) != "" {
+	if socksListen != "" && !defRoute && !noFwRules && strings.TrimSpace(excludeRoutes) != "" {
 		for _, r := range splitCSV(excludeRoutes) {
 			if strings.Contains(r, "/") {
 				_ = runSudo("route", "-n", "delete", "-net", r)
@@ -521,7 +532,7 @@ func cmdVpn(opts docopt.Opts) {
 			}
 		}
 	}
-	if !defRoute && strings.TrimSpace(dnsList) != "" {
+	if !defRoute && strings.TrimSpace(dnsList) != "" && !noFwRules {
 		for _, d := range splitCSV(dnsList) {
 			if strings.Contains(d, "/") {
 				_ = runSudo("route", "-n", "delete", d)
@@ -530,11 +541,16 @@ func cmdVpn(opts docopt.Opts) {
 			}
 		}
 	}
-	if dnsConfigured {
+	if dnsConfigured && !noFwRules {
 		// Clear DNS servers
 		if err := runSudo("networksetup", "-setdnsservers", dnsService, "Empty"); err != nil {
 			fmt.Fprintf(os.Stderr, "warn: failed to clear DNS for %s: %v\n", dnsService, err)
 		}
+	}
+	if localOnly && !noFwRules {
+		// Remove the reject route if we added it
+		_ = runSudo("route", "-n", "delete", "-net", "0.0.0.0", "-netmask", "0.0.0.0")
+		_ = runSudo("route", "-n", "delete", "-net", "0.0.0.0/0")
 	}
 	_ = runSudo("ifconfig", actualName, "down")
 }
