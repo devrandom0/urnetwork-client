@@ -20,6 +20,9 @@ help:
 	@echo "Targets:"
 	@echo "  build                 Build for host platform -> $(DIST)/$(BINARY)"
 	@echo "  test                  Run Go tests"
+	@echo "  test-race             Run Go tests with -race"
+	@echo "  lint                  Run formatting and vet checks"
+	@echo "  ci-docker-build       Build Docker image (amd64) for CI validation (no push)"
 	@echo "  test-integration      Run integration tests (requires URNETWORK_TEST_INTEGRATION=1 and JWT)"
 	@echo "  build-linux-amd64     Build Linux/amd64 -> $(DIST)/linux_amd64/$(BINARY)"
 	@echo "  build-linux-arm64     Build Linux/arm64 -> $(DIST)/linux_arm64/$(BINARY)"
@@ -47,6 +50,18 @@ build: $(DIST)
 .PHONY: test
 test:
 	go test ./...
+
+.PHONY: test-race
+test-race:
+	go test -race -count=1 ./...
+
+.PHONY: lint
+lint:
+	@fmt_out=$$(gofmt -s -l .); \
+	if [ -n "$$fmt_out" ]; then \
+	  echo "gofmt found issues:" && echo "$$fmt_out" && exit 1; \
+	fi
+	go vet ./...
 
 .PHONY: test-integration
 test-integration:
@@ -84,6 +99,11 @@ build-all: build-linux-amd64 build-linux-arm64 build-darwin-amd64 build-darwin-a
 .PHONY: docker-build
 docker-build:
 	DOCKER_BUILDKIT=1 docker build -f Dockerfile -t $(IMAGE) ../../..
+
+.PHONY: ci-docker-build
+ci-docker-build:
+	# Build only linux/amd64 for quick CI validation using repo root context
+	DOCKER_BUILDKIT=1 docker build -f Dockerfile -t test/urnetwork-client:ci .
 
 # --- Multi-arch (buildx) ---
 .PHONY: dockerx-setup
