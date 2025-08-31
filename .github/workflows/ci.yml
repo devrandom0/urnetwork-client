@@ -66,7 +66,6 @@ jobs:
       URNETWORK_USERNAME: ${{ secrets.URNETWORK_USERNAME }}
       URNETWORK_PASSWORD: ${{ secrets.URNETWORK_PASSWORD }}
       URNETWORK_API_URL: ${{ secrets.URNETWORK_API_URL }}
-    if: env.URNETWORK_USERNAME != '' && env.URNETWORK_PASSWORD != ''
     outputs:
       jwt: ${{ steps.export.outputs.jwt }}
     steps:
@@ -77,19 +76,32 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+      - name: Check secrets gate
+        id: gate
+        run: |
+          if [ -z "${URNETWORK_USERNAME:-}" ] || [ -z "${URNETWORK_PASSWORD:-}" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "No URNETWORK_USERNAME/URNETWORK_PASSWORD; skipping get-jwt"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Mask credentials
+        if: steps.gate.outputs.enabled == 'true'
         run: |
           [ -n "${URNETWORK_USERNAME:-}" ] && echo "::add-mask::${URNETWORK_USERNAME}" || true
           [ -n "${URNETWORK_PASSWORD:-}" ] && echo "::add-mask::${URNETWORK_PASSWORD}" || true
       - name: Build CLI
+        if: steps.gate.outputs.enabled == 'true'
         run: make build
       - name: Login (save BY JWT)
+        if: steps.gate.outputs.enabled == 'true'
         run: |
           set -euo pipefail
           args=()
           if [ -n "${URNETWORK_API_URL:-}" ]; then args+=(--api_url="$URNETWORK_API_URL"); fi
           ./dist/urnet-client login --user_auth="$URNETWORK_USERNAME" --password="$URNETWORK_PASSWORD" "${args[@]}"
       - name: Mint client JWT (optional)
+        if: steps.gate.outputs.enabled == 'true'
         run: |
           set -euo pipefail
           args=()
@@ -98,6 +110,7 @@ jobs:
           ./dist/urnet-client mint-client "${args[@]}" || echo "mint-client failed or not required; proceeding"
       - name: Export JWT
         id: export
+        if: steps.gate.outputs.enabled == 'true'
         run: |
           set -euo pipefail
           JWT_PATH="$HOME/.urnetwork/jwt"
@@ -113,7 +126,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint, get-jwt]
     name: Integration tests (opt-in)
-    if: needs.get-jwt.result == 'success' && needs.get-jwt.outputs.jwt != ''
     env:
       URNETWORK_TEST_INTEGRATION: '1'
       URNETWORK_JWT: ${{ needs.get-jwt.outputs.jwt }}
@@ -125,7 +137,17 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+      - name: Decide to run or skip
+        id: dec
+        run: |
+          if [ -z "${{ needs.get-jwt.outputs.jwt }}" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No JWT from get-jwt; skipping integration tests"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Run integration tests only
+        if: steps.dec.outputs.run == 'true'
         run: make test-integration
 
   docker-build-test:
