@@ -82,12 +82,16 @@ func vpnRunCore(
 	if noFwRules {
 		if allowSrcList != "" {
 			for _, s := range splitCSV(allowSrcList) {
-				if c := parseCIDR(s); c != nil { allowCIDRs = append(allowCIDRs, c) }
+				if c := parseCIDR(s); c != nil {
+					allowCIDRs = append(allowCIDRs, c)
+				}
 			}
 		}
 		if denySrcList != "" {
 			for _, s := range splitCSV(denySrcList) {
-				if c := parseCIDR(s); c != nil { denyCIDRs = append(denyCIDRs, c) }
+				if c := parseCIDR(s); c != nil {
+					denyCIDRs = append(denyCIDRs, c)
+				}
 			}
 		}
 		if localOnly {
@@ -123,7 +127,9 @@ func vpnRunCore(
 				if ihl >= 20 && len(packet) >= ihl {
 					dst := net.IPv4(packet[16], packet[17], packet[18], packet[19])
 					if _, ok := localIPv4[dst.String()]; !ok {
-						if debugOn || isDebugEnabled() { logInfo("dropped inbound by userspace local_only filter: dst=%s\n", dst.String()) }
+						if debugOn || isDebugEnabled() {
+							logInfo("dropped inbound by userspace local_only filter: dst=%s\n", dst.String())
+						}
 						return
 					}
 				}
@@ -140,7 +146,6 @@ func vpnRunCore(
 
 	mc := connect.NewRemoteUserNatMultiClientWithDefaults(ctx, gen, receive, protocol.ProvideMode_Network)
 	_ = mc
-
 
 	// TUN -> provider loop
 	go func() {
@@ -161,7 +166,9 @@ func vpnRunCore(
 			// Optional userspace filtering
 			if noFwRules {
 				if dropPacketUserspace(pkt, localOnly, allowCIDRs, denyCIDRs, localIPv4) {
-					if debugOn || isDebugEnabled() { logInfo("dropped by userspace filter\n") }
+					if debugOn || isDebugEnabled() {
+						logInfo("dropped by userspace filter\n")
+					}
 					continue
 				}
 			}
@@ -234,18 +241,24 @@ func waitForInterrupt(cancel context.CancelFunc) {
 // parseCIDR returns a *net.IPNet for a CIDR string or single IPv4 host.
 func parseCIDR(s string) *net.IPNet {
 	s = strings.TrimSpace(s)
-	if s == "" { return nil }
+	if s == "" {
+		return nil
+	}
 	if !strings.Contains(s, "/") {
 		// Treat as /32
 		if ip := net.ParseIP(s); ip != nil {
 			ip4 := ip.To4()
-			if ip4 == nil { return nil }
+			if ip4 == nil {
+				return nil
+			}
 			return &net.IPNet{IP: ip4, Mask: net.CIDRMask(32, 32)}
 		}
 		return nil
 	}
 	ip, ipnet, err := net.ParseCIDR(s)
-	if err != nil { return nil }
+	if err != nil {
+		return nil
+	}
 	if ip4 := ip.To4(); ip4 != nil {
 		return &net.IPNet{IP: ip4, Mask: ipnet.Mask}
 	}
@@ -258,11 +271,17 @@ func parseCIDR(s string) *net.IPNet {
 // - denyCIDRs: drop if source is within these ranges
 // Returns true when the packet should be dropped.
 func dropPacketUserspace(pkt []byte, localOnly bool, allowCIDRs, denyCIDRs []*net.IPNet, localIPv4 map[string]struct{}) bool {
-	if len(pkt) < 20 { return false }
+	if len(pkt) < 20 {
+		return false
+	}
 	// IPv4 only
-	if (pkt[0] >> 4) != 4 { return false }
+	if (pkt[0] >> 4) != 4 {
+		return false
+	}
 	ihl := int(pkt[0]&0x0F) * 4
-	if ihl < 20 || len(pkt) < ihl { return false }
+	if ihl < 20 || len(pkt) < ihl {
+		return false
+	}
 	src := net.IPv4(pkt[12], pkt[13], pkt[14], pkt[15])
 	// local_only: only allow packets originating from local interface addresses
 	if localOnly {
@@ -272,15 +291,22 @@ func dropPacketUserspace(pkt []byte, localOnly bool, allowCIDRs, denyCIDRs []*ne
 	}
 	// deny list first
 	for _, n := range denyCIDRs {
-		if n != nil && n.Contains(src) { return true }
+		if n != nil && n.Contains(src) {
+			return true
+		}
 	}
 	// allow list: if present, require membership
 	if len(allowCIDRs) > 0 {
 		allowed := false
 		for _, n := range allowCIDRs {
-			if n != nil && n.Contains(src) { allowed = true; break }
+			if n != nil && n.Contains(src) {
+				allowed = true
+				break
+			}
 		}
-		if !allowed { return true }
+		if !allowed {
+			return true
+		}
 	}
 	return false
 }
