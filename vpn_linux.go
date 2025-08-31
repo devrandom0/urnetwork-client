@@ -7,20 +7,14 @@ import (
 	"fmt"
 	"net"
 	neturl "net/url"
-	"os"
 	"os/exec"
-	"os/signal"
+	"os"
 	"strconv"
 	"strings"
-	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/docopt/docopt-go"
 	"github.com/songgao/water"
-
-	"github.com/urnetwork/connect"
-	"github.com/urnetwork/connect/protocol"
 )
 
 func cmdVpn(opts docopt.Opts) {
@@ -40,7 +34,7 @@ func cmdVpn(opts docopt.Opts) {
 	socksListen := strings.TrimSpace(getStringOr(opts, "--socks", getStringOr(opts, "--socks_listen", "")))
 	allowDomains := splitCSV(getStringOr(opts, "--domain", ""))
 	excludeDomains := splitCSV(getStringOr(opts, "--exclude_domain", ""))
-	statsInt := time.Duration(getIntOr(opts, "--stats_interval", 5)) * time.Second
+	_ = time.Duration(getIntOr(opts, "--stats_interval", 5)) * time.Second
 	jwtOpt, _ := opts.String("--jwt")
 	jwt, err := loadJWT(jwtOpt)
 	if err != nil {
@@ -64,16 +58,14 @@ func cmdVpn(opts docopt.Opts) {
 			logError("--tun=none specified but no --socks provided; nothing to do\n")
 			return
 		}
-		stopSocks, err := StartSocks5(ctx, socksListen, "", debugOn, allowDomains, excludeDomains)
+	stopSocks, err := StartSocks5(ctx, socksListen, "", debugOn, allowDomains, excludeDomains)
 		if err != nil {
 			fatal(fmt.Errorf("start socks failed: %w", err))
 		}
-		defer stopSocks()
-		logInfo("SOCKS started without TUN (system routes only). Press Ctrl+C to exit.\n")
-		sigc := make(chan os.Signal, 1)
-		signal.Notify(sigc, os.Interrupt, syscall.SIGTERM)
-		<-sigc
-		return
+	defer stopSocks()
+	logInfo("SOCKS started without TUN (system routes only). Press Ctrl+C to exit.\n")
+	waitForInterrupt(cancel)
+	return
 	}
 
 	// If tun name looks like a flag (missing value), choose a sane default name
@@ -192,114 +184,12 @@ func cmdVpn(opts docopt.Opts) {
 		}
 	}
 
-	strat := connect.NewClientStrategyWithDefaults(ctx)
-	// Build provider specs based on location flags
-	specs := []*connect.ProviderSpec{}
-	if id := strings.TrimSpace(getStringOr(opts, "--location_id", "")); id != "" {
-		if loc, err := connect.ParseId(id); err == nil {
-			specs = append(specs, &connect.ProviderSpec{LocationId: &loc})
-		}
-	}
-	if gid := strings.TrimSpace(getStringOr(opts, "--location_group_id", "")); gid != "" {
-		if lg, err := connect.ParseId(gid); err == nil {
-			specs = append(specs, &connect.ProviderSpec{LocationGroupId: &lg})
-		}
-	}
-	if len(specs) == 0 {
-		if q := strings.TrimSpace(getStringOr(opts, "--location_query", "")); q != "" {
-			if httpRes, err := httpFindLocations(ctx, apiUrl, jwt, q); err == nil && httpRes != nil && len(httpRes.Specs) > 0 {
-				specs = httpRes.Specs
-				fmt.Printf("using %d specs from location query: %s\n", len(specs), q)
-			}
-			if len(specs) == 0 {
-				fb := findSpecsByQueryFallback(ctx, strat, apiUrl, jwt, q)
-				if len(fb) > 0 {
-					specs = fb
-					fmt.Printf("using %d specs from provider-locations (fallback) for: %s\n", len(specs), q)
-				}
-			}
-		}
-	}
-	if len(specs) == 0 {
-		specs = []*connect.ProviderSpec{{BestAvailable: true}}
-	}
-	appVer := fmt.Sprintf("urnet-client %s", Version)
-	gen := connect.NewApiMultiClientGeneratorWithDefaults(
-		ctx, specs, strat, nil, apiUrl, jwt, fmt.Sprintf("%s/", connectUrl), "", "", appVer, nil,
-	)
-
-	// Counters
+	// Run shared dataplane + SOCKS + stats
 	var pktsIn, bytesIn, pktsOut, bytesOut uint64
+	go waitForInterrupt(cancel)
+	vpnRunCore(ctx, dev, tunName, opts, jwt, &pktsIn, &pktsOut, &bytesIn, &bytesOut, func() {})
 
-	receive := func(source connect.TransferPath, provideMode protocol.ProvideMode, ipPath *connect.IpPath, packet []byte) {
-		if debugOn || isDebugEnabled() {
-			logInfo("<- provider len=%d src=%v mode=%v ipPath=%v\n", len(packet), source, provideMode, ipPath)
-		}
-		_, _ = dev.Write(packet)
-		atomic.AddUint64(&pktsIn, 1)
-		atomic.AddUint64(&bytesIn, uint64(len(packet)))
-	}
-
-	mc := connect.NewRemoteUserNatMultiClientWithDefaults(ctx, gen, receive, protocol.ProvideMode_Network)
-	_ = mc
-
-	go func() {
-		buf := make([]byte, 65536)
-		for {
-			n, err := dev.Read(buf)
-			if err != nil {
-				return
-			}
-			if n <= 0 {
-				continue
-			}
-			pkt := make([]byte, n)
-			copy(pkt, buf[:n])
-			if debugOn || isDebugEnabled() {
-				logInfo("-> provider len=%d\n", len(pkt))
-			}
-			mc.SendPacket(connect.TransferPath{}, protocol.ProvideMode_Network, pkt, -1)
-			atomic.AddUint64(&pktsOut, 1)
-			atomic.AddUint64(&bytesOut, uint64(len(pkt)))
-		}
-	}()
-
-	if statsInt > 0 && isInfoEnabled() {
-		go func() {
-			t := time.NewTicker(statsInt)
-			defer t.Stop()
-			for range t.C {
-				inP := atomic.LoadUint64(&pktsIn)
-				inB := atomic.LoadUint64(&bytesIn)
-				outP := atomic.LoadUint64(&pktsOut)
-				outB := atomic.LoadUint64(&bytesOut)
-				logInfo("[stats] in=%d pkts / %d bytes, out=%d pkts / %d bytes\n", inP, inB, outP, outB)
-			}
-		}()
-	}
-
-	// Optional SOCKS5 proxy bound to the VPN interface
-	var stopSocks func() error
-	if socksListen != "" {
-		if s, err := StartSocks5(ctx, socksListen, tunName, debugOn || isDebugEnabled(), allowDomains, excludeDomains); err != nil {
-			logWarn("failed to start socks at %s: %v\n", socksListen, err)
-		} else {
-			stopSocks = s
-			logInfo("SOCKS5 listening at %s (bound to %s)\n", socksListen, tunName)
-		}
-	}
-
-	if isInfoEnabled() {
-		fmt.Println("VPN dataplane running; press Ctrl-C to exit. Note: you must configure routes/DNS to use it.")
-	}
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	<-sig
-
-	// Cleanup on exit: stop socks, delete routes, bring link down, and delete address
-	if stopSocks != nil {
-		_ = stopSocks()
-	}
+	// Cleanup on exit: delete routes, bring link down, and delete address
 	if defRoute {
 		// Remove split defaults
 		_ = run("ip", "route", "del", "0.0.0.0/1")
