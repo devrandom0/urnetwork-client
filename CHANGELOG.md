@@ -1,3 +1,9 @@
+## [1.5.0](https://github.com/devrandom0/urnetwork-client/compare/v1.4.1...v1.5.0) (2025-08-31)
+
+### Features
+
+* **cli:** print startup configuration summary on Linux and macOS (no secrets) ([1ac6994](https://github.com/devrandom0/urnetwork-client/commit/1ac6994701f3adb8b80b6753b7c5d302d1800afe))
+
 ## [1.4.1](https://github.com/devrandom0/urnetwork-client/compare/v1.4.0...v1.4.1) (2025-08-31)
 
 ## [1.4.0](https://github.com/devrandom0/urnetwork-client/compare/v1.3.2...v1.4.0) (2025-08-31)
