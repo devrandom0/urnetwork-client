@@ -20,6 +20,7 @@ help:
 	@echo "Targets:"
 	@echo "  build                 Build for host platform -> $(DIST)/$(BINARY)"
 	@echo "  test                  Run Go tests"
+	@echo "  test-integration      Run integration tests (requires URNETWORK_TEST_INTEGRATION=1 and JWT)"
 	@echo "  build-linux-amd64     Build Linux/amd64 -> $(DIST)/linux_amd64/$(BINARY)"
 	@echo "  build-linux-arm64     Build Linux/arm64 -> $(DIST)/linux_arm64/$(BINARY)"
 	@echo "  build-darwin-amd64    Build macOS/amd64 -> $(DIST)/darwin_amd64/$(BINARY)"
@@ -46,6 +47,11 @@ build: $(DIST)
 .PHONY: test
 test:
 	go test ./...
+
+.PHONY: test-integration
+test-integration:
+	# Run integration tests by name; they will self-skip without env/JWT
+	URNETWORK_TEST_INTEGRATION=1 go test -v -run '^TestIntegration_' ./
 
 .PHONY: build-linux-amd64
 build-linux-amd64:
