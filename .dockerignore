@@ -14,3 +14,13 @@
 
 # Go caches
 **/vendor
+
+# Tests and local tooling not needed for image build
+**/*_test.go
+
+# Top-level files that often change but aren't needed to compile
+README.md
+CHANGELOG.md
+docker-compose.yml
+Makefile
+.releaserc.json

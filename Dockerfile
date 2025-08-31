@@ -21,8 +21,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go mod download
 
-# Copy the rest of the source
-COPY . .
+# Copy only Go source at repo root to avoid cache busts from docs/CI edits.
+# If you later add subpackages or assets, adjust this list or use a more
+# selective .dockerignore include strategy.
+COPY *.go ./
 
 # Build the CLI from repository root (main.go is at root)
 RUN --mount=type=cache,target=/go/pkg/mod \
