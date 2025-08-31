@@ -2,11 +2,8 @@ version: "3.9"
 
 services:
   urnet-client:
-    build:
-      context: ../../..
-      dockerfile: connect/cmd/urnet-client/Dockerfile
-  # Local build tag; replace with moghaddas/urnetwork-client:<version> to pull a published image
-  image: moghaddas/urnetwork-client:local
+    # Pull a published image by default (override with URNETWORK_IMAGE env var)
+    image: ${URNETWORK_IMAGE:-ghcr.io/devrandom0/urnetwork-client:latest}
     container_name: urnet-client
     environment:
       - URNETWORK_USERNAME=${URNETWORK_USERNAME:-}
@@ -22,7 +19,14 @@ services:
       - "/dev/net/tun:/dev/net/tun"
     network_mode: host
     restart: unless-stopped
-    command: ["--help"]
+    # Example: pass flags to the client
+    # command: ["--help"]
+
+    # To build locally instead of pulling, comment out the image: line above and
+    # uncomment the following build context that uses the repo's Dockerfile.
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
 
 volumes:
   urnet-data:

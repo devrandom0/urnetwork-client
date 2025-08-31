@@ -9,11 +9,13 @@ All notable changes to this project will be documented in this file by semantic-
 * CI via Makefile: lint, unit (race), integration with JWT gating, Docker build test (no push) ([d831af1](https://github.com/devrandom0/urnetwork-client/commit/d831af1), [cf99723](https://github.com/devrandom0/urnetwork-client/commit/cf99723), [229c921](https://github.com/devrandom0/urnetwork-client/commit/229c921))
 * Add get-jwt job with secrets; mask credentials; robust gating ([cf61582](https://github.com/devrandom0/urnetwork-client/commit/cf61582), [9f3b624](https://github.com/devrandom0/urnetwork-client/commit/9f3b624))
 * Release assets: build linux/darwin amd64+arm64 binaries and attach to GitHub Releases ([0455b25](https://github.com/devrandom0/urnetwork-client/commit/0455b25))
+* Build once, reuse CLI via artifact in jobs; remove redundant builds ([pending])
 
 ### Build & Docker
 
 * Narrow Docker context and COPY; ignore tests/docs/ci in .dockerignore ([d09a648](https://github.com/devrandom0/urnetwork-client/commit/d09a648))
 * Update runtime base to alpine:3.22 ([ec80284](https://github.com/devrandom0/urnetwork-client/commit/ec80284))
+* docker-compose: default to GHCR image; optional local build; fix YAML ([pending])
 
 ### Dependencies (Renovate)
 
