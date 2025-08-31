@@ -1,3 +1,33 @@
+# Changelog
+
+All notable changes to this project will be documented in this file by semantic-release.
+
+## [Unreleased]
+
+### CI/CD
+
+* CI via Makefile: lint, unit (race), integration with JWT gating, Docker build test (no push) ([d831af1](https://github.com/devrandom0/urnetwork-client/commit/d831af1), [cf99723](https://github.com/devrandom0/urnetwork-client/commit/cf99723), [229c921](https://github.com/devrandom0/urnetwork-client/commit/229c921))
+* Add get-jwt job with secrets; mask credentials; robust gating ([cf61582](https://github.com/devrandom0/urnetwork-client/commit/cf61582), [9f3b624](https://github.com/devrandom0/urnetwork-client/commit/9f3b624))
+* Release assets: build linux/darwin amd64+arm64 binaries and attach to GitHub Releases ([0455b25](https://github.com/devrandom0/urnetwork-client/commit/0455b25))
+
+### Build & Docker
+
+* Narrow Docker context and COPY; ignore tests/docs/ci in .dockerignore ([d09a648](https://github.com/devrandom0/urnetwork-client/commit/d09a648))
+* Update runtime base to alpine:3.22 ([ec80284](https://github.com/devrandom0/urnetwork-client/commit/ec80284))
+
+### Dependencies (Renovate)
+
+* Add Renovate configuration (gomod, Dockerfile, GitHub Actions) ([72c4276](https://github.com/devrandom0/urnetwork-client/commit/72c4276))
+* deps: actions/checkout to v5 ([e16bdd9](https://github.com/devrandom0/urnetwork-client/commit/e16bdd9), [04e7bec](https://github.com/devrandom0/urnetwork-client/commit/04e7bec), [#9](https://github.com/devrandom0/urnetwork-client/pull/9))
+* deps: node to v22 ([b8eb626](https://github.com/devrandom0/urnetwork-client/commit/b8eb626), [#3](https://github.com/devrandom0/urnetwork-client/pull/3))
+* deps: alpine to 3.22 ([ec80284](https://github.com/devrandom0/urnetwork-client/commit/ec80284), [#1](https://github.com/devrandom0/urnetwork-client/pull/1))
+* deps: github.com/urnetwork/connect digest bump ([61273b6](https://github.com/devrandom0/urnetwork-client/commit/61273b6), [#4](https://github.com/devrandom0/urnetwork-client/pull/4))
+
+### Docs/Meta
+
+* README badge and formatting ([eb0aa5e](https://github.com/devrandom0/urnetwork-client/commit/eb0aa5e))
+* Remove CircleCI config ([59ec5a8](https://github.com/devrandom0/urnetwork-client/commit/59ec5a8), [6547725](https://github.com/devrandom0/urnetwork-client/commit/6547725))
+
 ## 1.1.0 (2025-08-31)
 
 ### Features (Linux routing)
@@ -19,13 +49,8 @@
 * Image tagging: add semver tags; cancel in-progress runs; semantic-release for auto versioning ([af44cd4](https://github.com/devrandom0/urnetwork-client/commit/af44cd4), [e8d1476](https://github.com/devrandom0/urnetwork-client/commit/e8d1476))
 * semantic-release: fix missing plugin; use outputs for image tagging ([6e048e1](https://github.com/devrandom0/urnetwork-client/commit/6e048e1), [49da177](https://github.com/devrandom0/urnetwork-client/commit/49da177))
 * GHCR: PAT fallback auth; add manual force tag and publish workflow ([229602a](https://github.com/devrandom0/urnetwork-client/commit/229602a), [7ca8259](https://github.com/devrandom0/urnetwork-client/commit/7ca8259))
-* CI tests via Makefile: lint, unit (race), integration (JWT from secrets), docker build test ([cf61582](https://github.com/devrandom0/urnetwork-client/commit/cf61582))
-* Fix job conditions and mask credentials in get-jwt step ([7b86066](https://github.com/devrandom0/urnetwork-client/commit/7b86066))
 
-### Build/Docker
 
-* Narrow Docker context and COPY to Go sources for better cache reuse; ignore tests/docs/CI in .dockerignore ([72c4276](https://github.com/devrandom0/urnetwork-client/commit/72c4276))
-* Update runtime base image to alpine:3.22 ([user])
 
 ## 1.0.0 (2025-08-30)
 
@@ -40,6 +65,3 @@
 * Docker build and missing cmdSocks function ([063beb7](https://github.com/devrandom0/urnetwork-client/commit/063beb7b56872c4ef40a27b7b1ba3531bff601e6))
 * update go mod ([df392c6](https://github.com/devrandom0/urnetwork-client/commit/df392c6a805a740be62bda8a284cdae34d587dbe))
 
-# Changelog
-
-All notable changes to this project will be documented in this file by semantic-release.
