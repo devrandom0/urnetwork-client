@@ -9,7 +9,7 @@ cc_regex="^(${ALLOWED_TYPES})(\([a-zA-Z0-9_.-]+\))?(!)?: .+"
 base_sha="${BASE_SHA:-}"
 head_sha="${HEAD_SHA:-}"
 
-if [[ -n "$1" && -z "$base_sha$head_sha" ]]; then
+if [[ -n "${1-}" && -z "${base_sha}${head_sha}" ]]; then
   # If a file path is provided (hook mode), validate that single message
   msg_file="$1"
   subject=$(head -n1 "$msg_file" | tr -d '\r\n')
@@ -30,12 +30,12 @@ if [[ -n "$1" && -z "$base_sha$head_sha" ]]; then
 fi
 
 # CI mode: determine range
-if [[ -z "$head_sha" ]]; then
+if [[ -z "${head_sha}" ]]; then
   head_sha=$(git rev-parse HEAD)
 fi
 
 range_commits=()
-if [[ -n "$base_sha" ]] && git rev-parse --verify --quiet "$base_sha" >/dev/null; then
+if [[ -n "${base_sha}" ]] && git rev-parse --verify --quiet "$base_sha" >/dev/null; then
   # Exclude base commit itself, include head
   mapfile -t range_commits < <(git rev-list --no-merges --reverse "$base_sha..$head_sha")
 else
