@@ -7,10 +7,13 @@
   "labels": ["dependencies", "renovate"],
   "rebaseWhen": "auto",
   "timezone": "UTC",
+  "schedule": [
+    "after 02:00 and before 03:00 every day"
+  ],
   "semanticCommits": "enabled",
   "commitMessagePrefix": "chore(deps): ",
   "branchPrefix": "renovate/",
-  "prHourlyLimit": 5,
+  "prHourlyLimit": 1,
   "prConcurrentLimit": 10,
   "dependencyDashboard": true,
   "enabledManagers": ["gomod", "dockerfile", "github-actions"],
