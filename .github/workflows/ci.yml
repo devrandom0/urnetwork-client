@@ -32,11 +32,25 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+      - name: Commit message lint (Conventional Commits)
+        run: |
+          chmod +x scripts/commit-msg-lint.sh
+          # Determine base..head range for PR or push
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}" HEAD_SHA="${{ github.event.pull_request.head.sha }}" scripts/commit-msg-lint.sh
+          else
+            # On push to a branch, validate the pushed commits in this ref
+            BASE_SHA="${{ github.event.before }}" HEAD_SHA="${{ github.sha }}" scripts/commit-msg-lint.sh || \
+            # Fallback when before is 000000... (force push or initial commit): just check HEAD
+            HEAD_SHA="${{ github.sha }}" scripts/commit-msg-lint.sh
+          fi
       - name: Lint
         run: make lint
 

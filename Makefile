@@ -38,6 +38,7 @@ help:
 	@echo "  docker-vpn            Run vpn in Docker (Linux only; needs TUN+NET_ADMIN)"
 	@echo "  compose-build         Build with docker-compose"
 	@echo "  compose-help          Show compose service help"
+	@echo "  hooks-install         Install local git commit-msg hook"
 	@echo "  clean                 Remove dist/"
 
 $(DIST):
@@ -62,6 +63,10 @@ lint:
 	  echo "gofmt found issues:" && echo "$$fmt_out" && exit 1; \
 	fi
 	go vet ./...
+
+.PHONY: hooks-install
+hooks-install:
+	bash scripts/install-git-hooks.sh
 
 .PHONY: test-integration
 test-integration:
