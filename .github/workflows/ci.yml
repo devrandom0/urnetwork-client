@@ -389,7 +389,7 @@ jobs:
           fi
           echo "sha=$sha" >> $GITHUB_OUTPUT
       - name: Create git tag v${{ inputs.version }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const version = core.getInput('version');
