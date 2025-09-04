@@ -336,7 +336,7 @@ jobs:
           cp dist/darwin_amd64/urnet-client dist/urnet-client_darwin_amd64
           cp dist/darwin_arm64/urnet-client dist/urnet-client_darwin_arm64
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
       - name: Semantic Release
