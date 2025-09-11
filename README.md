@@ -41,6 +41,7 @@ Tip: building the module root without specifying `./cmd/urnet-client` can produc
 
 ```bash
 ./urnet-client --help
+./urnet-client --version   # print version
 ```
 
 - Login and save JWT:
@@ -117,6 +118,91 @@ Defaults:
 - API: <https://api.bringyour.com>
 - Connect: <wss://connect.bringyour.com>
 - JWT path: `~/.urnetwork/jwt` (override with `URNETWORK_HOME=/path`)
+
+### Complete flag reference
+
+All currently supported flags (aggregated from the CLI `--help`). Some flags only apply to specific subcommands (noted). Aliases or behavior notes are included where helpful.
+
+Identity / auth:
+
+- `--user_auth=<email-or-phone>` (login, verify, quick-connect)
+- `--password=<password>` (login, quick-connect)
+- `--code=<code>` (verify, quick-connect when verification required)
+- `--jwt=<jwt>` (most commands; falls back to `~/.urnetwork/jwt` if unset)
+- `--force_jwt` (quick-connect only: always mint a fresh client JWT)
+- `--jwt_renew_interval=<dur>` (quick-connect only: periodically re‑mint client JWT; Go duration like `30m`, `12h`; `0` disables)
+
+Endpoints:
+
+- `--api_url=<url>` (default: <https://api.bringyour.com>)
+- `--connect_url=<wss-url>` (default: wss://connect.bringyour.com)
+
+Transport / control plane:
+
+- `--transports=<n>` (open)
+- `--count=<n>` (find-providers)
+- `--rank_mode=quality|speed` (find-providers)
+
+VPN / interface:
+
+- `--tun=<name>` (vpn, quick-connect) pass `none` or omit for SOCKS-only
+- `--ip_cidr=<cidr>` (vpn, quick-connect) default `10.255.0.2/24`
+- `--mtu=<mtu>` (vpn, quick-connect) default `1420`
+
+Routing:
+
+- `--default_route` (vpn, quick-connect) enable full tunnel (split defaults)
+- `--route=<list>` comma-separated host/CIDR routes via tunnel
+- `--exclude_route=<list>` when full tunnel: keep these off VPN
+
+Location selection (also valid for find-providers even if not shown in its usage line):
+
+- `--location_query=<q>` (e.g. `country:Germany`, `region:Europe`, `group:Western Europe`, `country_code:DE`)
+- `--location_id=<id>`
+- `--location_group_id=<id>`
+
+DNS:
+
+- `--dns=<list>` comma-separated resolvers while VPN up
+- `--dns_service=<name>` macOS network service to modify (e.g. `"Wi-Fi"`)
+- `--dns_bootstrap=bypass|cache|none` (vpn, quick-connect) strategy for keeping DNS during route flip
+
+SOCKS (inline with vpn / quick-connect):
+
+- `--socks=<addr>` start local SOCKS5 bound to VPN
+- `--socks_listen=<addr>` alias for `--socks`
+- `--domain=<list>` domains forced through VPN when SOCKS mode used
+- `--exclude_domain=<list>` domains explicitly bypassing VPN (SOCKS mode)
+
+Standalone SOCKS subcommand:
+
+- `--listen=<addr>` required listen address
+- `--extender_ip=<ip>` extender IP
+- `--extender_port=<port>` extender TLS port
+- `--extender_sni=<sni>` SNI host name
+- `--extender_secret=<secret>` optional pre-shared secret
+
+Inbound filtering (vpn / quick-connect):
+
+- `--allow_inbound_src=<list>` comma-separated IPv4 CIDRs/hosts allowed to initiate new inbound TCP
+- `--allow_inbound_local` allow only local ranges + tunnel subnet (can combine with above)
+
+Logging / diagnostics:
+
+- `--background` (vpn, quick-connect) run detached and print child PID
+- `--log_file=<path>` append logs to file instead of console
+- `--log_level=quiet|error|warn|info|debug` default `info` (`--debug` implies debug unless level set)
+- `--debug` verbose per-packet logging
+- `--stats_interval=<sec>` interval to print counters (`0` disables; default `5`)
+- `--version` print version and exit
+- `-h`, `--help` show help
+
+Environment fallbacks:
+
+- `URNETWORK_HOME` override directory containing `jwt` file.
+- `URNETWORK_USERNAME` and `URNETWORK_PASSWORD` can supply credentials for `quick-connect` (used if corresponding flags are omitted).
+
+If a flag accepts a list, separate values with commas (no spaces). Duration values use Go syntax (e.g., `15m`, `1h30m`).
 
 ## VPN flags (quick reference)
 
