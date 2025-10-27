@@ -1,3 +1,5 @@
+## [1.6.7](https://github.com/devrandom0/urnetwork-client/compare/v1.6.6...v1.6.7) (2025-10-27)
+
 ## [1.6.6](https://github.com/devrandom0/urnetwork-client/compare/v1.6.5...v1.6.6) (2025-09-28)
 
 ## [1.6.5](https://github.com/devrandom0/urnetwork-client/compare/v1.6.4...v1.6.5) (2025-09-11)
