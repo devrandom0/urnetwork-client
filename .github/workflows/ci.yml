@@ -204,6 +204,8 @@ jobs:
     env:
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -217,6 +219,7 @@ jobs:
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/urnetwork-client
+            ${{ secrets.DOCKERHUB_USERNAME }}/urnetwork-client
           tags: |
             type=ref,event=branch
             type=ref,event=tag
@@ -241,6 +244,12 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to Docker Hub
+        if: (startsWith(github.ref, 'refs/heads/') || startsWith(github.ref, 'refs/tags/')) && env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
       - name: Build and push
         id: build
         uses: docker/build-push-action@v6
@@ -267,6 +276,8 @@ jobs:
     env:
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -286,6 +297,12 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to Docker Hub
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
       - name: Retag previously built image digest as release tags (no rebuild)
         run: |
           set -euo pipefail
@@ -300,6 +317,14 @@ jobs:
             -t ghcr.io/${{ github.repository_owner }}/urnetwork-client:${{ needs.release.outputs.version }} \
             -t ghcr.io/${{ github.repository_owner }}/urnetwork-client:${{ needs.release.outputs.tag }} \
             "$SRC"
+          # Also retag for Docker Hub if credentials are available
+          if [ -n "${{ env.DOCKERHUB_USERNAME }}" ] && [ -n "${{ env.DOCKERHUB_TOKEN }}" ]; then
+            echo "Retagging for Docker Hub: ${{ env.DOCKERHUB_USERNAME }}/urnetwork-client"
+            docker buildx imagetools create \
+              -t ${{ env.DOCKERHUB_USERNAME }}/urnetwork-client:${{ needs.release.outputs.version }} \
+              -t ${{ env.DOCKERHUB_USERNAME }}/urnetwork-client:${{ needs.release.outputs.tag }} \
+              "$SRC"
+          fi
 
   release:
     runs-on: ubuntu-latest
@@ -363,6 +388,8 @@ jobs:
     env:
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - name: Checkout (full history)
         uses: actions/checkout@v5
@@ -433,6 +460,12 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to Docker Hub
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
       - name: Build and push (forced tag)
         uses: docker/build-push-action@v6
         with:
@@ -443,6 +476,8 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/urnetwork-client:${{ inputs.version }}
             ghcr.io/${{ github.repository_owner }}/urnetwork-client:v${{ inputs.version }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/urnetwork-client:${{ inputs.version }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/urnetwork-client:v${{ inputs.version }}
           build-args: |
             BUILDKIT_INLINE_CACHE=1
           cache-from: |
