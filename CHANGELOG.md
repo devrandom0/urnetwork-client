@@ -1,3 +1,9 @@
+## [1.6.10](https://github.com/devrandom0/urnetwork-client/compare/v1.6.9...v1.6.10) (2025-10-28)
+
+### Bug Fixes
+
+* exit with non-zero code on login/verify errors ([d041b6e](https://github.com/devrandom0/urnetwork-client/commit/d041b6e173facf59cd46e7a539fb483fb3b6f211))
+
 ## [1.6.9](https://github.com/devrandom0/urnetwork-client/compare/v1.6.8...v1.6.9) (2025-10-27)
 
 ## [1.6.8](https://github.com/devrandom0/urnetwork-client/compare/v1.6.7...v1.6.8) (2025-10-27)
