@@ -238,6 +238,7 @@ func cmdQuickConnect(opts docopt.Opts) {
 		strat := connect.NewClientStrategyWithDefaults(ctx)
 		api := connect.NewBringYourApi(ctx, strat, apiUrl)
 
+		var loginSuccess bool
 		done := make(chan struct{})
 		api.AuthLoginWithPassword(&connect.AuthLoginWithPasswordArgs{UserAuth: userAuth, Password: password}, connect.NewApiCallback(func(res *connect.AuthLoginWithPasswordResult, err error) {
 			defer close(done)
@@ -264,11 +265,16 @@ func cmdQuickConnect(opts docopt.Opts) {
 				return
 			}
 			logInfo("saved JWT for network %s -> %s\n", res.Network.NetworkName, jwtPath())
+			loginSuccess = true
 		}))
 		<-done
+		if !loginSuccess {
+			os.Exit(1)
+		}
 
 		// If verification required and code was provided, verify now
 		if codeOpt != "" {
+			var verifySuccess bool
 			done2 := make(chan struct{})
 			api2 := connect.NewBringYourApi(ctx, strat, apiUrl)
 			api2.AuthVerify(&connect.AuthVerifyArgs{UserAuth: userAuth, VerifyCode: codeOpt}, connect.NewApiCallback(func(res *connect.AuthVerifyResult, err error) {
@@ -290,8 +296,12 @@ func cmdQuickConnect(opts docopt.Opts) {
 					return
 				}
 				logInfo("verified and saved JWT -> %s\n", jwtPath())
+				verifySuccess = true
 			}))
 			<-done2
+			if !verifySuccess {
+				os.Exit(1)
+			}
 		}
 	}
 
@@ -582,6 +592,7 @@ func cmdLogin(opts docopt.Opts) {
 	strat := connect.NewClientStrategyWithDefaults(ctx)
 	api := connect.NewBringYourApi(ctx, strat, apiUrl)
 
+	var success bool
 	done := make(chan struct{})
 	api.AuthLoginWithPassword(&connect.AuthLoginWithPasswordArgs{UserAuth: userAuth, Password: password},
 		connect.NewApiCallback(func(res *connect.AuthLoginWithPasswordResult, err error) {
@@ -607,8 +618,12 @@ func cmdLogin(opts docopt.Opts) {
 				return
 			}
 			fmt.Printf("saved JWT for network %s -> %s\n", res.Network.NetworkName, jwtPath())
+			success = true
 		}))
 	<-done
+	if !success {
+		os.Exit(1)
+	}
 }
 
 func cmdVerify(opts docopt.Opts) {
@@ -622,6 +637,7 @@ func cmdVerify(opts docopt.Opts) {
 	strat := connect.NewClientStrategyWithDefaults(ctx)
 	api := connect.NewBringYourApi(ctx, strat, apiUrl)
 
+	var success bool
 	done := make(chan struct{})
 	api.AuthVerify(&connect.AuthVerifyArgs{UserAuth: userAuth, VerifyCode: code}, connect.NewApiCallback(func(res *connect.AuthVerifyResult, err error) {
 		defer close(done)
@@ -642,8 +658,12 @@ func cmdVerify(opts docopt.Opts) {
 			return
 		}
 		fmt.Printf("saved JWT -> %s\n", jwtPath())
+		success = true
 	}))
 	<-done
+	if !success {
+		os.Exit(1)
+	}
 }
 
 func cmdMintClient(opts docopt.Opts) {
