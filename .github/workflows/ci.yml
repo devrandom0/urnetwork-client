@@ -66,13 +66,25 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - name: Build
+      - name: Build linux/amd64
         run: make build
-      - name: Upload CLI artifact
+      - name: Build linux/arm64
+        run: make build-linux-arm64
+      - name: Stage CLI artifacts
+        run: |
+          set -euo pipefail
+          cp dist/urnet-client dist/urnet-client_linux_amd64
+          cp dist/linux_arm64/urnet-client dist/urnet-client_linux_arm64
+      - name: Upload CLI artifact (linux/amd64)
         uses: actions/upload-artifact@v5
         with:
           name: cli-linux-amd64
-          path: dist/urnet-client
+          path: dist/urnet-client_linux_amd64
+      - name: Upload CLI artifact (linux/arm64)
+        uses: actions/upload-artifact@v5
+        with:
+          name: cli-linux-arm64
+          path: dist/urnet-client_linux_arm64
 
   test:
     runs-on: ubuntu-latest
@@ -116,15 +128,38 @@ jobs:
         run: |
           [ -n "${URNETWORK_USERNAME:-}" ] && echo "::add-mask::${URNETWORK_USERNAME}" || true
           [ -n "${URNETWORK_PASSWORD:-}" ] && echo "::add-mask::${URNETWORK_PASSWORD}" || true
+      - name: Select CLI artifact for runner arch
+        if: steps.gate.outputs.enabled == 'true'
+        id: cli
+        run: |
+          set -euo pipefail
+          arch=$(uname -m)
+          case "$arch" in
+            x86_64|amd64)
+              echo "artifact=cli-linux-amd64" >> "$GITHUB_OUTPUT"
+              echo "binary=urnet-client_linux_amd64" >> "$GITHUB_OUTPUT"
+              ;;
+            aarch64|arm64)
+              echo "artifact=cli-linux-arm64" >> "$GITHUB_OUTPUT"
+              echo "binary=urnet-client_linux_arm64" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unsupported runner architecture: $arch" >&2
+              exit 1
+              ;;
+          esac
       - name: Download CLI artifact
         if: steps.gate.outputs.enabled == 'true'
         uses: actions/download-artifact@v6
         with:
-          name: cli-linux-amd64
+          name: ${{ steps.cli.outputs.artifact }}
           path: dist
-      - name: Ensure CLI is executable
+      - name: Prepare CLI binary
         if: steps.gate.outputs.enabled == 'true'
-        run: chmod +x dist/urnet-client || true
+        run: |
+          set -euo pipefail
+          mv "dist/${{ steps.cli.outputs.binary }}" dist/urnet-client
+          chmod +x dist/urnet-client || true
       - name: Login (save BY JWT)
         if: steps.gate.outputs.enabled == 'true'
         run: |
