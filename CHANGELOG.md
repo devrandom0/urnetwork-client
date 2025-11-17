@@ -1,3 +1,9 @@
+## [1.7.0](https://github.com/devrandom0/urnetwork-client/compare/v1.6.12...v1.7.0) (2025-11-17)
+
+### Features
+
+* add aarch64 ([5c9ffe4](https://github.com/devrandom0/urnetwork-client/commit/5c9ffe4462176163c8b2cc40ae215203fa6aece1))
+
 ## [1.6.12](https://github.com/devrandom0/urnetwork-client/compare/v1.6.11...v1.6.12) (2025-11-06)
 
 ## [1.6.11](https://github.com/devrandom0/urnetwork-client/compare/v1.6.10...v1.6.11) (2025-11-06)
