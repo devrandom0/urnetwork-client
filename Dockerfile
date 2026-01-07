@@ -34,7 +34,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     -o /out/urnet-client ./
 
 # Runtime image
-FROM alpine:3.22
+FROM alpine:3.23
 
 # Add CA certs, tzdata and networking tools needed by vpn_linux.go (iproute2 provides `ip`)
 RUN apk add --no-cache ca-certificates tzdata iproute2 && adduser -D -u 10001 appuser
