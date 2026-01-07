@@ -12,6 +12,10 @@ A minimal CLI for BringYour that can:
   - Run in the background and optionally log to a file
   - Manage JWTs: reuse existing client JWTs by default, optionally force mint, and auto-renew on an interval
 
+## Support
+
+If you liked this project, please use [this referral link](https://ur.io/app?bonus=4MT0ZB)
+
 ## Build
 
 Requires Go 1.24+ (module uses toolchain go1.24.5).
@@ -591,3 +595,5 @@ DOCKER_BUILDKIT=1 docker buildx build \
 - UDP over SOCKS (UDP ASSOCIATE) is supported for QUIC/DNS, but not all apps use SOCKS for UDP.
 - IPv6 routing and binding are not enabled yet; IPv4 is the primary path.
 - On some Linux setups, strict interface binding may require policy routing rules.
+
+
