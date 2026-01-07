@@ -1,3 +1,9 @@
+## [1.7.4](https://github.com/devrandom0/urnetwork-client/compare/v1.7.3...v1.7.4) (2026-01-07)
+
+### Bug Fixes
+
+* add go mod tidy for make lint ([f9cd7af](https://github.com/devrandom0/urnetwork-client/commit/f9cd7afe1a698745289102ea682b97d5f488b84d))
+
 ## [1.7.3](https://github.com/devrandom0/urnetwork-client/compare/v1.7.2...v1.7.3) (2026-01-07)
 
 ## [1.7.2](https://github.com/devrandom0/urnetwork-client/compare/v1.7.1...v1.7.2) (2026-01-07)
