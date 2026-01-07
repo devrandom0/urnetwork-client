@@ -58,6 +58,7 @@ test-race:
 
 .PHONY: lint
 lint:
+	go mod tidy
 	@fmt_out=$$(gofmt -s -l .); \
 	if [ -n "$$fmt_out" ]; then \
 	  echo "gofmt found issues:" && echo "$$fmt_out" && exit 1; \
