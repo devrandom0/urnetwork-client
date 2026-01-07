@@ -76,12 +76,12 @@ jobs:
           cp dist/urnet-client dist/urnet-client_linux_amd64
           cp dist/linux_arm64/urnet-client dist/urnet-client_linux_arm64
       - name: Upload CLI artifact (linux/amd64)
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: cli-linux-amd64
           path: dist/urnet-client_linux_amd64
       - name: Upload CLI artifact (linux/arm64)
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: cli-linux-arm64
           path: dist/urnet-client_linux_arm64
@@ -150,7 +150,7 @@ jobs:
           esac
       - name: Download CLI artifact
         if: steps.gate.outputs.enabled == 'true'
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: ${{ steps.cli.outputs.artifact }}
           path: dist
