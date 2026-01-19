@@ -26,4 +26,4 @@ require (
 	src.agwa.name/tlshacks v0.0.0-20250628001001-c92050511ef4 // indirect
 )
 
-replace github.com/urnetwork/glog => github.com/urnetwork/glog v0.0.0-20251126060136-acc747289138
+replace github.com/urnetwork/glog => github.com/urnetwork/glog v1.2.9
