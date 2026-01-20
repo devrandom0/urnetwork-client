@@ -1,11 +1,3 @@
-## [1.7.4](https://github.com/devrandom0/urnetwork-client/compare/v1.7.3...v1.7.4) (2026-01-20)
-
-### Bug Fixes
-
-* clean up duplicate CHANGELOG entries ([0d61f6c](https://github.com/devrandom0/urnetwork-client/commit/0d61f6cf6c34117c9105baad13dfb264899d0049))
-* clean up duplicate CHANGELOG entries for v1.7.4 ([0929957](https://github.com/devrandom0/urnetwork-client/commit/0929957dba6630dc3f9d6076a7bb1f5f8844efa9))
-* update go.mod ([8c57e52](https://github.com/devrandom0/urnetwork-client/commit/8c57e52c25c0275d171aa48c4407a7e9fb3a1ba3))
-
 ## [1.7.3](https://github.com/devrandom0/urnetwork-client/compare/v1.7.2...v1.7.3) (2026-01-07)
 
 ## [1.7.2](https://github.com/devrandom0/urnetwork-client/compare/v1.7.1...v1.7.2) (2026-01-07)
