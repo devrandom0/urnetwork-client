@@ -1,10 +1,4 @@
-## [1.7.4](https://github.com/devrandom0/urnetwork-client/compare/v1.7.3...v1.7.4) (2026-01-07)
-
-### Bug Fixes
-
-* update go.mod ([8c57e52](https://github.com/devrandom0/urnetwork-client/commit/8c57e52c25c0275d171aa48c4407a7e9fb3a1ba3))
-
-## [1.7.4](https://github.com/devrandom0/urnetwork-client/compare/v1.7.3...v1.7.4) (2026-01-07)
+## [1.7.4](https://github.com/devrandom0/urnetwork-client/compare/v1.7.3...v1.7.4) (2026-01-20)
 
 ### Bug Fixes
 
