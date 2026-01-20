@@ -1,3 +1,5 @@
+## [1.7.5](https://github.com/devrandom0/urnetwork-client/compare/v1.7.4...v1.7.5) (2026-01-20)
+
 ## [1.7.4](https://github.com/devrandom0/urnetwork-client/compare/v1.7.3...v1.7.4) (2026-01-20)
 
 ### Bug Fixes
