@@ -23,8 +23,8 @@ github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8 h1:TG/diQgUe0pntT/2D
 github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8/go.mod h1:P5HUIBuIWKbyjl083/loAegFkfbFNx5i2qEP4CNbm7E=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-github.com/urnetwork/connect v0.0.0-20260123050950-d1d43047f1d2 h1:H7+2yM1zMfZVJi3mHjMoiGaARWMl66kfNNQd8cPN4pM=
-github.com/urnetwork/connect v0.0.0-20260123050950-d1d43047f1d2/go.mod h1:7Na7DxacjzmLUdtCAsATSqIKddxuzY+DIUjY3T+QH+k=
+github.com/urnetwork/connect v0.0.0-20260124070828-22d75b1f4a70 h1:YwuCHKGagomaqj6z4BJfTpBn2greSH+xCKelovF3GYQ=
+github.com/urnetwork/connect v0.0.0-20260124070828-22d75b1f4a70/go.mod h1:7Na7DxacjzmLUdtCAsATSqIKddxuzY+DIUjY3T+QH+k=
 github.com/urnetwork/glog v1.2.9 h1:T1GwVZ91FyZvfGPCIAG3KkeVNJViS/oJhi1aCCxPPY8=
 github.com/urnetwork/glog v1.2.9/go.mod h1:MijG6ltedvutOUlWzst3mYwyRnrct9dqoThPOoN0qp0=
 go.uber.org/mock v0.6.0 h1:hyF9dfmbgIX5EfOdasqLsWD6xqpNZlXblLB/Dbnwv3Y=
