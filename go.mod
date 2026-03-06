@@ -1,6 +1,6 @@
 module github.com/devrandom0/urnetwork-client
 
-go 1.24.4
+go 1.25.0
 
 toolchain go1.25.7
 
@@ -8,7 +8,7 @@ require (
 	github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
-	github.com/urnetwork/connect v0.0.0-20260223163629-a34b974f65bd
+	github.com/urnetwork/connect v0.0.0-20260306010900-0ec7a6e816c3
 )
 
 require (
@@ -17,11 +17,11 @@ require (
 	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	github.com/quic-go/quic-go v0.59.0 // indirect
 	github.com/urnetwork/glog v0.0.0 // indirect
-	golang.org/x/crypto v0.47.0 // indirect
-	golang.org/x/exp v0.0.0-20260112195511-716be5621a96 // indirect
-	golang.org/x/net v0.49.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
-	golang.org/x/text v0.33.0 // indirect
+	golang.org/x/crypto v0.48.0 // indirect
+	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa // indirect
+	golang.org/x/net v0.51.0 // indirect
+	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	src.agwa.name/tlshacks v0.0.2 // indirect
 )
