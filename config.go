@@ -138,28 +138,28 @@ func parseSOCKSConfig(opts docopt.Opts) SOCKSConfig {
 //	log_level: info
 //	stats_interval: 5
 type ConfigFile struct {
-	APIURL       string   `yaml:"api_url"`
-	ConnectURL   string   `yaml:"connect_url"`
-	TunName      string   `yaml:"tun"`
-	IPCIDR       string   `yaml:"ip_cidr"`
-	MTU          int      `yaml:"mtu"`
-	DefaultRoute bool     `yaml:"default_route"`
-	ExtraRoutes  string   `yaml:"route"`
-	ExcludeRoutes string  `yaml:"exclude_route"`
-	DNS          []string `yaml:"dns"`
-	DNSService   string   `yaml:"dns_service"`
-	DNSBootstrap string   `yaml:"dns_bootstrap"`
-	SOCKSListen  string   `yaml:"socks"`
-	AllowDomains    []string `yaml:"domain"`
-	ExcludeDomains  []string `yaml:"exclude_domain"`
-	AllowInboundSrc string   `yaml:"allow_inbound_src"`
-	AllowInboundLocal bool   `yaml:"allow_inbound_local"`
-	LocationQuery string `yaml:"location_query"`
-	LocationID    string `yaml:"location_id"`
-	LocationGroupID string `yaml:"location_group_id"`
-	LogLevel      string `yaml:"log_level"`
-	StatsInterval int    `yaml:"stats_interval"`
-	Debug         bool   `yaml:"debug"`
+	APIURL            string   `yaml:"api_url"`
+	ConnectURL        string   `yaml:"connect_url"`
+	TunName           string   `yaml:"tun"`
+	IPCIDR            string   `yaml:"ip_cidr"`
+	MTU               int      `yaml:"mtu"`
+	DefaultRoute      bool     `yaml:"default_route"`
+	ExtraRoutes       string   `yaml:"route"`
+	ExcludeRoutes     string   `yaml:"exclude_route"`
+	DNS               []string `yaml:"dns"`
+	DNSService        string   `yaml:"dns_service"`
+	DNSBootstrap      string   `yaml:"dns_bootstrap"`
+	SOCKSListen       string   `yaml:"socks"`
+	AllowDomains      []string `yaml:"domain"`
+	ExcludeDomains    []string `yaml:"exclude_domain"`
+	AllowInboundSrc   string   `yaml:"allow_inbound_src"`
+	AllowInboundLocal bool     `yaml:"allow_inbound_local"`
+	LocationQuery     string   `yaml:"location_query"`
+	LocationID        string   `yaml:"location_id"`
+	LocationGroupID   string   `yaml:"location_group_id"`
+	LogLevel          string   `yaml:"log_level"`
+	StatsInterval     int      `yaml:"stats_interval"`
+	Debug             bool     `yaml:"debug"`
 }
 
 // loadConfigFile reads and parses a YAML config file from path.
