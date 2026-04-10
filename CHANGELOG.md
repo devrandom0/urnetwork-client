@@ -1,3 +1,9 @@
+## [1.9.0](https://github.com/devrandom0/urnetwork-client/compare/v1.8.3...v1.9.0) (2026-04-10)
+
+### Features
+
+* implement Phase 3.5 and 3.8 - dependency interfaces and specs tests ([91dd1bb](https://github.com/devrandom0/urnetwork-client/commit/91dd1bb501445f73329a06bf02b56092dcb50cae))
+
 ## [1.8.3](https://github.com/devrandom0/urnetwork-client/compare/v1.8.2...v1.8.3) (2026-04-10)
 
 ### Bug Fixes
