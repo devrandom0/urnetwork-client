@@ -482,8 +482,8 @@ func bindFDToInterface(fd int, ifName string) error {
 		if ifi != nil {
 			// Ignore errors to stay best-effort; some sockets may not accept this option
 			_ = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, 25, ifi.Index)
-			// Optionally try IPv6 too; ignore error
-			// _ = syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, 125, ifi.Index)
+			// Also bind IPv6 sockets to the interface
+			_ = syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, 125, ifi.Index)
 			return nil
 		}
 		// If interface not found, nothing to do
