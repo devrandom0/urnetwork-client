@@ -1,3 +1,13 @@
+## [1.10.0](https://github.com/devrandom0/urnetwork-client/compare/v1.9.0...v1.10.0) (2026-04-10)
+
+### Features
+
+* implement Phase 5 – IPv6 filter, structured logging, config file, graceful shutdown ([e0c3d5e](https://github.com/devrandom0/urnetwork-client/commit/e0c3d5eec5f974c788ea50ad2ecdde939c5cc5cd))
+
+### Bug Fixes
+
+* update for lint ([591b01e](https://github.com/devrandom0/urnetwork-client/commit/591b01e2f20cc4ea46e098a6c2d7722c0ca61003))
+
 ## [1.9.0](https://github.com/devrandom0/urnetwork-client/compare/v1.8.3...v1.9.0) (2026-04-10)
 
 ### Features
