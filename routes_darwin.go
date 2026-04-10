@@ -37,6 +37,9 @@ type darwinRouteManager struct {
 	addedExtra       []darwinAddedRoute // explicit routes through TUN from --route
 	addedDNSTun      []darwinAddedRoute // DNS server routes through TUN (!defRoute mode)
 
+	killSwitch      bool // whether kill-switch mode is active
+	killSwitchAdded bool // whether the blackhole default was successfully installed
+
 	dnsConfigured bool   // whether SetDNS changed the system DNS
 	dnsService    string // network service name passed to networksetup
 }
@@ -226,6 +229,26 @@ func (m *darwinRouteManager) RemoveDNSBypass() {
 	m.addedDNSBypass = nil
 }
 
+// AddKillSwitchRoute installs a blackhole default route so that if the VPN split
+// routes are removed, all traffic is blocked rather than leaking via the real
+// default gateway. Call this before AddSplitDefault so the /1 routes take priority.
+// The route is left in place on Cleanup when kill-switch mode is active.
+func (m *darwinRouteManager) AddKillSwitchRoute() {
+	m.killSwitch = true
+	// Replace the existing default with a blackhole so traffic is blocked
+	// when the VPN split routes are absent. The /1 split routes are more
+	// specific and will supersede this while the VPN is running.
+	if m.defGw != "" {
+		_ = runSudo("route", "-n", "delete", "default")
+	}
+	if _, err := runCapture("route", "-n", "add", "-blackhole", "default"); err == nil {
+		m.killSwitchAdded = true
+		logInfo("kill switch: blackhole default route installed\n")
+	} else {
+		logWarn("kill switch: failed to install blackhole default route; leak protection may be incomplete\n")
+	}
+}
+
 // Cleanup removes all routes and DNS configuration applied by this manager
 // and brings the TUN interface down.
 func (m *darwinRouteManager) Cleanup() {
@@ -287,6 +310,18 @@ func (m *darwinRouteManager) Cleanup() {
 	}
 	// Bring interface down
 	_ = runSudo("ifconfig", m.tunName, "down")
+	// Kill switch: keep blackhole in place (traffic stays blocked after VPN exits).
+	// Without kill switch: remove blackhole and restore original default gateway.
+	if m.killSwitchAdded {
+		if m.killSwitch {
+			logInfo("kill switch: blackhole default route preserved; all traffic is blocked until you run: sudo route delete default && sudo route add default <gateway>\n")
+		} else {
+			_ = runSudo("route", "-n", "delete", "default")
+			if m.defGw != "" {
+				_ = runSudo("route", "-n", "add", "default", m.defGw)
+			}
+		}
+	}
 }
 
 // addVariant tries multiple route command variants to install a split-default entry.

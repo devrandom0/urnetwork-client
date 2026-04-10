@@ -20,6 +20,38 @@
 
 - UDP over SOCKS is available, but app support varies.
 
+## Kill switch
+
+Use `--kill_switch` with `--default_route` to prevent IP leaks when the VPN drops:
+
+```bash
+sudo ./urnet-client vpn \
+  --tun utun10 \
+  --default_route \
+  --kill_switch \
+  --location_query="country:Germany"
+```
+
+How it works:
+- On startup, a **blackhole default route** is installed before the VPN routes
+- While VPN is running, the more-specific `/1` split routes win → traffic goes through VPN
+- If the VPN drops or the TUN goes down, the split routes disappear and the blackhole catches **all** remaining traffic → no leaks
+- On graceful VPN exit: blackhole is preserved, all traffic blocked until you manually restore
+
+To restore connectivity after kill switch activates:
+
+```bash
+# macOS
+sudo route delete default
+sudo route add default <your-router-ip>   # e.g. 192.168.1.1
+
+# Linux
+sudo ip route del blackhole default
+sudo ip route add default via <your-router-ip> dev <interface>  # e.g. eth0
+```
+
+**Requires `--default_route`**. Kill switch has no effect in SOCKS-only mode.
+
 ## IPv6 support
 
 IPv6 is **disabled by default** since many VPN providers don't support it yet.
