@@ -1,3 +1,9 @@
+## [1.12.0](https://github.com/devrandom0/urnetwork-client/compare/v1.11.0...v1.12.0) (2026-04-10)
+
+### Features
+
+* add IPv6-to-IPv4 fallback for SOCKS proxy when IPv6 provider unavailable ([4f7a015](https://github.com/devrandom0/urnetwork-client/commit/4f7a015edd8c7f88eb87a71b899655d53f9d2e03))
+
 ## [1.11.0](https://github.com/devrandom0/urnetwork-client/compare/v1.10.0...v1.11.0) (2026-04-10)
 
 ### Features
