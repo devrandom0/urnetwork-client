@@ -57,6 +57,10 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	_ = run("ip", "link", "set", "dev", tunName, "mtu", strconv.Itoa(cfg.MTU))
 	_ = run("ip", "link", "set", tunName, "up")
 
+	// Add IPv6 address to support IPv6 traffic through the VPN.
+	// Use a ULA (Unique Local Address) prefix with /120 subnet.
+	_ = run("ip", "addr", "add", "fd00::2/120", "dev", tunName)
+
 	// Detect current default gateway for bypass and exclude routing.
 	origGw, origDev := "", ""
 	if routes, err := linuxListDefaultRoutes(); err == nil {

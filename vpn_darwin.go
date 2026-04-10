@@ -69,6 +69,10 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	tunIP, peerIP := tunCIDRParts(cfg.IPCIDR)
 	_ = runSudo("ifconfig", actualName, "inet", tunIP, peerIP, "mtu", fmt.Sprintf("%d", cfg.MTU), "up")
 
+	// Add IPv6 address to support IPv6 traffic through the VPN.
+	// Use a ULA (Unique Local Address) prefix with the same /120 subnet as IPv4.
+	_ = runSudo("ifconfig", actualName, "inet6", "fd00::2/120")
+
 	if cfg.SOCKSListen != "" && !cfg.DefaultRoute && cfg.ExtraRoutes == "" && cfg.ExcludeRoutes == "" {
 		logInfo("SOCKS mode without route changes: only SOCKS traffic will use the VPN.\n")
 	}
