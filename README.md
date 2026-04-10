@@ -18,7 +18,7 @@ If you liked this project, please use [this referral link](https://ur.io/app?bon
 
 ## Build
 
-Requires Go 1.24+ (module uses toolchain go1.24.5).
+Requires Go 1.25+ (module uses toolchain go1.25.7).
 
 Build the CLI (from this directory):
 
