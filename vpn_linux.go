@@ -30,7 +30,6 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	socksListen := cfg.SOCKSListen
 	allowDomains := cfg.AllowDomains
 	excludeDomains := cfg.ExcludeDomains
-	jwt := cfg.JWT
 
 	logStartupConfig(cfg)
 
