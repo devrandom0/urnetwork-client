@@ -9,6 +9,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
 	github.com/urnetwork/connect v0.0.0-20260323055421-bd217fd04444
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -42,7 +43,6 @@ require (
 	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	src.agwa.name/tlshacks v0.0.2 // indirect
 )
 
