@@ -84,6 +84,10 @@ For a standalone SOCKS proxy (without TUN/VPN), use the separate `socks` command
 - `--allow_inbound_local`
 - `--allow_inbound_src=<list>`
 
+### IPv6 control
+
+- `--enable_ipv6` — Allow IPv6 traffic through the VPN (disabled by default). Only use if your provider supports IPv6.
+
 ### Diagnostics
 
 - `--log_level=quiet|error|warn|info|debug`

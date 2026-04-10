@@ -48,6 +48,19 @@ sudo ./urnet-client vpn \
   --dns_bootstrap=cache
 ```
 
+## IPv6 routing
+
+By default, IPv6 traffic is dropped to ensure compatibility with providers lacking IPv6 support. To enable IPv6:
+
+```bash
+sudo ./urnet-client vpn \
+  --tun utun10 \
+  --enable_ipv6 \
+  --location_query="country:Germany"
+```
+
+**Note:** Only enable if your VPN provider supports IPv6.
+
 ## Inbound allowlist
 
 ```bash
