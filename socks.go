@@ -172,6 +172,16 @@ func handleSocksConn(
 		fmt.Printf("[socks] CONNECT %s (ip=%s) bindIf=%s useVPN=%v\n", host+":"+strconv.Itoa(port), ipForRoute, bindIf, useVPN)
 	}
 
+	// Define relay function early so it's available for both initial and fallback connections.
+	relay := func(dst, src net.Conn, wg *sync.WaitGroup) {
+		defer wg.Done()
+		_, _ = io.Copy(dst, src)
+		// Signal EOF to the write side of dst so the peer sees a clean close.
+		if tc, ok := dst.(*net.TCPConn); ok {
+			_ = tc.CloseWrite()
+		}
+	}
+
 	d := net.Dialer{Timeout: 30 * time.Second}
 	if useVPN && bindIf != "" {
 		// Bind outbound socket to VPN interface
@@ -192,12 +202,56 @@ func handleSocksConn(
 
 	rc, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
+		// If dial failed with IPv6 and we're using VPN, try to fall back to IPv4.
+		// Many VPN providers don't yet support IPv6 natively.
+		isIPv6 := ipForRoute.To4() == nil && ipForRoute.To16() != nil
+		isNetworkError := false
+		var se syscall.Errno
+		if errors.As(err, &se) {
+			switch se {
+			case syscall.ENETUNREACH, syscall.EHOSTUNREACH, syscall.ECONNREFUSED:
+				isNetworkError = true
+			}
+		}
+
+		if isIPv6 && useVPN && isNetworkError && atyp == 3 {
+			// For domain names (atyp==3), try IPv4 fallback.
+			if debug {
+				fmt.Printf("[socks] IPv6 dial to %s failed (%v); retrying with IPv4\n", host, err)
+			}
+			// Re-resolve the domain, skipping IPv6 addresses.
+			addrs, _ := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+			if len(addrs) > 0 {
+				ipForRoute = addrs[0]
+				addr = net.JoinHostPort(ipForRoute.String(), strconv.Itoa(port))
+				rc, err = d.DialContext(ctx, "tcp", addr)
+				if err == nil {
+					defer func() { _ = rc.Close() }()
+					if err := writeSocksReply(c, 0, rc.LocalAddr()); err != nil {
+						return
+					}
+					_ = c.SetDeadline(time.Time{})
+					var wg sync.WaitGroup
+					wg.Add(2)
+					go relay(rc, c, &wg)
+					go relay(c, rc, &wg)
+					wg.Wait()
+					if debug {
+						fmt.Printf("[socks] IPv4 fallback succeeded\n")
+					}
+					return
+				}
+				if debug {
+					fmt.Printf("[socks] IPv4 fallback also failed: %v\n", err)
+				}
+			}
+		}
+
 		// Map common errors to SOCKS reply codes
 		rep := byte(1) // general failure by default
 		if ne, ok := err.(net.Error); ok && ne.Timeout() {
 			rep = 4
 		}
-		var se syscall.Errno
 		if errors.As(err, &se) {
 			switch se {
 			case syscall.ECONNREFUSED:
@@ -211,7 +265,11 @@ func handleSocksConn(
 			}
 		}
 		if debug {
-			fmt.Printf("[socks] dial error to %s: %v (rep=%d)\n", addr, err, rep)
+			if isIPv6 {
+				fmt.Printf("[socks] dial error to %s (IPv6): %v (rep=%d) — hint: IPv6 may not be supported by provider; try without -6 flag\n", addr, err, rep)
+			} else {
+				fmt.Printf("[socks] dial error to %s: %v (rep=%d)\n", addr, err, rep)
+			}
 		}
 		_ = writeSocksReply(c, rep, nil)
 		return
@@ -222,16 +280,6 @@ func handleSocksConn(
 	}
 	// Handshake complete — clear deadline so the tunnel can run indefinitely.
 	_ = c.SetDeadline(time.Time{})
-	// Bidirectional relay with proper half-close: when one direction reaches EOF,
-	// signal the other side so it can drain and finish cleanly.
-	relay := func(dst, src net.Conn, wg *sync.WaitGroup) {
-		defer wg.Done()
-		_, _ = io.Copy(dst, src)
-		// Signal EOF to the write side of dst so the peer sees a clean close.
-		if tc, ok := dst.(*net.TCPConn); ok {
-			_ = tc.CloseWrite()
-		}
-	}
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go relay(rc, c, &wg)
