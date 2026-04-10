@@ -53,12 +53,6 @@ func isInfoEnabled() bool  { return LogLevel(currentLogLevel.Load()) >= LevelInf
 func isWarnEnabled() bool  { return LogLevel(currentLogLevel.Load()) >= LevelWarn }
 func isErrorEnabled() bool { return LogLevel(currentLogLevel.Load()) >= LevelError }
 
-func logDebug(format string, args ...any) {
-	if isDebugEnabled() {
-		fmt.Printf(format, args...)
-	}
-}
-
 func logInfo(format string, args ...any) {
 	if isInfoEnabled() {
 		fmt.Printf(format, args...)
@@ -76,4 +70,3 @@ func logError(format string, args ...any) {
 		fmt.Fprintf(os.Stderr, "error: "+format, args...)
 	}
 }
-

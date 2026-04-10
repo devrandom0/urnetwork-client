@@ -48,7 +48,7 @@ func cmdSocks(opts docopt.Opts) {
 	if err != nil {
 		fatal(fmt.Errorf("failed to start SOCKS5 proxy: %w", err))
 	}
-	defer stopSocks()
+	defer func() { _ = stopSocks() }()
 
 	logInfo("SOCKS5 proxy listening at %s\n", listenAddr)
 	logInfo("Connecting to extender at %s:%s (SNI: %s)\n", extenderIP, extenderPort, extenderSNI)

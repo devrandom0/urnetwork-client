@@ -62,7 +62,7 @@ func cmdVpn(opts docopt.Opts) {
 		if err != nil {
 			fatal(fmt.Errorf("start socks failed: %w", err))
 		}
-		defer stopSocks()
+		defer func() { _ = stopSocks() }()
 		logInfo("SOCKS started without TUN (system routes only). Press Ctrl+C to exit.\n")
 		waitForInterrupt(cancel)
 		return
@@ -88,7 +88,7 @@ func cmdVpn(opts docopt.Opts) {
 			fatal(fmt.Errorf("create utun failed: %w", err))
 		}
 	}
-	defer dev.Close()
+	defer func() { _ = dev.Close() }()
 	actualName := dev.Name()
 	if actualName == "" {
 		actualName = tunName
