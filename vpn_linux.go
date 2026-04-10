@@ -26,6 +26,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	excludeRoutes := cfg.ExcludeRoutes
 	dnsList := cfg.DNSList
 	debugOn := cfg.Debug
+	connectURL := cfg.ConnectURL
 	socksListen := cfg.SOCKSListen
 	allowDomains := cfg.AllowDomains
 	excludeDomains := cfg.ExcludeDomains
