@@ -157,7 +157,7 @@ func vpnRunCore(
 	// Provider receive: optional userspace filtering, then write to TUN and update counters.
 	receive := func(source connect.TransferPath, provideMode protocol.ProvideMode, ipPath *connect.IpPath, packet []byte) {
 		logDebug("<- provider len=%d src=%v mode=%v ipPath=%v\n", len(packet), source, provideMode, ipPath)
-		
+
 		// Drop IPv6 packets if IPv6 is not enabled.
 		if len(packet) > 0 {
 			version := packet[0] >> 4
@@ -168,7 +168,7 @@ func vpnRunCore(
 				return
 			}
 		}
-		
+
 		if blockNewInbound && shouldDropInbound(packet, allowInboundCIDRs) {
 			if isDebugEnabled() {
 				version := byte(0)
