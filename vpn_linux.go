@@ -41,56 +41,13 @@ func cmdVpn(opts docopt.Opts) {
 		fatal(err)
 	}
 
-	// Startup configuration summary (omit secrets)
-	{
-		cfg := []string{
-			fmt.Sprintf("api_url=%s", apiUrl),
-			fmt.Sprintf("connect_url=%s", connectUrl),
-			fmt.Sprintf("tun=%s", tunName),
-			fmt.Sprintf("ip_cidr=%s", ipCIDR),
-			fmt.Sprintf("mtu=%d", mtu),
-			fmt.Sprintf("default_route=%t", defRoute),
-		}
-		if strings.TrimSpace(extraRoutes) != "" {
-			cfg = append(cfg, fmt.Sprintf("route=%s", strings.TrimSpace(extraRoutes)))
-		}
-		if strings.TrimSpace(excludeRoutes) != "" {
-			cfg = append(cfg, fmt.Sprintf("exclude_route=%s", strings.TrimSpace(excludeRoutes)))
-		}
-		if strings.TrimSpace(dnsList) != "" {
-			cfg = append(cfg, fmt.Sprintf("dns=%s", strings.TrimSpace(dnsList)))
-		}
-		if socksListen != "" {
-			cfg = append(cfg, fmt.Sprintf("socks=%s", socksListen))
-		}
-		if len(allowDomains) > 0 {
-			cfg = append(cfg, fmt.Sprintf("domain=%s", strings.Join(allowDomains, ",")))
-		}
-		if len(excludeDomains) > 0 {
-			cfg = append(cfg, fmt.Sprintf("exclude_domain=%s", strings.Join(excludeDomains, ",")))
-		}
-		cfg = append(cfg, fmt.Sprintf("debug=%t", debugOn))
-		if strings.TrimSpace(jwt) != "" {
-			cfg = append(cfg, "jwt=provided")
-		} else {
-			cfg = append(cfg, "jwt=missing")
-		}
-		logInfo("startup: %s\n", strings.Join(cfg, " "))
-	}
+	logStartupConfig(opts, jwt)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// TUN-less mode for SOCKS-only usage (none/non/no/off/false/disable/0 or empty and not a missing-arg case)
-	if func(n string) bool {
-		s := strings.ToLower(strings.TrimSpace(n))
-		switch s {
-		case "none", "non", "no", "off", "false", "disable", "disabled", "0":
-			return true
-		default:
-			return false
-		}
-	}(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
+	// TUN-less mode for SOCKS-only usage
+	if isTUNDisabled(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
 		if socksListen == "" {
 			logError("--tun=none specified but no --socks provided; nothing to do\n")
 			return
@@ -318,15 +275,4 @@ func linuxListDefaultRoutes() ([]defaultRoute, error) {
 		routes = append(routes, defaultRoute{Gw: gw, Dev: dev, Metric: met})
 	}
 	return routes, nil
-}
-
-// runCapture runs a command and returns stdout as string.
-func runCapture(name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
-	cmd.Stderr = os.Stderr
-	b, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
 }

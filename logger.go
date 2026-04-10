@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 )
 
-type LogLevel int
+type LogLevel int32
 
 const (
 	LevelQuiet LogLevel = iota
@@ -16,33 +17,41 @@ const (
 	LevelDebug
 )
 
-var currentLogLevel = LevelInfo
+// currentLogLevel is accessed atomically so reads from the dataplane goroutine
+// are race-free when setLogLevel is called from the main goroutine.
+var currentLogLevel atomic.Int32
+
+func init() {
+	currentLogLevel.Store(int32(LevelInfo))
+}
 
 func setLogLevel(level string, debugFlag bool) {
 	lvl := strings.ToLower(strings.TrimSpace(level))
+	var l LogLevel
 	switch lvl {
 	case "quiet", "silent":
-		currentLogLevel = LevelQuiet
+		l = LevelQuiet
 	case "error", "err":
-		currentLogLevel = LevelError
+		l = LevelError
 	case "warn", "warning":
-		currentLogLevel = LevelWarn
+		l = LevelWarn
 	case "debug":
-		currentLogLevel = LevelDebug
+		l = LevelDebug
 	case "info", "":
-		currentLogLevel = LevelInfo
+		l = LevelInfo
+		if level == "" && debugFlag {
+			l = LevelDebug
+		}
 	default:
-		currentLogLevel = LevelInfo
+		l = LevelInfo
 	}
-	if level == "" && debugFlag {
-		currentLogLevel = LevelDebug
-	}
+	currentLogLevel.Store(int32(l))
 }
 
-func isDebugEnabled() bool { return currentLogLevel >= LevelDebug }
-func isInfoEnabled() bool  { return currentLogLevel >= LevelInfo }
-func isWarnEnabled() bool  { return currentLogLevel >= LevelWarn }
-func isErrorEnabled() bool { return currentLogLevel >= LevelError }
+func isDebugEnabled() bool { return LogLevel(currentLogLevel.Load()) >= LevelDebug }
+func isInfoEnabled() bool  { return LogLevel(currentLogLevel.Load()) >= LevelInfo }
+func isWarnEnabled() bool  { return LogLevel(currentLogLevel.Load()) >= LevelWarn }
+func isErrorEnabled() bool { return LogLevel(currentLogLevel.Load()) >= LevelError }
 
 func logDebug(format string, args ...any) {
 	if isDebugEnabled() {
@@ -67,3 +76,4 @@ func logError(format string, args ...any) {
 		fmt.Fprintf(os.Stderr, "error: "+format, args...)
 	}
 }
+

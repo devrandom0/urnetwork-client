@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -55,6 +57,12 @@ func handleSocksConn(
 	excludeDomains []string,
 ) {
 	defer c.Close()
+
+	// Apply a deadline for the SOCKS handshake phase to avoid leaking goroutines
+	// on clients that connect but never send data. Once the tunnel is established
+	// the deadline is cleared so long-lived connections work correctly.
+	const handshakeTimeout = 10 * time.Second
+	_ = c.SetDeadline(time.Now().Add(handshakeTimeout))
 
 	// RFC 1928 greeting
 	// +----+----------+----------+
@@ -212,9 +220,23 @@ func handleSocksConn(
 	if err := writeSocksReply(c, 0, rc.LocalAddr()); err != nil {
 		return
 	}
-	// pipe
-	go io.Copy(rc, c)
-	io.Copy(c, rc)
+	// Handshake complete — clear deadline so the tunnel can run indefinitely.
+	_ = c.SetDeadline(time.Time{})
+	// Bidirectional relay with proper half-close: when one direction reaches EOF,
+	// signal the other side so it can drain and finish cleanly.
+	relay := func(dst, src net.Conn, wg *sync.WaitGroup) {
+		defer wg.Done()
+		_, _ = io.Copy(dst, src)
+		// Signal EOF to the write side of dst so the peer sees a clean close.
+		if tc, ok := dst.(*net.TCPConn); ok {
+			_ = tc.CloseWrite()
+		}
+	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go relay(rc, c, &wg)
+	go relay(c, rc, &wg)
+	wg.Wait()
 }
 
 func writeSocksReply(c net.Conn, rep byte, bindAddr net.Addr) error {
@@ -288,8 +310,8 @@ func runUDPAssociate(ctx context.Context, ctrl net.Conn, bindIf string, debug bo
 
 	// Read from remote sockets and forward to client
 	clientAddrCh := make(chan net.Addr, 1)
-	// track last client address observed
-	var lastClientAddr net.Addr
+	// track last client address observed — written from one goroutine, read from another.
+	var lastClientAddr atomic.Pointer[net.Addr]
 	go func() {
 		b := make([]byte, 65535)
 		for {
@@ -297,7 +319,7 @@ func runUDPAssociate(ctx context.Context, ctrl net.Conn, bindIf string, debug bo
 			if err != nil {
 				return
 			}
-			lastClientAddr = addr
+			lastClientAddr.Store(&addr)
 			select {
 			case clientAddrCh <- addr:
 			default:
@@ -405,13 +427,16 @@ func runUDPAssociate(ctx context.Context, ctrl net.Conn, bindIf string, debug bo
 				return
 			}
 			// Build SOCKS UDP response header
-			if lastClientAddr == nil {
+			addrPtr := lastClientAddr.Load()
+			if addrPtr == nil {
 				// Wait for at least one client packet to learn client addr
 				select {
-				case lastClientAddr = <-clientAddrCh:
+				case a := <-clientAddrCh:
+					lastClientAddr.Store(&a)
+					addrPtr = &a
 				default:
 				}
-				if lastClientAddr == nil {
+				if addrPtr == nil {
 					continue
 				}
 			}
@@ -432,7 +457,7 @@ func runUDPAssociate(ctx context.Context, ctrl net.Conn, bindIf string, debug bo
 				continue
 			}
 			pkt := append(hdr, buf[:n]...)
-			_, _ = pcClient.WriteTo(pkt, lastClientAddr)
+			_, _ = pcClient.WriteTo(pkt, *addrPtr)
 		}
 	}
 	go sendBack(pcVPN)

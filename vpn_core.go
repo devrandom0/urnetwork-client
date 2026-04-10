@@ -35,37 +35,8 @@ func vpnRunCore(
 	debugOn, _ := opts.Bool("--debug")
 	statsInt := time.Duration(getIntOr(opts, "--stats_interval", 5)) * time.Second
 
-	// Build provider specs based on location flags (shared logic)
-	strat := connect.NewClientStrategyWithDefaults(ctx)
-	specs := []*connect.ProviderSpec{}
-	if id := stringsTrim(getStringOr(opts, "--location_id", "")); id != "" {
-		if loc, err := connect.ParseId(id); err == nil {
-			specs = append(specs, &connect.ProviderSpec{LocationId: &loc})
-		}
-	}
-	if gid := stringsTrim(getStringOr(opts, "--location_group_id", "")); gid != "" {
-		if lg, err := connect.ParseId(gid); err == nil {
-			specs = append(specs, &connect.ProviderSpec{LocationGroupId: &lg})
-		}
-	}
-	if len(specs) == 0 {
-		if q := stringsTrim(getStringOr(opts, "--location_query", "")); q != "" {
-			if httpRes, err := httpFindLocations(ctx, apiUrl, jwt, q); err == nil && httpRes != nil && len(httpRes.Specs) > 0 {
-				specs = httpRes.Specs
-				logInfo("using %d specs from location query: %s\n", len(specs), q)
-			}
-			if len(specs) == 0 {
-				fb := findSpecsByQueryFallback(ctx, strat, apiUrl, jwt, q)
-				if len(fb) > 0 {
-					specs = fb
-					logInfo("using %d specs from provider-locations (fallback) for: %s\n", len(specs), q)
-				}
-			}
-		}
-	}
-	if len(specs) == 0 {
-		specs = []*connect.ProviderSpec{{BestAvailable: true}}
-	}
+	// Build provider specs from location flags (--location_id / --location_group_id / --location_query).
+	strat, specs := buildProviderSpecs(ctx, apiUrl, jwt, opts)
 	appVer := fmt.Sprintf("urnet-client %s", Version)
 	gen := connect.NewApiMultiClientGeneratorWithDefaults(
 		ctx, specs, strat, nil, apiUrl, jwt, fmt.Sprintf("%s/", connectUrl), "", "", appVer, nil,
@@ -304,6 +275,78 @@ func waitForInterrupt(cancel context.CancelFunc) {
 	signal.Notify(sigc, os.Interrupt, syscall.SIGTERM)
 	<-sigc
 	cancel()
+}
+
+// isTUNDisabled returns true when the provided name represents a disabled TUN
+// (e.g., "none", "no", "off", "false", "disable", "0").
+func isTUNDisabled(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "none", "non", "no", "off", "false", "disable", "disabled", "0":
+		return true
+	default:
+		return false
+	}
+}
+
+// logStartupConfig logs the effective VPN configuration summary derived from opts.
+// Reading directly from opts makes this safe to call from any platform's cmdVpn before
+// TUN creation.
+func logStartupConfig(opts docopt.Opts, jwt string) {
+	apiUrl := getStringOr(opts, "--api_url", DefaultApiUrl)
+	connectUrl := getStringOr(opts, "--connect_url", DefaultConnectUrl)
+	tunName := getStringOr(opts, "--tun", "")
+	ipCIDR := getStringOr(opts, "--ip_cidr", "10.255.0.2/24")
+	mtu := getIntOr(opts, "--mtu", 1420)
+	defRoute, _ := opts.Bool("--default_route")
+	extraRoutes := getStringOr(opts, "--route", "")
+	excludeRoutes := getStringOr(opts, "--exclude_route", "")
+	dnsList := getStringOr(opts, "--dns", "")
+	dnsService := strings.TrimSpace(getStringOr(opts, "--dns_service", ""))
+	dnsBootstrap := strings.TrimSpace(getStringOr(opts, "--dns_bootstrap", ""))
+	socksListen := strings.TrimSpace(getStringOr(opts, "--socks", getStringOr(opts, "--socks_listen", "")))
+	allowDomains := splitCSV(getStringOr(opts, "--domain", ""))
+	excludeDomains := splitCSV(getStringOr(opts, "--exclude_domain", ""))
+	debugOn, _ := opts.Bool("--debug")
+
+	cfg := []string{
+		fmt.Sprintf("api_url=%s", apiUrl),
+		fmt.Sprintf("connect_url=%s", connectUrl),
+		fmt.Sprintf("tun=%s", tunName),
+		fmt.Sprintf("ip_cidr=%s", ipCIDR),
+		fmt.Sprintf("mtu=%d", mtu),
+		fmt.Sprintf("default_route=%t", defRoute),
+	}
+	if strings.TrimSpace(extraRoutes) != "" {
+		cfg = append(cfg, fmt.Sprintf("route=%s", strings.TrimSpace(extraRoutes)))
+	}
+	if strings.TrimSpace(excludeRoutes) != "" {
+		cfg = append(cfg, fmt.Sprintf("exclude_route=%s", strings.TrimSpace(excludeRoutes)))
+	}
+	if strings.TrimSpace(dnsList) != "" {
+		cfg = append(cfg, fmt.Sprintf("dns=%s", strings.TrimSpace(dnsList)))
+	}
+	if dnsService != "" {
+		cfg = append(cfg, fmt.Sprintf("dns_service=%s", dnsService))
+	}
+	if dnsBootstrap != "" {
+		cfg = append(cfg, fmt.Sprintf("dns_bootstrap=%s", dnsBootstrap))
+	}
+	if socksListen != "" {
+		cfg = append(cfg, fmt.Sprintf("socks=%s", socksListen))
+	}
+	if len(allowDomains) > 0 {
+		cfg = append(cfg, fmt.Sprintf("domain=%s", strings.Join(allowDomains, ",")))
+	}
+	if len(excludeDomains) > 0 {
+		cfg = append(cfg, fmt.Sprintf("exclude_domain=%s", strings.Join(excludeDomains, ",")))
+	}
+	cfg = append(cfg, fmt.Sprintf("debug=%t", debugOn))
+	if strings.TrimSpace(jwt) != "" {
+		cfg = append(cfg, "jwt=provided")
+	} else {
+		cfg = append(cfg, "jwt=missing")
+	}
+	logInfo("startup: %s\n", strings.Join(cfg, " "))
 }
 
 // (removed legacy userspace filtering helpers)
