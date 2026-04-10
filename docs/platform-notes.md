@@ -20,4 +20,4 @@
 
 - UDP over SOCKS is available, but app support varies.
 - IPv6 inbound packet filtering is supported.
-- IPv6 routing and system-level interface binding are not yet fully enabled.
+- IPv6 system-level interface binding is now supported on macOS and Linux.
