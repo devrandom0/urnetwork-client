@@ -1,3 +1,9 @@
+## [1.8.0](https://github.com/devrandom0/urnetwork-client/compare/v1.7.12...v1.8.0) (2026-04-10)
+
+### Features
+
+* upgrade to go 1.25 ([5234b66](https://github.com/devrandom0/urnetwork-client/commit/5234b666dc2d77be2fb57266d2e71d343916e471))
+
 ## [1.7.12](https://github.com/devrandom0/urnetwork-client/compare/v1.7.11...v1.7.12) (2026-04-10)
 
 ## [1.7.11](https://github.com/devrandom0/urnetwork-client/compare/v1.7.10...v1.7.11) (2026-02-25)
