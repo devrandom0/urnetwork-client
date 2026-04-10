@@ -9,26 +9,26 @@ func TestFilterLocationsFallback_CountryMatch(t *testing.T) {
 	// Build a fake response mimicking /provider-locations
 	res := &findLocationsHTTPResult{
 		Groups: []struct {
-			LocationGroupId string `json:"location_group_id"`
+			LocationGroupID string `json:"location_group_id"`
 			Name            string `json:"name"`
 			ProviderCount   int    `json:"provider_count"`
 			Promoted        bool   `json:"promoted"`
 		}{
-			{LocationGroupId: "00000000-0000-0000-0000-000000000001", Name: "Western Europe", ProviderCount: 10},
+			{LocationGroupID: "00000000-0000-0000-0000-000000000001", Name: "Western Europe", ProviderCount: 10},
 		},
 		Locations: []struct {
-			LocationId        string `json:"location_id"`
+			LocationID        string `json:"location_id"`
 			LocationType      string `json:"location_type"`
 			Name              string `json:"name"`
 			Region            string `json:"region"`
-			RegionLocationId  string `json:"region_location_id"`
+			RegionLocationID  string `json:"region_location_id"`
 			Country           string `json:"country"`
 			CountryCode       string `json:"country_code"`
-			CountryLocationId string `json:"country_location_id"`
+			CountryLocationID string `json:"country_location_id"`
 			ProviderCount     int    `json:"provider_count"`
 		}{
-			{LocationId: "loc-1", LocationType: "city", Name: "Berlin", Region: "Europe", Country: "Germany", CountryCode: "DE", CountryLocationId: "country-de", ProviderCount: 3},
-			{LocationId: "loc-2", LocationType: "city", Name: "Paris", Region: "Europe", Country: "France", CountryCode: "FR", CountryLocationId: "country-fr", ProviderCount: 2},
+			{LocationID: "loc-1", LocationType: "city", Name: "Berlin", Region: "Europe", Country: "Germany", CountryCode: "DE", CountryLocationID: "country-de", ProviderCount: 3},
+			{LocationID: "loc-2", LocationType: "city", Name: "Paris", Region: "Europe", Country: "France", CountryCode: "FR", CountryLocationID: "country-fr", ProviderCount: 2},
 		},
 	}
 

@@ -55,10 +55,10 @@ func parseClientID(jwt string) string {
 
 // validateClientJWT performs a lightweight authenticated API call to confirm the JWT is
 // accepted by the backend. Returns true if the call succeeds.
-func validateClientJWT(ctx context.Context, apiUrl, clientJwt string) bool {
+func validateClientJWT(ctx context.Context, apiURL, clientJwt string) bool {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	api := newByAPI(ctx, apiUrl, clientJwt)
+	api := newByAPI(ctx, apiURL, clientJwt)
 	specs := []*connect.ProviderSpec{{BestAvailable: true}}
 	_, err := api.FindProviders2Sync(&connect.FindProviders2Args{Specs: specs, Count: 1, RankMode: "quality"})
 	return err == nil

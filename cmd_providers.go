@@ -10,7 +10,7 @@ import (
 )
 
 func cmdFindProviders(ctx context.Context, opts docopt.Opts) error {
-	apiUrl := getStringOr(opts, "--api_url", DefaultApiUrl)
+	apiURL := getStringOr(opts, "--api_url", DefaultAPIURL)
 	jwtOpt, _ := opts.String("--jwt")
 	jwt, err := loadJWT(jwtOpt)
 	if err != nil {
@@ -28,9 +28,9 @@ func cmdFindProviders(ctx context.Context, opts docopt.Opts) error {
 	defer cancel()
 
 	loc := parseLocationConfig(opts)
-	_, specs := buildProviderSpecs(qCtx, apiUrl, jwt, loc)
+	_, specs := buildProviderSpecs(qCtx, apiURL, jwt, loc)
 
-	api := newByAPI(qCtx, apiUrl, jwt)
+	api := newByAPI(qCtx, apiURL, jwt)
 
 	if len(specs) == 1 && specs[0].BestAvailable {
 		fmt.Println("using best-available providers")

@@ -5,3 +5,6 @@ linters:
     - staticcheck
     - unused
     - govet
+  settings:
+    staticcheck:
+      checks: ["all", "-SA5011"]

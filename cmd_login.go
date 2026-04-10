@@ -8,11 +8,11 @@ import (
 )
 
 func cmdLogin(ctx context.Context, opts docopt.Opts) error {
-	apiUrl := getStringOr(opts, "--api_url", DefaultApiUrl)
+	apiURL := getStringOr(opts, "--api_url", DefaultAPIURL)
 	userAuth, _ := opts.String("--user_auth")
 	password, _ := opts.String("--password")
 
-	res, err := loginWithPassword(ctx, apiUrl, userAuth, password)
+	res, err := loginWithPassword(ctx, apiURL, userAuth, password)
 	if err != nil {
 		return fmt.Errorf("login error: %w", err)
 	}

@@ -10,15 +10,15 @@ import (
 )
 
 func cmdOpen(ctx context.Context, opts docopt.Opts) error {
-	apiUrl := getStringOr(opts, "--api_url", DefaultApiUrl)
-	connectUrl := getStringOr(opts, "--connect_url", DefaultConnectUrl)
+	apiURL := getStringOr(opts, "--api_url", DefaultAPIURL)
+	connectURL := getStringOr(opts, "--connect_url", DefaultConnectURL)
 	jwtOpt, _ := opts.String("--jwt")
 	jwt, err := loadJWT(jwtOpt)
 	if err != nil {
 		return err
 	}
 
-	api := newByAPI(ctx, apiUrl, jwt)
+	api := newByAPI(ctx, apiURL, jwt)
 	strat := connect.NewClientStrategyWithDefaults(ctx)
 
 	clientIDStr := parseClientID(jwt)
@@ -42,7 +42,7 @@ func cmdOpen(ctx context.Context, opts docopt.Opts) error {
 
 	n := getIntOr(opts, "--transports", 4)
 	for i := 0; i < n; i++ {
-		pt := connect.NewPlatformTransportWithDefaults(ctx, strat, client.RouteManager(), fmt.Sprintf("%s/", connectUrl), auth)
+		pt := connect.NewPlatformTransportWithDefaults(ctx, strat, client.RouteManager(), fmt.Sprintf("%s/", connectURL), auth)
 		defer pt.Close()
 	}
 

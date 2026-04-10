@@ -11,8 +11,8 @@ import (
 	"github.com/docopt/docopt-go"
 )
 
-const DefaultApiUrl = "https://api.bringyour.com"
-const DefaultConnectUrl = "wss://connect.bringyour.com"
+const DefaultAPIURL = "https://api.bringyour.com"
+const DefaultConnectURL = "wss://connect.bringyour.com"
 
 const Version = "0.1.0"
 
@@ -73,7 +73,7 @@ Options:
     --code=<code>                Verification code
     -h --help                    Show help
     --version                    Show version
-`, DefaultApiUrl, DefaultConnectUrl)
+`, DefaultAPIURL, DefaultConnectURL)
 
 	opts, err := docopt.ParseArgs(usage, os.Args[1:], Version)
 	if err != nil {

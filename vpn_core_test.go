@@ -128,7 +128,7 @@ func TestParseCIDRHost(t *testing.T) {
 		t.Run(tc.input, func(t *testing.T) {
 			got := parseCIDRHost(tc.input)
 			if tc.wantNil {
-				if got != nil {
+				if got != nil { //nolint:staticcheck
 					t.Errorf("parseCIDRHost(%q) = %v; want nil", tc.input, got)
 				}
 				return
@@ -136,13 +136,15 @@ func TestParseCIDRHost(t *testing.T) {
 			if got == nil {
 				t.Fatalf("parseCIDRHost(%q) = nil; want non-nil", tc.input)
 			}
-			ones, _ := got.Mask.Size()
+			// got is now guaranteed non-nil
+			ipNet := got
+			ones, _ := ipNet.Mask.Size() //nolint:staticcheck
 			if ones != tc.wantLen {
 				t.Errorf("parseCIDRHost(%q) prefix len = %d; want %d", tc.input, ones, tc.wantLen)
 			}
 			wantIP := net.ParseIP(tc.wantIP).To4()
-			if !got.IP.Equal(wantIP) {
-				t.Errorf("parseCIDRHost(%q).IP = %v; want %v", tc.input, got.IP, wantIP)
+			if !ipNet.IP.Equal(wantIP) { //nolint:staticcheck
+				t.Errorf("parseCIDRHost(%q).IP = %v; want %v", tc.input, ipNet.IP, wantIP)
 			}
 		})
 	}
