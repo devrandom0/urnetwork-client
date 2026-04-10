@@ -1,3 +1,10 @@
+## [1.11.0](https://github.com/devrandom0/urnetwork-client/compare/v1.10.0...v1.11.0) (2026-04-10)
+
+### Features
+
+* add IPv6 address configuration to TUN interfaces on macOS and Linux ([919ff84](https://github.com/devrandom0/urnetwork-client/commit/919ff84a457063aa4cfc7c9bc7ddfcb4123d3096))
+* enable IPv6 interface binding for SOCKS on macOS and Linux ([b78adfe](https://github.com/devrandom0/urnetwork-client/commit/b78adfe465c91b5bbe8a4868284d40b0a3d01453))
+
 ## [1.10.0](https://github.com/devrandom0/urnetwork-client/compare/v1.9.0...v1.10.0) (2026-04-10)
 
 ### Features
