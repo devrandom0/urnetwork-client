@@ -18,9 +18,25 @@ import (
 // shouldDropInbound returns true when the packet should be dropped by inbound filtering.
 // allowCIDRs is the list of permitted source CIDRs for new inbound connections.
 // If allowCIDRs is empty, all new inbound TCP SYNs are dropped.
+// Both IPv4 and IPv6 TCP packets are inspected; all other protocols pass through.
 func shouldDropInbound(packet []byte, allowCIDRs []*net.IPNet) bool {
-	if len(packet) < 20 || (packet[0]>>4) != 4 {
-		return false // not IPv4
+	if len(packet) < 1 {
+		return false
+	}
+	version := packet[0] >> 4
+	switch version {
+	case 4:
+		return shouldDropInboundIPv4(packet, allowCIDRs)
+	case 6:
+		return shouldDropInboundIPv6(packet, allowCIDRs)
+	default:
+		return false
+	}
+}
+
+func shouldDropInboundIPv4(packet []byte, allowCIDRs []*net.IPNet) bool {
+	if len(packet) < 20 {
+		return false
 	}
 	ihl := int(packet[0]&0x0F) * 4
 	if ihl < 20 || len(packet) < ihl+20 {
@@ -46,6 +62,38 @@ func shouldDropInbound(packet []byte, allowCIDRs []*net.IPNet) bool {
 	}
 	if !ack {
 		// Non-SYN TCP without ACK (e.g., stray RST): drop.
+		return true
+	}
+	return false
+}
+
+// shouldDropInboundIPv6 applies the same SYN/ACK policy to IPv6 TCP packets.
+// IPv6 fixed header is 40 bytes; Next Header field is at byte 6.
+// Extension headers are not walked — packets with non-TCP Next Header pass through.
+func shouldDropInboundIPv6(packet []byte, allowCIDRs []*net.IPNet) bool {
+	const ipv6HeaderLen = 40
+	if len(packet) < ipv6HeaderLen+20 {
+		return false
+	}
+	if packet[6] != 6 { // Next Header must be TCP (6)
+		return false
+	}
+	tcpOffset := ipv6HeaderLen
+	tcpFlags := packet[tcpOffset+13]
+	syn := tcpFlags&0x02 != 0
+	ack := tcpFlags&0x10 != 0
+	if syn && !ack {
+		if len(allowCIDRs) > 0 {
+			srcIP := net.IP(packet[8:24]) // bytes 8–23 are the source address
+			for _, n := range allowCIDRs {
+				if n != nil && n.Contains(srcIP) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	if !ack {
 		return true
 	}
 	return false
@@ -108,12 +156,14 @@ func vpnRunCore(
 
 	// Provider receive: optional userspace filtering, then write to TUN and update counters.
 	receive := func(source connect.TransferPath, provideMode protocol.ProvideMode, ipPath *connect.IpPath, packet []byte) {
-		if debugOn || isDebugEnabled() {
-			logInfo("<- provider len=%d src=%v mode=%v ipPath=%v\n", len(packet), source, provideMode, ipPath)
-		}
+		logDebug("<- provider len=%d src=%v mode=%v ipPath=%v\n", len(packet), source, provideMode, ipPath)
 		if blockNewInbound && shouldDropInbound(packet, allowInboundCIDRs) {
-			if debugOn || isDebugEnabled() {
-				if len(packet) >= 20 && (packet[0]>>4) == 4 {
+			if isDebugEnabled() {
+				version := byte(0)
+				if len(packet) > 0 {
+					version = packet[0] >> 4
+				}
+				if version == 4 && len(packet) >= 20 {
 					ihl := int(packet[0]&0x0F) * 4
 					if ihl >= 20 && len(packet) >= ihl+20 && packet[9] == 6 {
 						srcIP := net.IPv4(packet[12], packet[13], packet[14], packet[15])
@@ -121,8 +171,15 @@ func vpnRunCore(
 						srcPort := binary.BigEndian.Uint16(packet[ihl : ihl+2])
 						dstPort := binary.BigEndian.Uint16(packet[ihl+2 : ihl+4])
 						tcpFlags := packet[ihl+13]
-						logInfo("dropped inbound TCP %s:%d -> %s:%d (flags=0x%02x)\n", srcIP, srcPort, dstIP, dstPort, tcpFlags)
+						logDebug("dropped inbound TCP %s:%d -> %s:%d (flags=0x%02x)\n", srcIP, srcPort, dstIP, dstPort, tcpFlags)
 					}
+				} else if version == 6 && len(packet) >= 60 && packet[6] == 6 {
+					srcIP := net.IP(packet[8:24])
+					dstIP := net.IP(packet[24:40])
+					srcPort := binary.BigEndian.Uint16(packet[40:42])
+					dstPort := binary.BigEndian.Uint16(packet[42:44])
+					tcpFlags := packet[53]
+					logDebug("dropped inbound TCP6 %s:%d -> %s:%d (flags=0x%02x)\n", srcIP, srcPort, dstIP, dstPort, tcpFlags)
 				}
 			}
 			return
@@ -152,9 +209,7 @@ func vpnRunCore(
 			}
 			pkt := make([]byte, n)
 			copy(pkt, buf[:n])
-			if debugOn || isDebugEnabled() {
-				logInfo("-> provider len=%d\n", len(pkt))
-			}
+			logDebug("-> provider len=%d\n", len(pkt))
 			// No egress userspace filtering
 			mc.SendPacket(connect.TransferPath{}, protocol.ProvideMode_Network, pkt, -1)
 			if pktsOut != nil {
@@ -171,12 +226,17 @@ func vpnRunCore(
 		go func() {
 			t := time.NewTicker(statsInt)
 			defer t.Stop()
-			for range t.C {
-				inP := atomic.LoadUint64(pktsIn)
-				inB := atomic.LoadUint64(bytesIn)
-				outP := atomic.LoadUint64(pktsOut)
-				outB := atomic.LoadUint64(bytesOut)
-				logInfo("[stats] in=%d pkts / %d bytes, out=%d pkts / %d bytes\n", inP, inB, outP, outB)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					inP := atomic.LoadUint64(pktsIn)
+					inB := atomic.LoadUint64(bytesIn)
+					outP := atomic.LoadUint64(pktsOut)
+					outB := atomic.LoadUint64(bytesOut)
+					logInfo("[stats] in=%d pkts / %d bytes, out=%d pkts / %d bytes\n", inP, inB, outP, outB)
+				}
 			}
 		}()
 	}
@@ -211,7 +271,8 @@ func vpnRunCore(
 	}
 }
 
-// parseCIDRHost parses a CIDR or single IPv4 host into *net.IPNet. Returns nil on failure or non-IPv4.
+// parseCIDRHost parses a CIDR or single host address (IPv4 or IPv6) into *net.IPNet.
+// Returns nil on failure.
 func parseCIDRHost(s string) *net.IPNet {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -222,21 +283,16 @@ func parseCIDRHost(s string) *net.IPNet {
 		if ip == nil {
 			return nil
 		}
-		ip4 := ip.To4()
-		if ip4 == nil {
-			return nil
+		if ip4 := ip.To4(); ip4 != nil {
+			return &net.IPNet{IP: ip4, Mask: net.CIDRMask(32, 32)}
 		}
-		return &net.IPNet{IP: ip4, Mask: net.CIDRMask(32, 32)}
+		return &net.IPNet{IP: ip.To16(), Mask: net.CIDRMask(128, 128)}
 	}
-	ip, ipn, err := net.ParseCIDR(s)
+	_, ipn, err := net.ParseCIDR(s)
 	if err != nil {
 		return nil
 	}
-	ip4 := ip.To4()
-	if ip4 == nil {
-		return nil
-	}
-	return &net.IPNet{IP: ip4, Mask: ipn.Mask}
+	return ipn
 }
 
 // isTUNDisabled returns true when the provided name represents a disabled TUN

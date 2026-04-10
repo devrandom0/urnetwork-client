@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 type LogLevel int32
@@ -53,20 +54,34 @@ func isInfoEnabled() bool  { return LogLevel(currentLogLevel.Load()) >= LevelInf
 func isWarnEnabled() bool  { return LogLevel(currentLogLevel.Load()) >= LevelWarn }
 func isErrorEnabled() bool { return LogLevel(currentLogLevel.Load()) >= LevelError }
 
+// logf writes a structured log line to w with the current UTC timestamp and a level tag.
+// Format: "2006-01-02T15:04:05Z [LEVEL] message"
+func logf(w *os.File, tag, format string, args ...any) {
+	ts := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	msg := fmt.Sprintf(format, args...)
+	_, _ = fmt.Fprintf(w, "%s [%s] %s", ts, tag, msg)
+}
+
 func logInfo(format string, args ...any) {
 	if isInfoEnabled() {
-		fmt.Printf(format, args...)
+		logf(os.Stdout, "INFO", format, args...)
 	}
 }
 
 func logWarn(format string, args ...any) {
 	if isWarnEnabled() {
-		fmt.Fprintf(os.Stderr, "warn: "+format, args...)
+		logf(os.Stderr, "WARN", format, args...)
 	}
 }
 
 func logError(format string, args ...any) {
 	if isErrorEnabled() {
-		fmt.Fprintf(os.Stderr, "error: "+format, args...)
+		logf(os.Stderr, "ERROR", format, args...)
+	}
+}
+
+func logDebug(format string, args ...any) {
+	if isDebugEnabled() {
+		logf(os.Stdout, "DEBUG", format, args...)
 	}
 }

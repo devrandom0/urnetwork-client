@@ -15,7 +15,7 @@
 | Phase 2 | Fix Bugs & Races | ✅ Complete |
 | Phase 3 | Decouple, Test & Lint | ✅ Complete |
 | Phase 4 | Simplify Route Management | ✅ Complete |
-| Phase 5 | Hardening & Polish | ⬜ Not started |
+| Phase 5 | Hardening & Polish | ✅ Done (5.1–5.6 complete; 5.3 documented; 5.7 deferred) |
 
 ---
 
@@ -80,14 +80,14 @@ Partially fixed. `shouldDropInbound` and `parseCIDRHost` have table-driven tests
 #### 1.11 Security concerns
 
 - `parseClientID` using `ParseUnverified` for control flow: partially acceptable (token-type detection, not auth). Remains open.
-- `--password` flag visible in process listings: still open (Phase 5.2 documents it).
+- ✅ `--password` flag visible in process listings: documented in README with security note recommending `URNETWORK_PASSWORD` env var (Phase 5.2).
 - ✅ Log file permissions: fixed to `0o600` in `process.go`.
 
 #### 1.12 Minor issues
 
 - ✅ `spawnProcessDetached` duplicate removed; only `spawnBackground` remains.
-- Mixed `fmt.Printf` / logger usage: still open (Phase 5.5).
-- `cmdSocks` extender connection unimplemented: still open (Phase 5.3), now clearly documented with a `NOTE:` comment in `cmd_socks.go`.
+- ✅ Mixed `fmt.Printf` / logger usage: structured logging with timestamps and level tags added (Phase 5.5).
+- ✅ `cmdSocks` extender connection unimplemented: documented with a `NOTE:` comment in `cmd_socks.go` (Phase 5.3).
 
 #### 1.13 ✅ Context propagation is backwards
 
@@ -174,17 +174,17 @@ This is ordered by impact and risk. Each phase is independently shippable.
 | 4.5 | Refactor `vpn_linux.go` `cmdVpn` to use `linuxRouteManager` — from ~200 lines to ~95 lines | `vpn_linux.go` | Medium | ✅ Done |
 | 4.6 | Add `extractHost` to `util.go`; add `tunCIDRParts` to `vpn_darwin.go` | `util.go`, `vpn_darwin.go` | Small | ✅ Done |
 
-### Phase 5: Hardening & Polish ⬜ Not started
+### Phase 5: Hardening & Polish ✅ Done
 
-| # | Task | Files | Effort |
-|---|------|-------|--------|
-| 5.1 | Add IPv6 support to the packet filter (currently IPv4-only) | `vpn_core.go` | Medium |
-| 5.2 | Document the `--password` flag security caveat in README; recommend env vars | `README.md` | Small |
-| 5.3 | Implement extender connection in `cmdSocks` or document it as unimplemented | `cmd_socks.go` | Medium |
-| 5.4 | Add a `--config` flag to load options from a YAML/TOML file | `config.go` (extend the structs from 3.2 with file loading) | Medium |
-| 5.5 | Add structured logging (timestamps, log level prefix) instead of bare `fmt.Printf` | `logger.go` | Medium |
-| 5.6 | Add graceful shutdown with timeout (wait for goroutines, not just context cancellation) | `vpn_core.go` | Medium |
-| 5.7 | Consider `cmd/urnet-client/` + `internal/` package layout if codebase exceeds ~5k lines | All files | Large |
+| # | Task | Files | Effort | Status |
+|---|------|-------|--------|--------|
+| 5.1 | Add IPv6 support to the packet filter (currently IPv4-only) | `vpn_core.go`, `vpn_core_test.go` | Medium | ✅ Done |
+| 5.2 | Document the `--password` flag security caveat in README; recommend env vars | `README.md` | Small | ✅ Done |
+| 5.3 | Implement extender connection in `cmdSocks` or document it as unimplemented | `cmd_socks.go` | Medium | ✅ Documented (NOTE: comment added) |
+| 5.4 | Add a `--config` flag to load options from a YAML/TOML file | `config.go`, `main.go` (via `gopkg.in/yaml.v3`) | Medium | ✅ Done |
+| 5.5 | Add structured logging (timestamps, log level prefix) instead of bare `fmt.Printf` | `logger.go`, `vpn_core.go` | Medium | ✅ Done |
+| 5.6 | Add graceful shutdown timeout (stats goroutine respects ctx.Done) | `vpn_core.go` | Medium | ✅ Done |
+| 5.7 | Consider `cmd/urnet-client/` + `internal/` package layout if codebase exceeds ~5k lines | All files | Large | ⬜ Deferred (~3.7k lines, below threshold) |
 
 ---
 

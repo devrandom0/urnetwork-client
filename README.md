@@ -136,6 +136,9 @@ Identity / auth:
 - `--force_jwt` (quick-connect only: always mint a fresh client JWT)
 - `--jwt_renew_interval=<dur>` (quick-connect only: periodically re‑mint client JWT; Go duration like `30m`, `12h`; `0` disables)
 
+> **Security note:** `--password` is visible in process listings (`ps aux`) and shell history.
+> Prefer the `URNETWORK_PASSWORD` environment variable or store your JWT with `save-jwt` and omit the password flag on subsequent runs.
+
 Endpoints:
 
 - `--api_url=<url>` (default: <https://api.bringyour.com>)
