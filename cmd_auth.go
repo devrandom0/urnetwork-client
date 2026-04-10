@@ -21,11 +21,11 @@ func cmdSaveJWT(opts docopt.Opts) error {
 }
 
 func cmdVerify(ctx context.Context, opts docopt.Opts) error {
-	apiUrl := getStringOr(opts, "--api_url", DefaultApiUrl)
+	apiURL := getStringOr(opts, "--api_url", DefaultAPIURL)
 	userAuth, _ := opts.String("--user_auth")
 	code, _ := opts.String("--code")
 
-	byJwt, err := verifyCode(ctx, apiUrl, userAuth, code)
+	byJwt, err := verifyCode(ctx, apiURL, userAuth, code)
 	if err != nil {
 		return fmt.Errorf("verify error: %w", err)
 	}
@@ -37,14 +37,14 @@ func cmdVerify(ctx context.Context, opts docopt.Opts) error {
 }
 
 func cmdMintClient(ctx context.Context, opts docopt.Opts) error {
-	apiUrl := getStringOr(opts, "--api_url", DefaultApiUrl)
+	apiURL := getStringOr(opts, "--api_url", DefaultAPIURL)
 	jwtOpt, _ := opts.String("--jwt")
 	jwt, err := loadJWT(jwtOpt)
 	if err != nil {
 		return err
 	}
 
-	clientJwt, err := mintClientJWT(ctx, apiUrl, jwt)
+	clientJwt, err := mintClientJWT(ctx, apiURL, jwt)
 	if err != nil {
 		return err
 	}

@@ -36,8 +36,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	allowDomains := cfg.AllowDomains
 	excludeDomains := cfg.ExcludeDomains
 	debugOn := cfg.Debug
-	apiUrl := cfg.APIUrl
-	connectUrl := cfg.ConnectUrl
+	connectURL := cfg.ConnectURL
 
 	logStartupConfig(cfg)
 
@@ -103,7 +102,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	// Track control-plane bypass host routes (api/connect endpoints via original gateway)
 	var addedCtrlBypass []string
 	// Track DNS resolver IPs we bypass via the original gateway when no --dns is provided
-	var addedDnsBypass []string
+	var addedDNSBypass []string
 	// Track split-default routes we add so we can clean them up precisely
 	type splitAdded struct {
 		dest, mask string
@@ -177,8 +176,8 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 					}
 				}
 			}
-			addBypass(apiUrl)
-			addBypass(connectUrl)
+			addBypass(cfg.APIURL)
+			addBypass(connectURL)
 		}
 		// Try multiple variants for split default; track exactly what we add for cleanup
 		addVariant := func(dest, mask string) bool {
@@ -385,12 +384,12 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 				}
 				if out, err := runCapture("route", "-n", "add", "-host", ip, defGw); err == nil || strings.Contains(out, "File exists") {
 					if err == nil {
-						addedDnsBypass = append(addedDnsBypass, ip)
+						addedDNSBypass = append(addedDNSBypass, ip)
 					}
 				}
 			}
-			if len(addedDnsBypass) > 0 {
-				logInfo("Kept existing DNS resolvers via %s: %v\n", defGw, addedDnsBypass)
+			if len(addedDNSBypass) > 0 {
+				logInfo("Kept existing DNS resolvers via %s: %v\n", defGw, addedDNSBypass)
 			}
 		} else {
 			logWarn("failed to detect system DNS resolvers: %v\n", err)
@@ -408,12 +407,12 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 			} // expect IPs only
 			if out, err := runCapture("route", "-n", "add", "-host", ip, defGw); err == nil || strings.Contains(out, "File exists") {
 				if err == nil {
-					addedDnsBypass = append(addedDnsBypass, ip)
+					addedDNSBypass = append(addedDNSBypass, ip)
 				}
 			}
 		}
-		if len(addedDnsBypass) > 0 {
-			logInfo("DNS servers via original gateway %s: %v\n", defGw, addedDnsBypass)
+		if len(addedDNSBypass) > 0 {
+			logInfo("DNS servers via original gateway %s: %v\n", defGw, addedDNSBypass)
 		}
 	}
 
@@ -436,10 +435,10 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 				}
 			}
 			// Remove DNS bypass routes so subsequent DNS uses VPN
-			for _, ip := range addedDnsBypass {
+			for _, ip := range addedDNSBypass {
 				_ = runSudo("route", "-n", "delete", "-host", ip)
 			}
-			addedDnsBypass = nil
+			addedDNSBypass = nil
 			logInfo("DNS bootstrap cache complete; DNS bypass removed\n")
 		}()
 	}
@@ -479,8 +478,8 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 				_ = runSudo("route", "-n", "delete", "-host", ip)
 			}
 		}
-		if len(addedDnsBypass) > 0 {
-			for _, ip := range addedDnsBypass {
+		if len(addedDNSBypass) > 0 {
+			for _, ip := range addedDNSBypass {
 				_ = runSudo("route", "-n", "delete", "-host", ip)
 			}
 		}

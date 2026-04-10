@@ -10,7 +10,7 @@ import (
 // buildProviderSpecs constructs ProviderSpecs from a LocationConfig.
 // Priority: LocationID / LocationGroupID → LocationQuery (with HTTP fallback) → BestAvailable.
 // It also creates and returns the ClientStrategy needed by the VPN generator.
-func buildProviderSpecs(ctx context.Context, apiUrl, jwt string, loc LocationConfig) (*connect.ClientStrategy, []*connect.ProviderSpec) {
+func buildProviderSpecs(ctx context.Context, apiURL, jwt string, loc LocationConfig) (*connect.ClientStrategy, []*connect.ProviderSpec) {
 	strat := connect.NewClientStrategyWithDefaults(ctx)
 	specs := []*connect.ProviderSpec{}
 
@@ -26,12 +26,12 @@ func buildProviderSpecs(ctx context.Context, apiUrl, jwt string, loc LocationCon
 	}
 	if len(specs) == 0 {
 		if q := loc.LocationQuery; q != "" {
-			if httpRes, err := httpFindLocations(ctx, apiUrl, jwt, q); err == nil && httpRes != nil && len(httpRes.Specs) > 0 {
+			if httpRes, err := httpFindLocations(ctx, apiURL, jwt, q); err == nil && httpRes != nil && len(httpRes.Specs) > 0 {
 				specs = httpRes.Specs
 				logInfo("using %d specs from location query: %s\n", len(specs), q)
 			}
 			if len(specs) == 0 {
-				if fb := findSpecsByQueryFallback(ctx, apiUrl, jwt, q); len(fb) > 0 {
+				if fb := findSpecsByQueryFallback(ctx, apiURL, jwt, q); len(fb) > 0 {
 					specs = fb
 					logInfo("using %d specs from provider-locations (fallback) for: %s\n", len(specs), q)
 				}
@@ -46,8 +46,8 @@ func buildProviderSpecs(ctx context.Context, apiUrl, jwt string, loc LocationCon
 
 // findSpecsByQueryFallback queries /network/provider-locations and builds ProviderSpecs
 // by client-side filtering for queries like 'country:Germany', 'region:Europe', 'group:West'.
-func findSpecsByQueryFallback(ctx context.Context, apiUrl, jwt, q string) []*connect.ProviderSpec {
-	_, res := filterLocationsFallback(ctx, apiUrl, jwt, q)
+func findSpecsByQueryFallback(ctx context.Context, apiURL, jwt, q string) []*connect.ProviderSpec {
+	_, res := filterLocationsFallback(ctx, apiURL, jwt, q)
 	if res == nil {
 		return nil
 	}
@@ -65,7 +65,7 @@ func findSpecsByQueryFallback(ctx context.Context, apiUrl, jwt, q string) []*con
 	if key == "group" || key == "name" {
 		for _, g := range res.Groups {
 			if matchValueFold(g.Name, valNorm) {
-				if id, err := connect.ParseId(g.LocationGroupId); err == nil && !seen[id.String()] {
+				if id, err := connect.ParseId(g.LocationGroupID); err == nil && !seen[id.String()] {
 					seen[id.String()] = true
 					specs = append(specs, &connect.ProviderSpec{LocationGroupId: &id})
 				}
@@ -89,12 +89,12 @@ func findSpecsByQueryFallback(ctx context.Context, apiUrl, jwt, q string) []*con
 		if !match {
 			continue
 		}
-		idStr := l.LocationId
-		if key == "country" && l.CountryLocationId != "" {
-			idStr = l.CountryLocationId
+		idStr := l.LocationID
+		if key == "country" && l.CountryLocationID != "" {
+			idStr = l.CountryLocationID
 		}
-		if key == "region" && l.RegionLocationId != "" {
-			idStr = l.RegionLocationId
+		if key == "region" && l.RegionLocationID != "" {
+			idStr = l.RegionLocationID
 		}
 		if id, err := connect.ParseId(idStr); err == nil && !seen[id.String()] {
 			seen[id.String()] = true
@@ -106,8 +106,8 @@ func findSpecsByQueryFallback(ctx context.Context, apiUrl, jwt, q string) []*con
 
 // filterLocationsFallback fetches /network/provider-locations and returns a filtered result
 // plus convenience ProviderSpecs for the given query q.
-func filterLocationsFallback(ctx context.Context, apiUrl, jwt, q string) ([]*connect.ProviderSpec, *findLocationsHTTPResult) {
-	res, err := httpProviderLocations(ctx, apiUrl, jwt)
+func filterLocationsFallback(ctx context.Context, apiURL, jwt, q string) ([]*connect.ProviderSpec, *findLocationsHTTPResult) {
+	res, err := httpProviderLocations(ctx, apiURL, jwt)
 	if err != nil || res == nil {
 		return nil, nil
 	}
@@ -149,18 +149,18 @@ func filterLocationsFallback(ctx context.Context, apiUrl, jwt, q string) ([]*con
 	seen := map[string]bool{}
 	specs := []*connect.ProviderSpec{}
 	for _, g := range out.Groups {
-		if id, err := connect.ParseId(g.LocationGroupId); err == nil && !seen[id.String()] {
+		if id, err := connect.ParseId(g.LocationGroupID); err == nil && !seen[id.String()] {
 			seen[id.String()] = true
 			specs = append(specs, &connect.ProviderSpec{LocationGroupId: &id})
 		}
 	}
 	for _, l := range out.Locations {
-		idStr := l.LocationId
-		if key == "country" && l.CountryLocationId != "" {
-			idStr = l.CountryLocationId
+		idStr := l.LocationID
+		if key == "country" && l.CountryLocationID != "" {
+			idStr = l.CountryLocationID
 		}
-		if key == "region" && l.RegionLocationId != "" {
-			idStr = l.RegionLocationId
+		if key == "region" && l.RegionLocationID != "" {
+			idStr = l.RegionLocationID
 		}
 		if id, err := connect.ParseId(idStr); err == nil && !seen[id.String()] {
 			seen[id.String()] = true

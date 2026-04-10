@@ -61,16 +61,16 @@ func vpnRunCore(
 	pktsIn, pktsOut, bytesIn, bytesOut *uint64,
 	onBeforeExit func(),
 ) {
-	apiUrl := cfg.APIUrl
-	connectUrl := cfg.ConnectUrl
+	apiURL := cfg.APIURL
+	connectURL := cfg.ConnectURL
 	debugOn := cfg.Debug
 	statsInt := cfg.StatsInterval
 
 	// Build provider specs from location flags.
-	strat, specs := buildProviderSpecs(ctx, apiUrl, cfg.JWT, cfg.Location)
+	strat, specs := buildProviderSpecs(ctx, apiURL, cfg.JWT, cfg.Location)
 	appVer := fmt.Sprintf("urnet-client %s", Version)
 	gen := connect.NewApiMultiClientGeneratorWithDefaults(
-		ctx, specs, strat, nil, apiUrl, cfg.JWT, fmt.Sprintf("%s/", connectUrl), "", "", appVer, nil,
+		ctx, specs, strat, nil, apiURL, cfg.JWT, fmt.Sprintf("%s/", connectURL), "", "", appVer, nil,
 	)
 
 	// Inbound connection control: build allowlist from config.
@@ -253,8 +253,8 @@ func isTUNDisabled(name string) bool {
 // logStartupConfig logs the effective VPN configuration summary from a VPNConfig.
 func logStartupConfig(cfg VPNConfig) {
 	configItems := []string{
-		fmt.Sprintf("api_url=%s", cfg.APIUrl),
-		fmt.Sprintf("connect_url=%s", cfg.ConnectUrl),
+		fmt.Sprintf("api_url=%s", cfg.APIURL),
+		fmt.Sprintf("connect_url=%s", cfg.ConnectURL),
 		fmt.Sprintf("tun=%s", cfg.TunName),
 		fmt.Sprintf("ip_cidr=%s", cfg.IPCIDR),
 		fmt.Sprintf("mtu=%d", cfg.MTU),

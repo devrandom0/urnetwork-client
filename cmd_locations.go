@@ -9,7 +9,7 @@ import (
 )
 
 func cmdLocations(ctx context.Context, opts docopt.Opts) error {
-	apiUrl := getStringOr(opts, "--api_url", DefaultApiUrl)
+	apiURL := getStringOr(opts, "--api_url", DefaultAPIURL)
 	q := getStringOr(opts, "--query", "")
 	jwtOpt, _ := opts.String("--jwt")
 	jwt, err := loadJWT(jwtOpt)
@@ -22,17 +22,17 @@ func cmdLocations(ctx context.Context, opts docopt.Opts) error {
 
 	var res *findLocationsHTTPResult
 	if q == "" || q == "*" || q == "country:*" || q == "region:*" || q == "group:*" {
-		httpRes, err := httpProviderLocations(qCtx, apiUrl, jwt)
+		httpRes, err := httpProviderLocations(qCtx, apiURL, jwt)
 		if err != nil {
 			return err
 		}
 		res = httpRes
 	} else {
-		if httpRes, err := httpFindLocations(qCtx, apiUrl, jwt, q); err == nil && httpRes != nil {
+		if httpRes, err := httpFindLocations(qCtx, apiURL, jwt, q); err == nil && httpRes != nil {
 			res = httpRes
 		}
 		if res == nil || (len(res.Groups) == 0 && len(res.Locations) == 0) {
-			fbSpecs, fbRes := filterLocationsFallback(qCtx, apiUrl, jwt, q)
+			fbSpecs, fbRes := filterLocationsFallback(qCtx, apiURL, jwt, q)
 			if fbRes != nil {
 				res = fbRes
 			}
@@ -50,18 +50,18 @@ func cmdLocations(ctx context.Context, opts docopt.Opts) error {
 	if len(res.Groups) > 0 {
 		fmt.Println("Groups:")
 		for _, g := range res.Groups {
-			fmt.Printf("  %-30s id=%s providers=%d\n", g.Name, g.LocationGroupId, g.ProviderCount)
+			fmt.Printf("  %-30s id=%s providers=%d\n", g.Name, g.LocationGroupID, g.ProviderCount)
 		}
 	}
 	if len(res.Locations) > 0 {
 		fmt.Println("Locations:")
 		for _, l := range res.Locations {
-			id := l.LocationId
-			if l.CountryLocationId != "" {
-				id = l.CountryLocationId
+			id := l.LocationID
+			if l.CountryLocationID != "" {
+				id = l.CountryLocationID
 			}
-			if l.RegionLocationId != "" {
-				id = l.RegionLocationId
+			if l.RegionLocationID != "" {
+				id = l.RegionLocationID
 			}
 			extra := l.Country
 			if l.Region != "" {

@@ -22,28 +22,28 @@ type findLocationsHTTPArgs struct {
 type findLocationsHTTPResult struct {
 	Specs  []*connect.ProviderSpec `json:"specs"`
 	Groups []struct {
-		LocationGroupId string `json:"location_group_id"`
+		LocationGroupID string `json:"location_group_id"`
 		Name            string `json:"name"`
 		ProviderCount   int    `json:"provider_count"`
 		Promoted        bool   `json:"promoted"`
 	} `json:"groups"`
 	Locations []struct {
-		LocationId        string `json:"location_id"`
+		LocationID        string `json:"location_id"`
 		LocationType      string `json:"location_type"`
 		Name              string `json:"name"`
 		Region            string `json:"region"`
-		RegionLocationId  string `json:"region_location_id"`
+		RegionLocationID  string `json:"region_location_id"`
 		Country           string `json:"country"`
 		CountryCode       string `json:"country_code"`
-		CountryLocationId string `json:"country_location_id"`
+		CountryLocationID string `json:"country_location_id"`
 		ProviderCount     int    `json:"provider_count"`
 	} `json:"locations"`
 }
 
-func httpFindLocations(ctx context.Context, apiUrl, jwt, q string) (*findLocationsHTTPResult, error) {
+func httpFindLocations(ctx context.Context, apiURL, jwt, q string) (*findLocationsHTTPResult, error) {
 	body := findLocationsHTTPArgs{Query: q}
 	b, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(apiUrl, "/")+"/network/find-locations", bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(apiURL, "/")+"/network/find-locations", bytes.NewReader(b))
 	if err != nil {
 		return nil, err
 	}
@@ -67,8 +67,8 @@ func httpFindLocations(ctx context.Context, apiUrl, jwt, q string) (*findLocatio
 	return &out, nil
 }
 
-func httpProviderLocations(ctx context.Context, apiUrl, jwt string) (*findLocationsHTTPResult, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(apiUrl, "/")+"/network/provider-locations", nil)
+func httpProviderLocations(ctx context.Context, apiURL, jwt string) (*findLocationsHTTPResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(apiURL, "/")+"/network/provider-locations", nil)
 	if err != nil {
 		return nil, err
 	}

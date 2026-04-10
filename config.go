@@ -16,8 +16,8 @@ type LocationConfig struct {
 
 // VPNConfig holds all configuration for cmdVpn and vpnRunCore.
 type VPNConfig struct {
-	APIUrl              string
-	ConnectUrl          string
+	APIURL              string
+	ConnectURL          string
 	TunName             string
 	IPCIDR              string
 	MTU                 int
@@ -67,8 +67,8 @@ func parseVPNConfig(opts docopt.Opts, jwt string) VPNConfig {
 	allowLocal, _ := opts.Bool("--allow_inbound_local")
 	socksListen := strings.TrimSpace(getStringOr(opts, "--socks", getStringOr(opts, "--socks_listen", "")))
 	return VPNConfig{
-		APIUrl:              getStringOr(opts, "--api_url", DefaultApiUrl),
-		ConnectUrl:          getStringOr(opts, "--connect_url", DefaultConnectUrl),
+		APIURL:              getStringOr(opts, "--api_url", DefaultAPIURL),
+		ConnectURL:          getStringOr(opts, "--connect_url", DefaultConnectURL),
 		TunName:             getStringOr(opts, "--tun", ""),
 		IPCIDR:              getStringOr(opts, "--ip_cidr", "10.255.0.2/24"),
 		MTU:                 getIntOr(opts, "--mtu", 1420),

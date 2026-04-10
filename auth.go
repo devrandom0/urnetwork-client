@@ -12,9 +12,9 @@ import (
 
 // newByAPI creates a BringYourApi client with an optional pre-set JWT.
 // Pass an empty jwt for pre-auth calls such as Login.
-func newByAPI(ctx context.Context, apiUrl, jwt string) *connect.BringYourApi {
+func newByAPI(ctx context.Context, apiURL, jwt string) *connect.BringYourApi {
 	strat := connect.NewClientStrategyWithDefaults(ctx)
-	api := connect.NewBringYourApi(ctx, strat, apiUrl)
+	api := connect.NewBringYourApi(ctx, strat, apiURL)
 	if strings.TrimSpace(jwt) != "" {
 		api.SetByJwt(jwt)
 	}
@@ -30,10 +30,10 @@ type LoginResult struct {
 
 // loginWithPassword calls AuthLoginWithPassword synchronously and returns a LoginResult.
 // If verification is required before a JWT can be issued, VerificationRequired is set and ByJwt is empty.
-func loginWithPassword(ctx context.Context, apiUrl, userAuth, password string) (*LoginResult, error) {
+func loginWithPassword(ctx context.Context, apiURL, userAuth, password string) (*LoginResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	api := newByAPI(ctx, apiUrl, "")
+	api := newByAPI(ctx, apiURL, "")
 
 	type outcome struct {
 		lr  *LoginResult
@@ -67,10 +67,10 @@ func loginWithPassword(ctx context.Context, apiUrl, userAuth, password string) (
 }
 
 // verifyCode calls AuthVerify synchronously and returns the network-scoped BY JWT.
-func verifyCode(ctx context.Context, apiUrl, userAuth, code string) (string, error) {
+func verifyCode(ctx context.Context, apiURL, userAuth, code string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	api := newByAPI(ctx, apiUrl, "")
+	api := newByAPI(ctx, apiURL, "")
 
 	type outcome struct {
 		byJwt string
@@ -100,10 +100,10 @@ func verifyCode(ctx context.Context, apiUrl, userAuth, code string) (string, err
 }
 
 // mintClientJWT exchanges any BY JWT (network- or client-scoped) for a fresh client-scoped JWT.
-func mintClientJWT(ctx context.Context, apiUrl, byJwt string) (string, error) {
+func mintClientJWT(ctx context.Context, apiURL, byJwt string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	api := newByAPI(ctx, apiUrl, byJwt)
+	api := newByAPI(ctx, apiURL, byJwt)
 	res, err := api.AuthNetworkClientSync(&connect.AuthNetworkClientArgs{Description: "", DeviceSpec: ""})
 	if err != nil {
 		return "", err
