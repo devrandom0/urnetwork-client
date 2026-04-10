@@ -19,23 +19,25 @@
 ## Current limitations
 
 - UDP over SOCKS is available, but app support varies.
-- IPv6 inbound packet filtering is supported.
-- IPv6 system-level interface binding is now supported on macOS and Linux.
 
 ## IPv6 support
 
-SOCKS proxy now supports IPv6 with automatic IPv4 fallback:
+IPv6 is **disabled by default** since many VPN providers don't support it yet.
 
-- When you request IPv6 (e.g., `curl -6`), the client will attempt to connect via IPv6 first
-- If the VPN provider doesn't support IPv6 and the connection fails, it automatically falls back to IPv4 for domain names
-- **Recommended:** For best compatibility, omit the `-6` flag when using SOCKS to allow dual-stack resolution with IPv4 preference
-
-Example:
+To enable IPv6 routing through the VPN, use the `--enable_ipv6` flag:
 
 ```bash
-# Automatic fallback (recommended):
-curl --socks5 127.0.0.1:1080 https://ifconfig.co/country
-
-# Force IPv6 (may use IPv4 fallback if provider doesn't support IPv6):
-curl --socks5 127.0.0.1:1080 -6 https://ifconfig.co/country
+sudo ./urnet-client vpn \
+  --tun utun10 \
+  --enable_ipv6 \
+  --location_query="country:Germany"
 ```
+
+When IPv6 is disabled (default):
+- IPv6 packets from the TUN are silently dropped
+- IPv6 clients will timeout or fail, encouraging them to retry with IPv4
+- All traffic continues to work with IPv4-only
+
+When IPv6 is enabled:
+- Both IPv4 and IPv6 traffic route through the VPN
+- **Only works if your VPN provider supports IPv6**
