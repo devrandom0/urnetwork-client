@@ -47,63 +47,13 @@ func cmdVpn(opts docopt.Opts) {
 		fatal(err)
 	}
 
-	// Startup configuration summary (omit secrets)
-	{
-		cfg := []string{
-			fmt.Sprintf("api_url=%s", apiUrl),
-			fmt.Sprintf("connect_url=%s", connectUrl),
-			fmt.Sprintf("tun=%s", tunName),
-			fmt.Sprintf("ip_cidr=%s", ipCIDR),
-			fmt.Sprintf("mtu=%d", mtu),
-			fmt.Sprintf("default_route=%t", defRoute),
-		}
-		if strings.TrimSpace(extraRoutes) != "" {
-			cfg = append(cfg, fmt.Sprintf("route=%s", strings.TrimSpace(extraRoutes)))
-		}
-		if strings.TrimSpace(excludeRoutes) != "" {
-			cfg = append(cfg, fmt.Sprintf("exclude_route=%s", strings.TrimSpace(excludeRoutes)))
-		}
-		if strings.TrimSpace(dnsList) != "" {
-			cfg = append(cfg, fmt.Sprintf("dns=%s", strings.TrimSpace(dnsList)))
-		}
-		if strings.TrimSpace(dnsService) != "" {
-			cfg = append(cfg, fmt.Sprintf("dns_service=%s", strings.TrimSpace(dnsService)))
-		}
-		if strings.TrimSpace(dnsBootstrap) != "" {
-			cfg = append(cfg, fmt.Sprintf("dns_bootstrap=%s", strings.TrimSpace(dnsBootstrap)))
-		}
-		if socksListen != "" {
-			cfg = append(cfg, fmt.Sprintf("socks=%s", socksListen))
-		}
-		if len(allowDomains) > 0 {
-			cfg = append(cfg, fmt.Sprintf("domain=%s", strings.Join(allowDomains, ",")))
-		}
-		if len(excludeDomains) > 0 {
-			cfg = append(cfg, fmt.Sprintf("exclude_domain=%s", strings.Join(excludeDomains, ",")))
-		}
-		cfg = append(cfg, fmt.Sprintf("debug=%t", debugOn))
-		if strings.TrimSpace(jwt) != "" {
-			cfg = append(cfg, "jwt=provided")
-		} else {
-			cfg = append(cfg, "jwt=missing")
-		}
-		logInfo("startup: %s\n", strings.Join(cfg, " "))
-	}
+	logStartupConfig(opts, jwt)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// If user disables TUN (e.g., --tun=none/non/no/off/false/disable/0) or omits it (empty and not a missing-arg case),
-	// run SOCKS-only without creating a utun.
-	if func(n string) bool {
-		s := strings.ToLower(strings.TrimSpace(n))
-		switch s {
-		case "none", "non", "no", "off", "false", "disable", "disabled", "0":
-			return true
-		default:
-			return false
-		}
-	}(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
+	// If TUN is disabled or not specified (and not a missing-arg case), run SOCKS-only.
+	if isTUNDisabled(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
 		if socksListen == "" {
 			logError("--tun=none specified but no --socks provided; nothing to do\n")
 			return
@@ -614,13 +564,6 @@ func getDefaultGateway() (string, string, error) {
 		return "", "", fmt.Errorf("no default gateway found")
 	}
 	return gw, iface, nil
-}
-
-// runCapture executes a command and returns combined stdout/stderr and an error.
-func runCapture(name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
-	out, err := cmd.CombinedOutput()
-	return string(out), err
 }
 
 // getSystemDNSResolvers parses `scutil --dns` and returns unique IPv4 resolver IPs.

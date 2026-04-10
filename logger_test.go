@@ -20,7 +20,7 @@ func TestSetLogLevel(t *testing.T) {
 		t.Fatalf("error should disable warn")
 	}
 	setLogLevel("quiet", false)
-	if currentLogLevel != LevelQuiet {
+	if LogLevel(currentLogLevel.Load()) != LevelQuiet {
 		t.Fatalf("quiet should set LevelQuiet")
 	}
 	// --debug implies debug when no explicit level
