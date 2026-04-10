@@ -44,6 +44,33 @@ sudo ./dist/urnet-client quick-connect \
   --tun utun10
 ```
 
+### Quick Start (Docker)
+
+```bash
+# 1) Build image
+make docker-build
+
+# 2) Persist JWT locally
+mkdir -p ~/.urnetwork
+
+# 3) Login inside container
+docker run --rm \
+  -e URNETWORK_HOME=/data \
+  -v ~/.urnetwork:/data \
+  moghaddas/urnetwork-client:local login \
+  --user_auth me@example.com --password 'secret'
+
+# 4) Start VPN in container (Linux host)
+docker run --rm -it \
+  --cap-add NET_ADMIN \
+  --device /dev/net/tun \
+  -e URNETWORK_HOME=/data \
+  -v ~/.urnetwork:/data \
+  moghaddas/urnetwork-client:local vpn --tun urnet0
+```
+
+For full container usage (compose, multi-arch, macOS notes), see [docs/docker.md](docs/docker.md).
+
 ## Commands
 
 - `login`, `verify`, `save-jwt`, `mint-client`
