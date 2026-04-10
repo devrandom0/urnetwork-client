@@ -13,8 +13,8 @@
 |-------|-------------|--------|
 | Phase 1 | Extract & Deduplicate | ✅ Complete |
 | Phase 2 | Fix Bugs & Races | ✅ Complete |
-| Phase 3 | Decouple, Test & Lint | ⬜ Not started |
-| Phase 4 | Simplify Route Management | ⬜ Not started |
+| Phase 3 | Decouple, Test & Lint | ✅ Complete |
+| Phase 4 | Simplify Route Management | ✅ Complete |
 | Phase 5 | Hardening & Polish | ⬜ Not started |
 
 ---
@@ -40,13 +40,13 @@ Fixed. `main.go` is now 127 lines (constants + CLI dispatch). All command logic 
 
 Fixed. The login→mint→save pattern is now a single function (`loginWithPassword` / `mintClientJWT`) in `auth.go` called from `cmd_quickconnect.go`. Startup config summary is `logStartupConfig()` in `vpn_core.go`. TUN-disabled check is `isTUNDisabled()`. `runCapture` is unified in `util.go`. Provider spec building lives in `buildProviderSpecs()` in `specs.go`.
 
-#### 1.3 God-function: `cmdVpn` on macOS is ~500 lines
+#### 1.3 ✅ God-function: `cmdVpn` on macOS is ~500 lines
 
-Still open. `vpn_darwin.go` is 593 lines. This is Phase 4 (RouteManager).
+Fixed. Phase 4 extracted all route mutation logic into `darwinRouteManager` (`routes_darwin.go`) and `linuxRouteManager` (`routes_linux.go`). `vpn_darwin.go` `cmdVpn` shrank from ~450 lines to ~155 lines; `vpn_linux.go` from ~200 to ~95 lines.
 
-#### 1.4 No structured error handling
+#### 1.4 ✅ No structured error handling
 
-Still open. `cmd*` functions still call `fatal()`/`os.Exit()`. Phase 3.1 addresses this.
+Fixed. All `cmd*` functions now return `error`. `main()` is the only caller of `os.Exit`. `fatal()` was removed from `util.go`. `defer` cleanup now runs even on error paths.
 
 #### 1.5 ✅ Deprecated APIs
 
@@ -65,17 +65,17 @@ Fixed:
 - `handleSocksConn` now sets a 10-second deadline during the SOCKS handshake phase, preventing goroutine leaks from idle connections. Deadline is cleared once the tunnel is established.
 - TCP relay now uses `CloseWrite` + `sync.WaitGroup` for proper half-close: when one direction reaches EOF, the other side receives a clean shutdown signal.
 
-#### 1.8 Packet filtering is fragile
+#### 1.8 ✅ Packet filtering is fragile
 
-Still open. IPv4-only, no unit tests. Phase 3.3 extracts `shouldDropInbound()` for testability. IPv6 support is Phase 5.1.
+Partially fixed. `shouldDropInbound()` extracted from the `receive` closure into a standalone function in `vpn_core.go` with full table-driven tests in `vpn_core_test.go`. IPv6 support remains as Phase 5.1.
 
 #### 1.9 ✅ `runCapture` duplicated across platform files
 
 Fixed. Single unified implementation in `util.go` (combined stdout+stderr). Removed from `vpn_darwin.go` and `vpn_linux.go`.
 
-#### 1.10 Test coverage gaps
+#### 1.10 ✅ Test coverage gaps
 
-Still open (Phase 3). Commands, packet filtering, and route manipulation remain untested.
+Partially fixed. `shouldDropInbound` and `parseCIDRHost` have table-driven tests (`vpn_core_test.go`). `buildProviderSpecs` has table-driven tests with a mocked HTTP server (`specs_test.go`). Route manipulation and command-level tests remain as Phase 5.
 
 #### 1.11 Security concerns
 
@@ -89,29 +89,29 @@ Still open (Phase 3). Commands, packet filtering, and route manipulation remain 
 - Mixed `fmt.Printf` / logger usage: still open (Phase 5.5).
 - `cmdSocks` extender connection unimplemented: still open (Phase 5.3), now clearly documented with a `NOTE:` comment in `cmd_socks.go`.
 
-#### 1.13 Context propagation is backwards
+#### 1.13 ✅ Context propagation is backwards
 
-Functions like `loginWithPassword`, `verifyCode`, `mintClientJWT` (in `auth.go`) and `validateClientJWT` (in `jwt.go`) create their own `context.Background()` internally. Go best practice: accept `ctx context.Context` as the first parameter and let the caller control cancellation and timeouts. This blocks graceful shutdown and makes long-running operations non-cancellable from outside.
+Fixed. `loginWithPassword`, `verifyCode`, `mintClientJWT` (`auth.go`) and `validateClientJWT` (`jwt.go`) and `buildProviderSpecs` (`specs.go`) all accept `ctx context.Context` as the first parameter.
 
-#### 1.14 Business logic is coupled to `docopt.Opts`
+#### 1.14 ✅ Business logic is coupled to `docopt.Opts`
 
-Functions like `buildProviderSpecs`, `cmdVpn`, and `cmdQuickConnect` take `docopt.Opts` directly. This means core logic can't be called or tested without a CLI parser. Go best practice: define config structs, parse CLI → struct at the boundary (`main.go`), pass structs into business logic.
+Fixed. `config.go` defines `VPNConfig`, `SOCKSConfig`, and `LocationConfig`. All `cmd*` functions and `buildProviderSpecs` now accept typed config structs; docopt parsing is confined to `main()` and the `parseVPNConfig`/`parseSOCKSConfig` functions at the CLI boundary.
 
-#### 1.15 No dependency interfaces for external services
+#### 1.15 ✅ No dependency interfaces for external services
 
-Phase 3.2 mentions injectable HTTP client, but the real gap is broader. `auth.go` directly calls `connect.NewBringYourApi` / `connect.NewClientStrategyWithDefaults` in every function. There are no interfaces for the API client, so unit testing without hitting the network is impossible.
+Fixed. `Authenticator` interface defined in `auth.go` with production `apiAuthenticator` implementation and `DefaultAuthenticator` package variable. `httpDoer` interface defined in `api_http.go` with `defaultHTTPClient` package variable — both allow test doubles without changing production paths.
 
-#### 1.16 Repeated API client creation boilerplate
+#### 1.16 ✅ Repeated API client creation boilerplate
 
-The 3-line pattern `ctx+cancel → NewClientStrategyWithDefaults → NewBringYourApi` appears 5 times (3× in `auth.go`, 1× in `specs.go`, 1× in `jwt.go`). A factory function or lightweight client struct would eliminate this.
+Fixed. A single `newByAPI(ctx, apiURL, jwt)` factory in `auth.go` replaces the repeated 3-line pattern. All callers use this function.
 
-#### 1.17 `fatal()` / `os.Exit()` bypasses `defer` cleanup
+#### 1.17 ✅ `fatal()` / `os.Exit()` bypasses `defer` cleanup
 
-This isn't just a testability problem (Phase 3.1) — it's a **correctness bug**. `os.Exit()` inside a helper skips all deferred cleanup. In a VPN client that adds routes, DNS entries, and TUN devices, this means an error path can leak system state (routes left in the table, DNS not restored, TUN not removed).
+Fixed. No `os.Exit` in any `cmd*` function. All `RouteManager.Cleanup()` calls are via `defer`, so route and DNS cleanup always runs even when `cmdVpn` returns early due to an error.
 
-#### 1.18 Static analysis not integrated early enough
+#### 1.18 ✅ Static analysis not integrated early enough
 
-`go vet`, `staticcheck`, and `golangci-lint` are deferred to Phase 5.6. These catch real bugs (printf format mismatches, unreachable code, interface satisfaction). They should run before writing new code in Phases 3–4.
+Fixed. `go vet ./...` and `golangci-lint run ./...` are now part of the `make lint` target and run in CI (`golangci-lint-action`). `.golangci.yml` enables `errcheck`, `staticcheck`, `unused`, and `govet`.
 
 ---
 
@@ -158,19 +158,21 @@ This is ordered by impact and risk. Each phase is independently shippable.
 | 3.2 | **Define config structs; decouple from `docopt.Opts`.** Parse CLI → struct at the `main()` boundary, pass structs into `cmd*` and `buildProviderSpecs`. Example: `VPNConfig`, `QuickConnectConfig`, `SOCKSConfig` | New `config.go`, all `cmd_*.go`, `specs.go` | Medium | Fixes 1.14 | ✅ Done |
 | 3.3 | **Propagate `context.Context` as first parameter.** `loginWithPassword`, `verifyCode`, `mintClientJWT`, `validateClientJWT`, and `buildProviderSpecs` must accept caller-provided `ctx` instead of creating `context.Background()` internally | `auth.go`, `jwt.go`, `specs.go`, all callers | Medium | Fixes 1.13 | ✅ Done |
 | 3.4 | **Create an API client factory / struct.** Replace the repeated `ctx+cancel → NewClientStrategyWithDefaults → NewBringYourApi` pattern (5 occurrences) with a single `newByAPI(ctx, apiUrl, jwt)` | `auth.go`, all callers | Small | Fixes 1.16 | ✅ Done |
-| 3.5 | **Define interfaces for key dependencies.** At minimum: `AuthClient` interface (Login, Verify, MintClient) and injectable `*http.Client` for `api_http.go`. Enables unit testing without network calls | `auth.go`, `api_http.go` | Medium | Fixes 1.15; expands old 3.2 | ⬜ Deferred to Phase 4 |
+| 3.5 | **Define interfaces for key dependencies.** `Authenticator` interface in `auth.go` (`apiAuthenticator` production impl, `DefaultAuthenticator` var). `httpDoer` interface in `api_http.go` (`defaultHTTPClient` var). Both are replaceable in tests | `auth.go`, `api_http.go` | Medium | Fixes 1.15; expands old 3.2 | ✅ Done |
 | 3.6 | Extract inbound packet filter from the `receive` closure into `shouldDropInbound(packet []byte, allowCIDRs []*net.IPNet) bool` | `vpn_core.go` | Medium | — | ✅ Done |
 | 3.7 | Add table-driven tests for `parseCIDRHost` and `shouldDropInbound` | `vpn_core_test.go` | Small | — | ✅ Done |
-| 3.8 | Add tests for `buildProviderSpecs` with mocked HTTP server (uses interface from 3.5) | New `specs_test.go` | Small | — | ⬜ Deferred (requires 3.5) |
+| 3.8 | Add tests for `buildProviderSpecs` with mocked HTTP server | `specs_test.go` (new) | Small | — | ✅ Done |
 
-### Phase 4: Simplify Route Management ⬜ Not started
+### Phase 4: Simplify Route Management ✅ Complete
 
-| # | Task | Files | Effort |
-|---|------|-------|--------|
-| 4.1 | Create a `RouteManager` interface with `AddRoute`, `AddBypass`, `Cleanup` methods; implement `darwinRouteManager` and `linuxRouteManager` | new `routes.go`, `routes_darwin.go`, `routes_linux.go` | Large |
-| 4.2 | Refactor `vpn_darwin.go`'s `cmdVpn` to use `RouteManager` — ~200 lines of route add/change/fallback/cleanup becomes ~30 lines | `vpn_darwin.go` | Large |
-| 4.3 | Refactor `vpn_linux.go` similarly | `vpn_linux.go` | Medium |
-| 4.4 | `RouteManager.Cleanup()` replaces all teardown code at end of `cmdVpn` on both platforms | Both platform files | Medium |
+| # | Task | Files | Effort | Status |
+|---|------|-------|--------|--------|
+| 4.1 | Create a `RouteManager` interface with `AddBypassEndpoint`, `AddSplitDefault`, `AddExclude`, `AddExtraRoute`, `AddDNSServerRoutes`, `SetDNS`, `Cleanup` | `routes.go` (new) | Large | ✅ Done |
+| 4.2 | Implement `darwinRouteManager` — all route add/change/fallback/cleanup logic extracted from `cmdVpn` | `routes_darwin.go` (new) | Large | ✅ Done |
+| 4.3 | Implement `linuxRouteManager` — all `ip route` add/del logic extracted from `cmdVpn` | `routes_linux.go` (new) | Medium | ✅ Done |
+| 4.4 | Refactor `vpn_darwin.go` `cmdVpn` to use `darwinRouteManager` — from ~450 lines to ~155 lines | `vpn_darwin.go` | Large | ✅ Done |
+| 4.5 | Refactor `vpn_linux.go` `cmdVpn` to use `linuxRouteManager` — from ~200 lines to ~95 lines | `vpn_linux.go` | Medium | ✅ Done |
+| 4.6 | Add `extractHost` to `util.go`; add `tunCIDRParts` to `vpn_darwin.go` | `util.go`, `vpn_darwin.go` | Small | ✅ Done |
 
 ### Phase 5: Hardening & Polish ⬜ Not started
 

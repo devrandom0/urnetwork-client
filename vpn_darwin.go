@@ -5,8 +5,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"net"
-	neturl "net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -21,32 +19,17 @@ import (
 func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	tunName := cfg.TunName
 	rawTun := strings.TrimSpace(tunName)
-	// If user passed `--tun` without a value, docopt may consume the next flag token (e.g., "--default_route").
-	// Detect such cases and treat as a request for an auto-assigned utun.
 	tunLikelyMissingArg := rawTun != "" && strings.HasPrefix(rawTun, "-")
-	ipCIDR := cfg.IPCIDR
-	mtu := cfg.MTU
-	defRoute := cfg.DefaultRoute
-	extraRoutes := cfg.ExtraRoutes
-	excludeRoutes := cfg.ExcludeRoutes
-	dnsList := cfg.DNSList
-	dnsService := cfg.DNSService
-	dnsBootstrap := cfg.DNSBootstrap
-	socksListen := cfg.SOCKSListen
-	allowDomains := cfg.AllowDomains
-	excludeDomains := cfg.ExcludeDomains
-	debugOn := cfg.Debug
-	connectURL := cfg.ConnectURL
 
 	logStartupConfig(cfg)
 
 	// If TUN is disabled or not specified (and not a missing-arg case), run SOCKS-only.
 	if isTUNDisabled(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
-		if socksListen == "" {
+		if cfg.SOCKSListen == "" {
 			logError("--tun=none specified but no --socks provided; nothing to do\n")
 			return nil
 		}
-		stopSocks, err := StartSocks5(ctx, socksListen, "", debugOn, allowDomains, excludeDomains)
+		stopSocks, err := StartSocks5(ctx, cfg.SOCKSListen, "", cfg.Debug, cfg.AllowDomains, cfg.ExcludeDomains)
 		if err != nil {
 			return fmt.Errorf("start socks failed: %w", err)
 		}
@@ -56,9 +39,9 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 		return nil
 	}
 
+	// Create TUN device.
 	waterCfg := water.Config{DeviceType: water.TUN}
 	if tunLikelyMissingArg {
-		// Auto-assign utun: kernel picks a free name when Name is empty
 		waterCfg.Name = ""
 		logWarn("--tun provided without a valid name (got %q); using auto utun\n", rawTun)
 	} else {
@@ -66,7 +49,6 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	}
 	dev, err := water.New(waterCfg)
 	if err != nil {
-		// If a specific utun name fails (format or in use), retry with auto assignment
 		if strings.TrimSpace(waterCfg.Name) != "" {
 			logWarn("failed to create %s (%v); retrying with auto utun name\n", waterCfg.Name, err)
 			waterCfg.Name = ""
@@ -81,345 +63,78 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	if actualName == "" {
 		actualName = tunName
 	}
-	logInfo("TUN %s created (configure IP/routes/DNS via ifconfig/route as needed)\n", actualName)
-	if socksListen != "" && strings.TrimSpace(extraRoutes) == "" && !defRoute && strings.TrimSpace(excludeRoutes) == "" {
+	logInfo("TUN %s created\n", actualName)
+
+	// Derive TUN IP and peer; configure the interface.
+	tunIP, peerIP := tunCIDRParts(cfg.IPCIDR)
+	_ = runSudo("ifconfig", actualName, "inet", tunIP, peerIP, "mtu", fmt.Sprintf("%d", cfg.MTU), "up")
+
+	if cfg.SOCKSListen != "" && !cfg.DefaultRoute && cfg.ExtraRoutes == "" && cfg.ExcludeRoutes == "" {
 		logInfo("SOCKS mode without route changes: only SOCKS traffic will use the VPN.\n")
 	}
 
-	// Packet counters (used by stats and dns_bootstrap cache logic)
+	// Packet counters (shared with the DNS cache goroutine).
 	var pktsIn, bytesIn, pktsOut, bytesOut uint64
 
-	// Capture current default gateway before we alter routing, so we can bypass excluded prefixes via it
+	// Detect original default gateway before altering routes.
 	defGw, _, gwErr := getDefaultGateway()
-	if gwErr != nil && strings.TrimSpace(excludeRoutes) != "" {
-		logWarn("failed to detect default gateway for exclude routing: %v\n", gwErr)
-	}
-	type addedRoute struct {
-		isHost bool
-		dest   string
-	}
-	var addedExcludes []addedRoute
-	// Track control-plane bypass host routes (api/connect endpoints via original gateway)
-	var addedCtrlBypass []string
-	// Track DNS resolver IPs we bypass via the original gateway when no --dns is provided
-	var addedDNSBypass []string
-	// Track split-default routes we add so we can clean them up precisely
-	type splitAdded struct {
-		dest, mask string
-		usedCIDR   bool
-	}
-	var addedSplits []splitAdded
-
-	// Configure IP and MTU
-	// ifconfig utunX inet <ip> <peer> mtu <mtu> up
-	var peerIP string
-	if strings.Contains(ipCIDR, "/") {
-		// For simplicity, derive a peer in same /24: peer = .1
-		parts := strings.Split(ipCIDR, "/")
-		ip := parts[0]
-		peer := "10.255.0.1"
-		if i := strings.LastIndex(ip, "."); i > 0 {
-			peer = ip[:i] + ".1"
-		}
-		peerIP = peer
-		_ = runSudo("ifconfig", actualName, "inet", ip, peer, "mtu", fmt.Sprintf("%d", mtu), "up")
+	if gwErr != nil && (cfg.DefaultRoute || strings.TrimSpace(cfg.ExcludeRoutes) != "") {
+		logWarn("failed to detect default gateway: %v\n", gwErr)
 	}
 
-	// Routes: default or specific ones
-	if defRoute {
-		// Before changing default routes, ensure we can still reach control-plane endpoints
-		if defGw != "" {
-			addBypass := func(raw string) {
-				if strings.TrimSpace(raw) == "" {
-					return
-				}
-				// Ensure scheme for url.Parse
-				u, err := neturl.Parse(raw)
-				if err != nil || u.Host == "" {
-					// Fallback: treat raw as host
-					host := raw
-					// Trim any path
-					if i := strings.Index(host, "/"); i >= 0 {
-						host = host[:i]
-					}
-					ips, _ := net.LookupIP(host)
-					for _, ip := range ips {
-						ipv4 := ip.To4()
-						if ipv4 == nil {
-							continue
-						}
-						ipStr := ipv4.String()
-						if out, err := runCapture("route", "-n", "add", "-host", ipStr, defGw); err == nil || strings.Contains(out, "File exists") {
-							if err == nil {
-								addedCtrlBypass = append(addedCtrlBypass, ipStr)
-							}
-						}
-					}
-					return
-				}
-				host := u.Host
-				// Strip port if present
-				if i := strings.Index(host, ":"); i >= 0 {
-					host = host[:i]
-				}
-				ips, _ := net.LookupIP(host)
-				for _, ip := range ips {
-					ipv4 := ip.To4()
-					if ipv4 == nil {
-						continue
-					}
-					ipStr := ipv4.String()
-					if out, err := runCapture("route", "-n", "add", "-host", ipStr, defGw); err == nil || strings.Contains(out, "File exists") {
-						if err == nil {
-							addedCtrlBypass = append(addedCtrlBypass, ipStr)
-						}
-					}
-				}
-			}
-			addBypass(cfg.APIURL)
-			addBypass(connectURL)
+	// Set up route manager; Cleanup runs on exit via defer.
+	rm := newDarwinRouteManager(actualName, peerIP, defGw)
+	defer rm.Cleanup()
+
+	// Install routes based on mode.
+	if cfg.DefaultRoute {
+		rm.AddBypassEndpoint(cfg.APIURL)
+		rm.AddBypassEndpoint(cfg.ConnectURL)
+		rm.AddSplitDefault()
+		for _, r := range splitCSV(cfg.ExcludeRoutes) {
+			rm.AddExclude(r)
 		}
-		// Try multiple variants for split default; track exactly what we add for cleanup
-		addVariant := func(dest, mask string) bool {
-			// 1) -net with -netmask via -interface
-			if out, err := runCapture("route", "-n", "add", "-net", dest, "-netmask", mask, "-interface", actualName); err == nil {
-				addedSplits = append(addedSplits, splitAdded{dest: dest, mask: mask, usedCIDR: false})
-				return true
-			} else if strings.Contains(out, "File exists") {
-				if _, chErr := runCapture("route", "-n", "change", "-net", dest, "-netmask", mask, "-interface", actualName); chErr == nil {
-					addedSplits = append(addedSplits, splitAdded{dest: dest, mask: mask, usedCIDR: false})
-					return true
-				}
-			}
-			// 2) CIDR with -interface
-			cidr := dest + "/1"
-			if out, err := runCapture("route", "-n", "add", "-net", cidr, "-interface", actualName); err == nil {
-				addedSplits = append(addedSplits, splitAdded{dest: cidr, mask: "", usedCIDR: true})
-				return true
-			} else if strings.Contains(out, "File exists") {
-				if _, chErr := runCapture("route", "-n", "change", "-net", cidr, "-interface", actualName); chErr == nil {
-					addedSplits = append(addedSplits, splitAdded{dest: cidr, mask: "", usedCIDR: true})
-					return true
-				}
-			}
-			// 3) -net with -netmask via peer gateway and -ifscope
-			if strings.TrimSpace(peerIP) != "" {
-				if out, err := runCapture("route", "-n", "add", "-net", dest, "-netmask", mask, peerIP, "-ifscope", actualName); err == nil {
-					addedSplits = append(addedSplits, splitAdded{dest: dest, mask: mask, usedCIDR: false})
-					return true
-				} else if strings.Contains(out, "File exists") {
-					if _, chErr := runCapture("route", "-n", "change", "-net", dest, "-netmask", mask, peerIP, "-ifscope", actualName); chErr == nil {
-						addedSplits = append(addedSplits, splitAdded{dest: dest, mask: mask, usedCIDR: false})
-						return true
-					}
-				}
-				// 4) CIDR via peer gateway and -ifscope
-				if out, err := runCapture("route", "-n", "add", "-net", cidr, peerIP, "-ifscope", actualName); err == nil {
-					addedSplits = append(addedSplits, splitAdded{dest: cidr, mask: "", usedCIDR: true})
-					return true
-				} else if strings.Contains(out, "File exists") {
-					if _, chErr := runCapture("route", "-n", "change", "-net", cidr, peerIP, "-ifscope", actualName); chErr == nil {
-						addedSplits = append(addedSplits, splitAdded{dest: cidr, mask: "", usedCIDR: true})
-						return true
-					}
-				}
-			}
-			logWarn("failed to add split default for %s (%s)\n", dest, mask)
-			return false
+	} else if cfg.SOCKSListen != "" {
+		if cfg.ExtraRoutes == "" && cfg.ExcludeRoutes == "" {
+			rm.AddScopedDefault()
 		}
-		_ = addVariant("0.0.0.0", "128.0.0.0")
-		_ = addVariant("128.0.0.0", "128.0.0.0")
-		if strings.TrimSpace(excludeRoutes) != "" {
-			for _, r := range splitCSV(excludeRoutes) {
-				isHost := !strings.Contains(r, "/")
-				// Try adding via original gateway first, fall back to reject on failure or no gateway
-				added := false
-				if defGw != "" {
-					if isHost {
-						if out, err := runCapture("route", "-n", "add", "-host", r, defGw); err == nil {
-							addedExcludes = append(addedExcludes, addedRoute{isHost: true, dest: r})
-							added = true
-						} else if !strings.Contains(out, "File exists") {
-							// On other errors, try reject fallback
-							if out2, err2 := runCapture("route", "-n", "add", "-host", r, "-reject"); err2 == nil {
-								addedExcludes = append(addedExcludes, addedRoute{isHost: true, dest: r})
-								added = true
-							} else if !strings.Contains(out2, "File exists") {
-								logWarn("failed to add exclude host %s: %v\n", r, err2)
-							}
-						}
-					} else {
-						if out, err := runCapture("route", "-n", "add", "-net", r, defGw); err == nil {
-							addedExcludes = append(addedExcludes, addedRoute{isHost: false, dest: r})
-							added = true
-						} else if !strings.Contains(out, "File exists") {
-							if out2, err2 := runCapture("route", "-n", "add", "-net", r, "-reject"); err2 == nil {
-								addedExcludes = append(addedExcludes, addedRoute{isHost: false, dest: r})
-								added = true
-							} else if !strings.Contains(out2, "File exists") {
-								logWarn("failed to add exclude net %s: %v\n", r, err2)
-							}
-						}
-					}
-				} else {
-					// No gateway known; try reject route
-					if isHost {
-						if out, err := runCapture("route", "-n", "add", "-host", r, "-reject"); err == nil {
-							addedExcludes = append(addedExcludes, addedRoute{isHost: true, dest: r})
-							added = true
-						} else if !strings.Contains(out, "File exists") {
-							logWarn("failed to add exclude host %s: %v\n", r, err)
-						}
-					} else {
-						if out, err := runCapture("route", "-n", "add", "-net", r, "-reject"); err == nil {
-							addedExcludes = append(addedExcludes, addedRoute{isHost: false, dest: r})
-							added = true
-						} else if !strings.Contains(out, "File exists") {
-							logWarn("failed to add exclude net %s: %v\n", r, err)
-						}
-					}
-				}
-				_ = added // placeholder; kept for clarity though not used after appending
-			}
+		for _, r := range splitCSV(cfg.ExcludeRoutes) {
+			rm.AddScopedExclude(r)
 		}
 	}
-	// SOCKS-only scoped routing: when SOCKS is enabled but no global route flags,
-	// install split defaults scoped to utun so only SOCKS-bound sockets use them.
-	if socksListen != "" && !defRoute && strings.TrimSpace(extraRoutes) == "" && strings.TrimSpace(excludeRoutes) == "" {
-		// Reuse the addVariant helper style locally
-		addScoped := func(dest, mask string) {
-			// Prefer peer next-hop with -ifscope, then fall back to -interface CIDR
-			if strings.TrimSpace(peerIP) != "" {
-				if out, err := runCapture("route", "-n", "add", "-net", dest, "-netmask", mask, peerIP, "-ifscope", actualName); err == nil || strings.Contains(out, "File exists") {
-					if err == nil {
-						addedSplits = append(addedSplits, splitAdded{dest: dest, mask: mask, usedCIDR: false})
-					}
-					// no local-only route manipulations
-				}
-			} else {
-				cidr := dest + "/1"
-				if out, err := runCapture("route", "-n", "add", "-net", cidr, "-ifscope", actualName); err == nil || strings.Contains(out, "File exists") {
-					if err == nil {
-						addedSplits = append(addedSplits, splitAdded{dest: cidr, mask: "", usedCIDR: true})
-					}
-				}
-			}
-		}
-		addScoped("0.0.0.0", "128.0.0.0")
-		addScoped("128.0.0.0", "128.0.0.0")
-	}
-	// Scoped excludes for SOCKS-only mode: keep certain prefixes off the utun
-	if socksListen != "" && !defRoute && strings.TrimSpace(excludeRoutes) != "" {
-		for _, r := range splitCSV(excludeRoutes) {
-			if strings.Contains(r, "/") {
-				_ = runSudo("route", "-n", "add", "-net", r, "-reject", "-ifscope", actualName)
-			} else {
-				_ = runSudo("route", "-n", "add", "-host", r, "-reject", "-ifscope", actualName)
-			}
-		}
-	}
-	if strings.TrimSpace(extraRoutes) != "" {
-		for _, r := range strings.Split(extraRoutes, ",") {
-			r = strings.TrimSpace(r)
-			if r == "" {
-				continue
-			}
-			// Use correct forms: host/net with -interface; fallback to peer + -ifscope if needed
-			var out string
-			var err error
-			if strings.Contains(r, "/") {
-				out, err = runCapture("route", "-n", "add", "-net", r, "-interface", actualName)
-			} else {
-				out, err = runCapture("route", "-n", "add", "-host", r, "-interface", actualName)
-			}
-			if err != nil && !strings.Contains(out, "File exists") {
-				if strings.TrimSpace(peerIP) != "" {
-					if strings.Contains(r, "/") {
-						out, err = runCapture("route", "-n", "add", "-net", r, peerIP, "-ifscope", actualName)
-					} else {
-						out, err = runCapture("route", "-n", "add", "-host", r, peerIP, "-ifscope", actualName)
-					}
-				}
-			}
-			if err != nil && !strings.Contains(out, "File exists") {
-				logWarn("failed to add extra route %s: %v\n", r, err)
-			}
-		}
+	for _, r := range splitCSV(cfg.ExtraRoutes) {
+		rm.AddExtraRoute(r)
 	}
 
-	// DNS configuration (system-wide for a Network Service)
-	var dnsConfigured bool
-	if strings.TrimSpace(dnsList) != "" && dnsService != "" {
-		servers := splitCSV(dnsList)
-		if len(servers) > 0 {
-			args := append([]string{"-setdnsservers", dnsService}, servers...)
-			if err := runSudo("networksetup", args...); err != nil {
-				logWarn("failed to set DNS via networksetup for %s: %v\n", dnsService, err)
-			} else {
-				dnsConfigured = true
-				logInfo("DNS set for service %s -> %v\n", dnsService, servers)
+	// DNS configuration.
+	if cfg.DNSList != "" {
+		if cfg.DNSService != "" {
+			if err := rm.SetDNS(splitCSV(cfg.DNSList), cfg.DNSService); err != nil {
+				logWarn("failed to set DNS via networksetup for %s: %v\n", cfg.DNSService, err)
 			}
+		} else {
+			logWarn("--dns provided without --dns_service; skipping DNS change on macOS\n")
 		}
-	} else if strings.TrimSpace(dnsList) != "" && dnsService == "" {
-		logWarn("--dns provided without --dns_service; skipping DNS change on macOS\n")
-	}
-
-	// If not default route, ensure DNS servers route via utun so queries prefer tunnel
-	if !defRoute && strings.TrimSpace(dnsList) != "" {
-		for _, d := range splitCSV(dnsList) {
-			if strings.Contains(d, "/") {
-				_ = runSudo("route", "-n", "add", d, "-interface", actualName)
-			} else {
-				_ = runSudo("route", "-n", "add", "-host", d, "-interface", actualName)
-			}
-		}
-	}
-	// If default route is enabled, try to keep DNS working by ensuring resolvers are reachable via the original gateway.
-	// Case A: No --dns provided -> use current system resolvers from scutil
-	if defRoute && strings.TrimSpace(dnsList) == "" && defGw != "" && (dnsBootstrap == "bypass" || dnsBootstrap == "cache") {
+		bypass := cfg.DefaultRoute && (cfg.DNSBootstrap == "bypass" || cfg.DNSBootstrap == "cache")
+		rm.AddDNSServerRoutes(splitCSV(cfg.DNSList), bypass)
+	} else if cfg.DefaultRoute && defGw != "" && (cfg.DNSBootstrap == "bypass" || cfg.DNSBootstrap == "cache") {
+		// No --dns: bypass current system resolvers so DNS works during default-route switch.
 		if resolvers, err := getSystemDNSResolvers(); err == nil {
-			for _, ip := range resolvers {
-				if ip == "" {
-					continue
-				}
-				if out, err := runCapture("route", "-n", "add", "-host", ip, defGw); err == nil || strings.Contains(out, "File exists") {
-					if err == nil {
-						addedDNSBypass = append(addedDNSBypass, ip)
-					}
-				}
-			}
-			if len(addedDNSBypass) > 0 {
-				logInfo("Kept existing DNS resolvers via %s: %v\n", defGw, addedDNSBypass)
+			rm.AddDNSServerRoutes(resolvers, true)
+			if len(resolvers) > 0 {
+				logInfo("Kept existing DNS resolvers via %s: %v\n", defGw, resolvers)
 			}
 		} else {
 			logWarn("failed to detect system DNS resolvers: %v\n", err)
 		}
 	}
-	// Case B: --dns provided -> also add bypass routes to those DNS IPs via original gateway so we don't break bootstrap
-	if defRoute && strings.TrimSpace(dnsList) != "" && defGw != "" && (dnsBootstrap == "bypass" || dnsBootstrap == "cache") {
-		for _, ip := range splitCSV(dnsList) {
-			ip = strings.TrimSpace(ip)
-			if ip == "" {
-				continue
-			}
-			if strings.Contains(ip, "/") {
-				continue
-			} // expect IPs only
-			if out, err := runCapture("route", "-n", "add", "-host", ip, defGw); err == nil || strings.Contains(out, "File exists") {
-				if err == nil {
-					addedDNSBypass = append(addedDNSBypass, ip)
-				}
-			}
-		}
-		if len(addedDNSBypass) > 0 {
-			logInfo("DNS servers via original gateway %s: %v\n", defGw, addedDNSBypass)
-		}
+	if !cfg.DefaultRoute && cfg.DNSList != "" {
+		rm.AddDNSServerRoutes(splitCSV(cfg.DNSList), false)
 	}
 
-	// If cache mode: after tunnel sends/receives some traffic, remove DNS bypass so DNS goes through VPN only
-	if defRoute && (dnsBootstrap == "cache") {
+	// DNS cache bootstrap: remove DNS bypass once the tunnel has traffic.
+	if cfg.DefaultRoute && cfg.DNSBootstrap == "cache" {
 		go func() {
-			// wait until some packets in and out or a brief delay, whichever first
 			deadline := time.After(3 * time.Second)
 			ticker := time.NewTicker(200 * time.Millisecond)
 			defer ticker.Stop()
@@ -434,92 +149,28 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 					}
 				}
 			}
-			// Remove DNS bypass routes so subsequent DNS uses VPN
-			for _, ip := range addedDNSBypass {
-				_ = runSudo("route", "-n", "delete", "-host", ip)
-			}
-			addedDNSBypass = nil
+			rm.RemoveDNSBypass()
 			logInfo("DNS bootstrap cache complete; DNS bypass removed\n")
 		}()
 	}
 
-	// Run shared dataplane + SOCKS + stats; ctx cancelled by signal (from main's NotifyContext).
+	// Run shared dataplane + SOCKS + stats.
 	vpnRunCore(ctx, dev, actualName, cfg, &pktsIn, &pktsOut, &bytesIn, &bytesOut, func() {})
-
-	// After core returns, perform OS-specific cleanup
-	if defRoute {
-		// Remove whichever split-default variant(s) we added
-		if len(addedSplits) > 0 {
-			for _, s := range addedSplits {
-				if s.usedCIDR {
-					_ = runSudo("route", "-n", "delete", "-net", s.dest)
-				} else {
-					_ = runSudo("route", "-n", "delete", "-net", s.dest, "-netmask", s.mask)
-				}
-			}
-		} else {
-			// Fallback cleanup if tracking wasn't populated
-			_ = runSudo("route", "-n", "delete", "-net", "0.0.0.0/1")
-			_ = runSudo("route", "-n", "delete", "-net", "128.0.0.0/1")
-			_ = runSudo("route", "-n", "delete", "-net", "0.0.0.0", "-netmask", "128.0.0.0")
-			_ = runSudo("route", "-n", "delete", "-net", "128.0.0.0", "-netmask", "128.0.0.0")
-		}
-		if len(addedExcludes) > 0 {
-			for _, ar := range addedExcludes {
-				if ar.isHost {
-					_ = runSudo("route", "-n", "delete", "-host", ar.dest)
-				} else {
-					_ = runSudo("route", "-n", "delete", "-net", ar.dest)
-				}
-			}
-		}
-		if len(addedCtrlBypass) > 0 {
-			for _, ip := range addedCtrlBypass {
-				_ = runSudo("route", "-n", "delete", "-host", ip)
-			}
-		}
-		if len(addedDNSBypass) > 0 {
-			for _, ip := range addedDNSBypass {
-				_ = runSudo("route", "-n", "delete", "-host", ip)
-			}
-		}
-	}
-	if strings.TrimSpace(extraRoutes) != "" {
-		for _, r := range strings.Split(extraRoutes, ",") {
-			r = strings.TrimSpace(r)
-			if r == "" {
-				continue
-			}
-			_ = runSudo("route", "-n", "delete", r)
-		}
-	}
-	if socksListen != "" && !defRoute && strings.TrimSpace(excludeRoutes) != "" {
-		for _, r := range splitCSV(excludeRoutes) {
-			if strings.Contains(r, "/") {
-				_ = runSudo("route", "-n", "delete", "-net", r)
-			} else {
-				_ = runSudo("route", "-n", "delete", "-host", r)
-			}
-		}
-	}
-	if !defRoute && strings.TrimSpace(dnsList) != "" {
-		for _, d := range splitCSV(dnsList) {
-			if strings.Contains(d, "/") {
-				_ = runSudo("route", "-n", "delete", d)
-			} else {
-				_ = runSudo("route", "-n", "delete", "-host", d)
-			}
-		}
-	}
-	if dnsConfigured {
-		// Clear DNS servers
-		if err := runSudo("networksetup", "-setdnsservers", dnsService, "Empty"); err != nil {
-			fmt.Fprintf(os.Stderr, "warn: failed to clear DNS for %s: %v\n", dnsService, err)
-		}
-	}
-	// no local-only cleanup required
-	_ = runSudo("ifconfig", actualName, "down")
 	return nil
+}
+
+// tunCIDRParts extracts the host IP and derives a peer/gateway IP from an ip/prefix CIDR.
+// For "10.255.0.2/24" it returns ("10.255.0.2", "10.255.0.1").
+func tunCIDRParts(ipCIDR string) (ip, peer string) {
+	ip = ipCIDR
+	peer = "10.255.0.1"
+	if idx := strings.Index(ipCIDR, "/"); idx >= 0 {
+		ip = ipCIDR[:idx]
+	}
+	if i := strings.LastIndex(ip, "."); i > 0 {
+		peer = ip[:i] + ".1"
+	}
+	return
 }
 
 func runSudo(name string, args ...string) error {
@@ -528,8 +179,6 @@ func runSudo(name string, args ...string) error {
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
-
-// splitCSV is implemented in util.go (shared)
 
 // getDefaultGateway returns the IPv4 default gateway and interface (e.g., 192.168.1.1, en0) on macOS.
 func getDefaultGateway() (string, string, error) {

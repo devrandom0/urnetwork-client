@@ -12,6 +12,16 @@ import (
 	"github.com/urnetwork/connect"
 )
 
+// httpDoer is the minimal interface satisfied by *http.Client.
+// Tests can substitute any implementation (e.g., httptest.Server's client).
+type httpDoer interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
+// defaultHTTPClient is used for all API HTTP calls.
+// Replace in tests to avoid real network requests.
+var defaultHTTPClient httpDoer = http.DefaultClient
+
 // Minimal structures matching the API responses we need
 type findLocationsHTTPArgs struct {
 	Query               string  `json:"query,omitempty"`
@@ -51,7 +61,7 @@ func httpFindLocations(ctx context.Context, apiURL, jwt, q string) (*findLocatio
 	if strings.TrimSpace(jwt) != "" {
 		req.Header.Set("Authorization", "Bearer "+jwt)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := defaultHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +85,7 @@ func httpProviderLocations(ctx context.Context, apiURL, jwt string) (*findLocati
 	if strings.TrimSpace(jwt) != "" {
 		req.Header.Set("Authorization", "Bearer "+jwt)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := defaultHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

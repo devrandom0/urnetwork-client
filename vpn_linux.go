@@ -5,8 +5,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"net"
-	neturl "net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -19,27 +17,16 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	tunName := cfg.TunName
 	rawTun := strings.TrimSpace(tunName)
 	tunLikelyMissingArg := rawTun != "" && strings.HasPrefix(rawTun, "-")
-	ipCIDR := cfg.IPCIDR
-	mtu := cfg.MTU
-	defRoute := cfg.DefaultRoute
-	extraRoutes := cfg.ExtraRoutes
-	excludeRoutes := cfg.ExcludeRoutes
-	dnsList := cfg.DNSList
-	debugOn := cfg.Debug
-	connectURL := cfg.ConnectURL
-	socksListen := cfg.SOCKSListen
-	allowDomains := cfg.AllowDomains
-	excludeDomains := cfg.ExcludeDomains
 
 	logStartupConfig(cfg)
 
-	// TUN-less mode for SOCKS-only usage
+	// TUN-less mode: SOCKS-only when TUN is disabled or not specified.
 	if isTUNDisabled(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
-		if socksListen == "" {
+		if cfg.SOCKSListen == "" {
 			logError("--tun=none specified but no --socks provided; nothing to do\n")
 			return nil
 		}
-		stopSocks, err := StartSocks5(ctx, socksListen, "", debugOn, allowDomains, excludeDomains)
+		stopSocks, err := StartSocks5(ctx, cfg.SOCKSListen, "", cfg.Debug, cfg.AllowDomains, cfg.ExcludeDomains)
 		if err != nil {
 			return fmt.Errorf("start socks failed: %w", err)
 		}
@@ -49,12 +36,13 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 		return nil
 	}
 
-	// If tun name looks like a flag (missing value), choose a sane default name
+	// If tun name looks like a flag (missing value), use a safe default.
 	if tunLikelyMissingArg {
 		logWarn("--tun provided without a valid name (got %q); using default 'urnet0'\n", rawTun)
 		tunName = "urnet0"
 	}
 
+	// Create TUN device.
 	waterCfg := water.Config{DeviceType: water.TUN}
 	waterCfg.Name = tunName
 	dev, err := water.New(waterCfg)
@@ -62,148 +50,50 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 		return fmt.Errorf("create TUN failed: %w", err)
 	}
 	defer func() { _ = dev.Close() }()
-	logInfo("TUN %s created (configuring IP/MTU/routes as requested)\n", tunName)
+	logInfo("TUN %s created\n", tunName)
 
-	// Configure IP and MTU
-	_ = run("ip", "addr", "add", ipCIDR, "dev", tunName)
-	_ = run("ip", "link", "set", "dev", tunName, "mtu", fmt.Sprintf("%d", mtu))
+	// Configure IP address and MTU.
+	_ = run("ip", "addr", "add", cfg.IPCIDR, "dev", tunName)
+	_ = run("ip", "link", "set", "dev", tunName, "mtu", strconv.Itoa(cfg.MTU))
 	_ = run("ip", "link", "set", tunName, "up")
 
-	// Reverted forwarding/iptables controls; no local_only/allow/deny/no_fw_rules logic here.
-
-	// Routes: default or extra
-	var origGw, origDev string
-	var addedBypass []string
-	var addedExclude []string
-	if defRoute {
-		// macOS-like split default: add two /1 routes via the TUN so default traffic prefers it.
-		// 1) Determine current default route (for bypass/excludes)
-		if routes, err := linuxListDefaultRoutes(); err == nil {
-			for _, r := range routes {
-				if r.Dev == tunName {
-					continue
-				}
-				// prefer route with gateway
-				if origDev == "" || (origGw == "" && r.Gw != "") {
-					origGw, origDev = r.Gw, r.Dev
-				}
-			}
-		}
-		// 2) Add control-plane bypass host routes (API and connect endpoints) via original gateway/dev
-		addBypass := func(raw string) {
-			raw = strings.TrimSpace(raw)
-			if raw == "" || origDev == "" {
-				return
-			}
-			u, err := neturl.Parse(raw)
-			var host string
-			if err == nil && u.Host != "" {
-				host = u.Host
-				if i := strings.Index(host, ":"); i >= 0 {
-					host = host[:i]
-				}
-			} else {
-				host = raw
-				if i := strings.Index(host, "/"); i >= 0 {
-					host = host[:i]
-				}
-			}
-			ips, _ := net.LookupIP(host)
-			for _, ip := range ips {
-				v4 := ip.To4()
-				if v4 == nil {
-					continue
-				}
-				ipStr := v4.String()
-				if origGw != "" {
-					_ = run("ip", "route", "add", ipStr, "via", origGw, "dev", origDev)
-				} else {
-					_ = run("ip", "route", "add", ipStr, "dev", origDev)
-				}
-				addedBypass = append(addedBypass, ipStr)
-			}
-		}
-		addBypass(cfg.APIURL)
-		addBypass(connectURL)
-		// 3) Add split default to send all non-bypass traffic via TUN
-		_ = run("ip", "route", "add", "0.0.0.0/1", "dev", tunName)
-		_ = run("ip", "route", "add", "128.0.0.0/1", "dev", tunName)
-		// 4) Optional excludes: route them via original gateway or reject (unreachable)
-		if strings.TrimSpace(excludeRoutes) != "" {
-			for _, r := range strings.Split(excludeRoutes, ",") {
-				r = strings.TrimSpace(r)
-				if r == "" {
-					continue
-				}
-				if origDev != "" && origGw != "" {
-					_ = run("ip", "route", "add", r, "via", origGw, "dev", origDev)
-					addedExclude = append(addedExclude, r)
-				} else if origDev != "" {
-					_ = run("ip", "route", "add", r, "dev", origDev)
-					addedExclude = append(addedExclude, r)
-				} else {
-					_ = run("ip", "route", "add", r, "unreachable")
-					addedExclude = append(addedExclude, r)
-				}
-			}
-		}
-	}
-	if strings.TrimSpace(extraRoutes) != "" {
-		for _, r := range strings.Split(extraRoutes, ",") {
-			r = strings.TrimSpace(r)
-			if r == "" {
+	// Detect current default gateway for bypass and exclude routing.
+	origGw, origDev := "", ""
+	if routes, err := linuxListDefaultRoutes(); err == nil {
+		for _, r := range routes {
+			if r.Dev == tunName {
 				continue
 			}
-			_ = run("ip", "route", "add", r, "dev", tunName)
-		}
-	}
-	if !defRoute && strings.TrimSpace(dnsList) != "" {
-		for _, d := range strings.Split(dnsList, ",") {
-			d = strings.TrimSpace(d)
-			if d == "" {
-				continue
+			// Prefer the route that has a gateway.
+			if origDev == "" || (origGw == "" && r.Gw != "") {
+				origGw, origDev = r.Gw, r.Dev
 			}
-			_ = run("ip", "route", "add", d, "dev", tunName)
 		}
 	}
 
-	// Run shared dataplane + SOCKS + stats; ctx cancelled by signal (from main's NotifyContext).
+	// Set up route manager; Cleanup runs on exit via defer.
+	rm := newLinuxRouteManager(tunName, origGw, origDev)
+	defer rm.Cleanup()
+
+	// Install routes.
+	if cfg.DefaultRoute {
+		rm.AddBypassEndpoint(cfg.APIURL)
+		rm.AddBypassEndpoint(cfg.ConnectURL)
+		rm.AddSplitDefault()
+		for _, r := range splitCSV(cfg.ExcludeRoutes) {
+			rm.AddExclude(r)
+		}
+	}
+	for _, r := range splitCSV(cfg.ExtraRoutes) {
+		rm.AddExtraRoute(r)
+	}
+	if !cfg.DefaultRoute && cfg.DNSList != "" {
+		rm.AddDNSServerRoutes(splitCSV(cfg.DNSList), false)
+	}
+
+	// Run shared dataplane + SOCKS + stats.
 	var pktsIn, bytesIn, pktsOut, bytesOut uint64
 	vpnRunCore(ctx, dev, tunName, cfg, &pktsIn, &pktsOut, &bytesIn, &bytesOut, func() {})
-
-	// Cleanup on exit: delete routes, bring link down, and delete address
-	if defRoute {
-		// Remove split defaults
-		_ = run("ip", "route", "del", "0.0.0.0/1")
-		_ = run("ip", "route", "del", "128.0.0.0/1")
-		// Remove added bypass and exclude routes
-		for _, ip := range addedBypass {
-			_ = run("ip", "route", "del", ip)
-		}
-		for _, r := range addedExclude {
-			_ = run("ip", "route", "del", r)
-		}
-	}
-	if strings.TrimSpace(extraRoutes) != "" {
-		for _, r := range strings.Split(extraRoutes, ",") {
-			r = strings.TrimSpace(r)
-			if r == "" {
-				continue
-			}
-			_ = run("ip", "route", "del", r)
-		}
-	}
-	if !defRoute && strings.TrimSpace(dnsList) != "" {
-		for _, d := range strings.Split(dnsList, ",") {
-			d = strings.TrimSpace(d)
-			if d == "" {
-				continue
-			}
-			_ = run("ip", "route", "del", d)
-		}
-	}
-	_ = run("ip", "link", "set", tunName, "down")
-	_ = run("ip", "addr", "flush", "dev", tunName)
 	return nil
 }
 

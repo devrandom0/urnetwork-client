@@ -21,6 +21,34 @@ func newByAPI(ctx context.Context, apiURL, jwt string) *connect.BringYourApi {
 	return api
 }
 
+// Authenticator abstracts network authentication operations.
+// The default implementation (DefaultAuthenticator) calls the BringYour API.
+// Tests can provide a fake implementation to avoid network calls.
+type Authenticator interface {
+	LoginWithPassword(ctx context.Context, apiURL, userAuth, password string) (*LoginResult, error)
+	VerifyCode(ctx context.Context, apiURL, userAuth, code string) (string, error)
+	MintClientJWT(ctx context.Context, apiURL, byJwt string) (string, error)
+}
+
+// apiAuthenticator is the production Authenticator backed by the BringYour connect library.
+type apiAuthenticator struct{}
+
+func (a *apiAuthenticator) LoginWithPassword(ctx context.Context, apiURL, userAuth, password string) (*LoginResult, error) {
+	return loginWithPassword(ctx, apiURL, userAuth, password)
+}
+
+func (a *apiAuthenticator) VerifyCode(ctx context.Context, apiURL, userAuth, code string) (string, error) {
+	return verifyCode(ctx, apiURL, userAuth, code)
+}
+
+func (a *apiAuthenticator) MintClientJWT(ctx context.Context, apiURL, byJwt string) (string, error) {
+	return mintClientJWT(ctx, apiURL, byJwt)
+}
+
+// DefaultAuthenticator is the Authenticator used by all production code paths.
+// Replace in tests to avoid real network calls.
+var DefaultAuthenticator Authenticator = &apiAuthenticator{}
+
 // LoginResult holds the outcome of a successful login attempt.
 type LoginResult struct {
 	ByJwt                string
