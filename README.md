@@ -1,3 +1,543 @@
+# urnet-client
+
+[![CI](https://github.com/devrandom0/urnetwork-client/actions/workflows/ci.yml/badge.svg)](https://github.com/devrandom0/urnetwork-client/actions/workflows/ci.yml)
+
+A minimal CLI for [URnetwork](https://ur.io) (BringYour) that can:
+
+- Authenticate and mint a client-scoped JWT
+- Discover and connect to providers by country, region, or group
+- Run a real VPN dataplane (userspace TUN) on macOS and Linux
+- Run a SOCKS5 proxy bound to the VPN interface (or standalone)
+- Run in the background with log rotation and periodic JWT renewal
+
+## Support
+
+If you liked this project, please use [this referral link](https://ur.io/app?bonus=4MT0ZB).
+
+---
+
+## Table of contents
+
+- [Build](#build)
+- [Quick start](#quick-start)
+- [Subcommands](#subcommands)
+- [Configuration](#configuration)
+- [Flag reference](#flag-reference)
+- [Examples](#examples)
+- [Platform notes](#platform-notes)
+- [Docker](#docker)
+- [Notes and limitations](#notes-and-limitations)
+
+---
+
+## Build
+
+Requires **Go 1.25+** (module uses toolchain `go1.25.7`).
+
+```bash
+# Build for the current OS/arch
+go build -o dist/urnet-client ./
+
+# Cross-compile
+GOOS=linux  GOARCH=amd64 go build -o dist/linux_amd64/urnet-client  ./
+GOOS=linux  GOARCH=arm64 go build -o dist/linux_arm64/urnet-client  ./
+GOOS=darwin GOARCH=amd64 go build -o dist/darwin_amd64/urnet-client ./
+GOOS=darwin GOARCH=arm64 go build -o dist/darwin_arm64/urnet-client ./
+
+# Or use the Makefile
+make build          # host platform
+make build-all      # all four targets
+make docker-build   # Docker image (moghaddas/urnetwork-client:local)
+```
+
+---
+
+## Quick start
+
+```bash
+# 1. Login (saves JWT to ~/.urnetwork/jwt)
+./urnet-client login --user_auth me@example.com --password 'secret'
+
+# 2. Verify if required
+./urnet-client verify --user_auth me@example.com --code 123456
+
+# 3. Start VPN (full tunnel, Germany)
+sudo ./urnet-client vpn \
+  --tun utun10 \
+  --default_route \
+  --location_query="country:Germany"
+```
+
+Or do it all in one step:
+
+```bash
+sudo ./urnet-client quick-connect \
+  --user_auth me@example.com \
+  --password 'secret' \
+  --default_route \
+  --location_query="country:Germany" \
+  --tun utun10
+```
+
+---
+
+## Subcommands
+
+| Command | Description |
+|---------|-------------|
+| `login` | Authenticate with email/phone + password; saves JWT |
+| `verify` | Submit a verification code (if login requires 2FA) |
+| `save-jwt` | Store an existing JWT: `save-jwt --jwt "<token>"` |
+| `mint-client` | Mint a client-scoped JWT (includes `client_id`) |
+| `quick-connect` | Login + mint + start VPN in a single step |
+| `find-providers` | List available providers (optionally filtered by location) |
+| `locations` | List active locations and groups with IDs |
+| `open` | Open control-plane transports (connectivity test only) |
+| `vpn` | Start the VPN dataplane (userspace TUN) |
+| `socks` | Run a standalone SOCKS5 proxy (no TUN required) |
+
+```bash
+./urnet-client --help       # list all commands
+./urnet-client --version    # print version
+```
+
+---
+
+## Configuration
+
+### Precedence
+
+CLI flags > YAML config file > environment variables > defaults.
+
+### YAML config file (`--config`)
+
+Both `vpn` and `quick-connect` accept `--config=<path>` to load defaults from a YAML file. Any CLI flag explicitly provided overrides the corresponding config-file value.
+
+```yaml
+# ~/.urnetwork/config.yaml
+api_url: https://api.bringyour.com
+connect_url: wss://connect.bringyour.com
+tun: utun10
+ip_cidr: 10.255.0.2/24
+mtu: 1420
+default_route: true
+dns:
+  - 1.1.1.1
+  - 1.0.0.1
+dns_service: Wi-Fi
+dns_bootstrap: bypass
+socks_listen: 127.0.0.1:1080
+location_query: "country:Germany"
+log_level: info
+stats_interval: 5
+debug: false
+```
+
+### Environment variables
+
+| Variable | Purpose |
+|----------|---------|
+| `URNETWORK_HOME` | Override the directory containing the `jwt` file (default: `~/.urnetwork`) |
+| `URNETWORK_USERNAME` | Credentials for `quick-connect` (used if `--user_auth` omitted) |
+| `URNETWORK_PASSWORD` | Credentials for `quick-connect` (used if `--password` omitted) |
+
+### Defaults
+
+| Setting | Default |
+|---------|---------|
+| API URL | `https://api.bringyour.com` |
+| Connect URL | `wss://connect.bringyour.com` |
+| JWT path | `~/.urnetwork/jwt` |
+| IP/CIDR | `10.255.0.2/24` |
+| MTU | `1420` |
+| Log level | `info` |
+| Stats interval | `5` seconds |
+
+---
+
+## Flag reference
+
+All flags across subcommands. Scope indicates which subcommands accept the flag.
+
+### Identity and auth
+
+| Flag | Scope | Description |
+|------|-------|-------------|
+| `--user_auth=<email-or-phone>` | login, verify, quick-connect | Account identifier |
+| `--password=<password>` | login, quick-connect | Account password (see security note below) |
+| `--code=<code>` | verify, quick-connect | Verification code |
+| `--jwt=<jwt>` | most commands | Explicit JWT (falls back to `~/.urnetwork/jwt`) |
+| `--force_jwt` | quick-connect | Always mint a fresh client JWT |
+| `--jwt_renew_interval=<dur>` | quick-connect | Re-mint client JWT periodically (e.g. `12h`; `0` disables) |
+
+> **Security note:** `--password` is visible in process listings (`ps aux`) and shell history.
+> Prefer the `URNETWORK_PASSWORD` environment variable, or store your JWT with `save-jwt` and omit the password flag on subsequent runs.
+
+### Endpoints
+
+| Flag | Scope | Description |
+|------|-------|-------------|
+| `--api_url=<url>` | all | API endpoint |
+| `--connect_url=<wss-url>` | all | WebSocket connect endpoint |
+
+### VPN and interface
+
+| Flag | Scope | Description |
+|------|-------|-------------|
+| `--tun=<name>` | vpn, quick-connect | TUN interface name (`none` or omit for SOCKS-only) |
+| `--ip_cidr=<cidr>` | vpn, quick-connect | IP address on TUN (default `10.255.0.2/24`) |
+| `--mtu=<mtu>` | vpn, quick-connect | MTU (default `1420`) |
+| `--config=<path>` | vpn, quick-connect | Path to YAML config file; CLI flags take precedence |
+
+### Routing
+
+| Flag | Scope | Description |
+|------|-------|-------------|
+| `--default_route` | vpn, quick-connect | Full tunnel via split defaults |
+| `--route=<list>` | vpn, quick-connect | Comma-separated host/CIDR routes via tunnel |
+| `--exclude_route=<list>` | vpn, quick-connect | Keep these off VPN when full-tunnel is on |
+
+### Location selection
+
+| Flag | Scope | Description |
+|------|-------|-------------|
+| `--location_query=<q>` | vpn, quick-connect, find-providers | Search (e.g. `country:Germany`, `region:Europe`, `country_code:DE`) |
+| `--location_id=<id>` | vpn, quick-connect, find-providers | Specific location ID |
+| `--location_group_id=<id>` | vpn, quick-connect, find-providers | Specific location group ID |
+
+### DNS
+
+| Flag | Scope | Description |
+|------|-------|-------------|
+| `--dns=<list>` | vpn, quick-connect | Comma-separated resolvers while VPN is up |
+| `--dns_service=<name>` | vpn, quick-connect | macOS network service to modify (e.g. `"Wi-Fi"`) |
+| `--dns_bootstrap=<mode>` | vpn, quick-connect | `bypass` (default), `cache`, or `none` |
+
+DNS bootstrap modes:
+
+- **bypass** — add host routes to resolvers via current gateway (persistent)
+- **cache** — same, but removed after tunnel is active (DNS then goes via VPN)
+- **none** — don't add any temporary DNS routes
+
+### SOCKS proxy (inline with VPN)
+
+| Flag | Scope | Description |
+|------|-------|-------------|
+| `--socks=<addr>` | vpn, quick-connect | Start a local SOCKS5 proxy bound to VPN |
+| `--socks_listen=<addr>` | vpn, quick-connect | Alias for `--socks` |
+| `--domain=<list>` | vpn, quick-connect | Domains forced through VPN (SOCKS mode) |
+| `--exclude_domain=<list>` | vpn, quick-connect | Domains bypassing VPN (SOCKS mode) |
+
+### Standalone SOCKS subcommand
+
+| Flag | Scope | Description |
+|------|-------|-------------|
+| `--listen=<addr>` | socks | Listen address (required) |
+| `--extender_ip=<ip>` | socks | Extender IP |
+| `--extender_port=<port>` | socks | Extender TLS port |
+| `--extender_sni=<sni>` | socks | SNI hostname |
+| `--extender_secret=<secret>` | socks | Optional pre-shared secret |
+| `--domain=<list>` | socks | Domains routed through overlay |
+| `--exclude_domain=<list>` | socks | Domains bypassing overlay |
+
+### Inbound filtering
+
+| Flag | Scope | Description |
+|------|-------|-------------|
+| `--allow_inbound_local` | vpn, quick-connect | Allow only local ranges + tunnel subnet for new inbound TCP |
+| `--allow_inbound_src=<list>` | vpn, quick-connect | Allow new inbound TCP only from specified CIDRs/hosts |
+
+Specifying either flag blocks unsolicited inbound TCP SYNs by default. Filtering is IPv4 and IPv6 aware and runs in userspace (no OS firewall changes).
+
+### Transport and discovery
+
+| Flag | Scope | Description |
+|------|-------|-------------|
+| `--transports=<n>` | open | Number of transport connections |
+| `--count=<n>` | find-providers | Number of providers to return |
+| `--rank_mode=quality\|speed` | find-providers | Ranking mode |
+
+### Logging and diagnostics
+
+| Flag | Scope | Description |
+|------|-------|-------------|
+| `--log_level=<level>` | vpn, quick-connect | `quiet`, `error`, `warn`, `info` (default), `debug` |
+| `--debug` | vpn, quick-connect | Per-packet logging (implies `debug` level) |
+| `--stats_interval=<sec>` | vpn, quick-connect | Stats counter interval (`0` disables; default `5`) |
+| `--log_file=<path>` | vpn, quick-connect | Append logs to file instead of console |
+| `--background` | vpn, quick-connect | Run detached; print child PID |
+| `--version` | global | Print version and exit |
+| `-h`, `--help` | global | Show help |
+
+> **Tip:** List values are comma-separated (no spaces). Duration values use Go syntax: `15m`, `1h30m`.
+
+---
+
+## Examples
+
+### Full tunnel with location selection
+
+```bash
+# List available locations
+./urnet-client locations --query="country:*"
+
+# Connect to Germany
+sudo ./urnet-client vpn \
+  --tun utun10 \
+  --default_route \
+  --location_query="country:Germany"
+
+# Or by location ID (from the locations command)
+sudo ./urnet-client vpn \
+  --tun utun10 \
+  --default_route \
+  --location_id=018bab1d-5b38-1698-e335-d5ad3a486f25
+```
+
+### Full tunnel with excludes
+
+```bash
+sudo ./urnet-client vpn \
+  --tun utun10 \
+  --default_route \
+  --exclude_route=10.0.0.0/8,169.254.0.0/16 \
+  --stats_interval=5
+```
+
+### Route specific hosts through the tunnel
+
+```bash
+sudo ./urnet-client vpn \
+  --tun utun10 \
+  --route=1.1.1.1,8.8.8.8
+```
+
+### SOCKS-only (no global route/DNS changes)
+
+```bash
+sudo ./urnet-client vpn \
+  --socks=127.0.0.1:1080
+# Configure your app/browser to use 127.0.0.1:1080 (SOCKS5)
+```
+
+### Full tunnel with DNS via VPN
+
+```bash
+sudo ./urnet-client vpn \
+  --tun utun10 \
+  --default_route \
+  --dns=1.1.1.1,1.0.0.1 \
+  --dns_service="Wi-Fi" \
+  --dns_bootstrap=cache
+```
+
+### Inbound filtering
+
+```bash
+# Allow only local ranges
+sudo ./urnet-client vpn --tun utun10 --default_route --allow_inbound_local
+
+# Allow specific CIDRs
+sudo ./urnet-client vpn --tun utun10 --default_route \
+  --allow_inbound_src=192.168.1.50/32,10.0.0.0/8
+
+# Combine both
+sudo ./urnet-client vpn --tun utun10 --default_route \
+  --allow_inbound_local --allow_inbound_src=203.0.113.7/32
+```
+
+### Background mode with logging
+
+```bash
+sudo ./urnet-client vpn \
+  --tun utun10 \
+  --default_route \
+  --location_query="country:Germany" \
+  --background \
+  --log_file=/tmp/urnet-client.log
+# prints: started in background pid=<PID>
+tail -f /tmp/urnet-client.log
+```
+
+### Quick-connect with JWT renewal
+
+```bash
+sudo ./urnet-client quick-connect \
+  --user_auth me@example.com \
+  --password 'secret' \
+  --default_route \
+  --tun utun10 \
+  --force_jwt \
+  --jwt_renew_interval=12h \
+  --background
+```
+
+### YAML config file
+
+```bash
+sudo ./urnet-client vpn --config=~/.urnetwork/config.yaml
+```
+
+### Region and group queries
+
+```bash
+./urnet-client locations --query="region:Europe"
+./urnet-client locations --query="group:Western Europe"
+./urnet-client find-providers --location_query="region:Europe"
+```
+
+---
+
+## Platform notes
+
+### macOS
+
+- Requires `sudo` to create utun interfaces and manage routes/DNS.
+- If the requested utun name fails, the client retries with an auto-assigned utun.
+- Full-tunnel uses split defaults (`0.0.0.0/1` + `128.0.0.0/1`) and tracks variants for clean teardown.
+- Exclude routes go back to the current default gateway (auto-detected).
+- DNS is modified via `networksetup` when `--dns_service` is provided; otherwise unchanged.
+- In SOCKS-only mode, interface-scoped split defaults keep system routing unaffected.
+- Location queries fall back to local filtering if the server returns no results.
+
+### Linux
+
+- Requires `sudo` and TUN kernel support.
+- Full-tunnel uses split defaults (same as macOS): `0.0.0.0/1` + `128.0.0.0/1` via TUN, leaving the original default route untouched.
+- Control-plane endpoints (API/connect) get temporary host routes via the current default gateway.
+- `--exclude_route` prefixes are sent via the original default path; otherwise marked `unreachable`. All added routes are removed on exit.
+- SOCKS binds to the TUN interface. Some kernels may require policy routing for strict binding.
+
+---
+
+## Docker
+
+### Build the image
+
+```bash
+# Local build
+make docker-build
+
+# Or directly
+DOCKER_BUILDKIT=1 docker build -t moghaddas/urnetwork-client:local .
+```
+
+### Basic usage
+
+```bash
+mkdir -p ~/.urnetwork
+
+# Login
+docker run --rm \
+  -e URNETWORK_HOME=/data \
+  -v ~/.urnetwork:/data \
+  moghaddas/urnetwork-client:local login \
+    --user_auth me@example.com --password 'secret'
+
+# Mint client JWT
+docker run --rm \
+  -e URNETWORK_HOME=/data \
+  -v ~/.urnetwork:/data \
+  moghaddas/urnetwork-client:local mint-client
+
+# Find providers
+docker run --rm \
+  -e URNETWORK_HOME=/data \
+  -v ~/.urnetwork:/data \
+  moghaddas/urnetwork-client:local find-providers
+```
+
+### VPN in Docker (Linux host only)
+
+```bash
+docker run --rm -it \
+  --cap-add NET_ADMIN \
+  --device /dev/net/tun \
+  -e URNETWORK_HOME=/data \
+  -v ~/.urnetwork:/data \
+  moghaddas/urnetwork-client:local vpn --tun urnet0
+```
+
+> Container networking changes do not affect the host on macOS/Windows Docker Desktop. For host VPN, run the binary directly with `sudo`.
+
+### Linux VPN quick test (inside the container)
+
+```bash
+docker exec -it <container> sh
+ip addr add 10.255.0.2/24 dev urnet0
+ip link set urnet0 up
+ip route add 1.1.1.1/32 dev urnet0
+ping -c 3 -I urnet0 1.1.1.1
+```
+
+### docker-compose
+
+A compose file is provided at `docker-compose.yml`. It builds the image, enables `NET_ADMIN` and `/dev/net/tun`, uses host networking, and persists JWTs to a named volume.
+
+```bash
+docker compose build
+docker compose run --rm urnet-client --help
+docker compose run --rm urnet-client vpn --tun urnet0
+```
+
+**OS-specific overrides** for running VPN + SOCKS together:
+
+| File | Host | Networking | Notes |
+|------|------|-----------|-------|
+| `docker-compose.linux.yml` | Linux | Host networking | SOCKS reachable directly on host |
+| `docker-compose.macos.yml` | Docker Desktop (macOS) | Bridge + port mapping | `ports: ["1080:1080"]` |
+
+```bash
+# Linux
+docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d
+
+# macOS
+docker compose -f docker-compose.yml -f docker-compose.macos.yml up -d
+```
+
+### Standalone SOCKS (no TUN) — RouterOS-friendly
+
+The `socks` subcommand runs a SOCKS5 proxy via the overlay extender without a TUN device. Works on MikroTik RouterOS containers where `/dev/net/tun` and `NET_ADMIN` are unavailable.
+
+**Limitations:** TCP CONNECT only (no UDP ASSOCIATE). Only common TLS ports allowed by default (443, 853, 993, 995, 465, 2376, 3269, 4460).
+
+```bash
+./urnet-client socks \
+  --listen=0.0.0.0:1080 \
+  --extender_ip=<IP> \
+  --extender_port=443 \
+  --extender_sni=<hostname> \
+  --extender_secret='<optional-psk>' \
+  --domain='example.org,*.example.net'
+```
+
+### Multi-arch image (amd64 + arm64)
+
+```bash
+# With Makefile
+make dockerx-build   IMAGE_BASENAME=moghaddas/urnetwork-client   # local, no push
+make dockerx-release IMAGE_BASENAME=moghaddas/urnetwork-client   # push to registry
+
+# Or raw buildx
+docker buildx create --name urnetx --use
+docker buildx inspect --bootstrap
+VER=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
+
+DOCKER_BUILDKIT=1 docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -f Dockerfile \
+  -t moghaddas/urnetwork-client:${VER} \
+  -t moghaddas/urnetwork-client:latest \
+  . --push
+```
+
+---
+
+## Notes and limitations
+
+- UDP over SOCKS (UDP ASSOCIATE) is supported for QUIC/DNS, but not all apps use SOCKS for UDP.
+- IPv6 inbound packet filtering is supported. IPv6 routing and system-level binding are not yet enabled; IPv4 is the primary routing path.
+- On some Linux setups, strict interface binding may require policy routing rules.
 # urnet-client (experimental)
 
 [![CI](https://github.com/devrandom0/urnetwork-client/actions/workflows/ci.yml/badge.svg)](https://github.com/devrandom0/urnetwork-client/actions/workflows/ci.yml)
