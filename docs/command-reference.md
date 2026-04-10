@@ -65,12 +65,13 @@ Global help:
 
 ### SOCKS
 
-- `--socks=<addr>`
-- `--socks_listen=<addr>`
-- `--domain=<list>`
-- `--exclude_domain=<list>`
+When using `vpn` subcommand:
 
-Standalone `socks` command:
+- `--socks=<addr>` (alias: `--socks_listen`) — Start SOCKS5 proxy. **Requires `--tun` to bind traffic through VPN.**
+- `--domain=<list>` — Comma-separated domains that must route through VPN (SOCKS-only mode)
+- `--exclude_domain=<list>` — Comma-separated domains to exclude from VPN routing
+
+For a standalone SOCKS proxy (without TUN/VPN), use the separate `socks` command: `./urnet-client socks --listen=... --extender_ip=... --extender_port=... --extender_sni=...`
 
 - `--listen=<addr>`
 - `--extender_ip=<ip>`
