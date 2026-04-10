@@ -104,7 +104,7 @@ build-all: build-linux-amd64 build-linux-arm64 build-darwin-amd64 build-darwin-a
 
 .PHONY: docker-build
 docker-build:
-	DOCKER_BUILDKIT=1 docker build -f Dockerfile -t $(IMAGE) ../../..
+	DOCKER_BUILDKIT=1 docker build -t $(IMAGE) .
 
 .PHONY: ci-docker-build
 ci-docker-build:
