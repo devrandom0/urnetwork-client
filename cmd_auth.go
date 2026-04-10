@@ -1,61 +1,60 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/docopt/docopt-go"
 )
 
-func cmdSaveJWT(opts docopt.Opts) {
+func cmdSaveJWT(opts docopt.Opts) error {
 	jwt, _ := opts.String("--jwt")
 	if strings.TrimSpace(jwt) == "" {
-		fmt.Fprintln(os.Stderr, "--jwt is required")
-		os.Exit(2)
+		return fmt.Errorf("--jwt is required")
 	}
 	if err := saveJWT(jwt); err != nil {
-		fmt.Fprintf(os.Stderr, "save failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("save failed: %w", err)
 	}
 	fmt.Printf("saved to %s\n", jwtPath())
+	return nil
 }
 
-func cmdVerify(opts docopt.Opts) {
+func cmdVerify(ctx context.Context, opts docopt.Opts) error {
 	apiUrl := getStringOr(opts, "--api_url", DefaultApiUrl)
-	userAuth := mustString(opts, "--user_auth")
-	code := mustString(opts, "--code")
+	userAuth, _ := opts.String("--user_auth")
+	code, _ := opts.String("--code")
 
-	byJwt, err := verifyCode(apiUrl, userAuth, code)
+	byJwt, err := verifyCode(ctx, apiUrl, userAuth, code)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "verify error: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("verify error: %w", err)
 	}
 	if err := saveJWT(byJwt); err != nil {
-		fmt.Fprintf(os.Stderr, "save jwt failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("save jwt failed: %w", err)
 	}
 	fmt.Printf("saved JWT -> %s\n", jwtPath())
+	return nil
 }
 
-func cmdMintClient(opts docopt.Opts) {
+func cmdMintClient(ctx context.Context, opts docopt.Opts) error {
 	apiUrl := getStringOr(opts, "--api_url", DefaultApiUrl)
 	jwtOpt, _ := opts.String("--jwt")
 	jwt, err := loadJWT(jwtOpt)
 	if err != nil {
-		fatal(err)
+		return err
 	}
 
-	clientJwt, err := mintClientJWT(apiUrl, jwt)
+	clientJwt, err := mintClientJWT(ctx, apiUrl, jwt)
 	if err != nil {
-		fatal(err)
+		return err
 	}
 	if err := saveJWT(clientJwt); err != nil {
-		fatal(err)
+		return err
 	}
 	if id := parseClientID(clientJwt); id != "" {
 		fmt.Printf("saved client JWT (client_id=%s) -> %s\n", id, jwtPath())
 	} else {
 		fmt.Printf("saved client JWT -> %s\n", jwtPath())
 	}
+	return nil
 }

@@ -6,52 +6,46 @@ import (
 	"time"
 
 	"github.com/docopt/docopt-go"
-	"github.com/urnetwork/connect"
 )
 
-func cmdLocations(opts docopt.Opts) {
+func cmdLocations(ctx context.Context, opts docopt.Opts) error {
 	apiUrl := getStringOr(opts, "--api_url", DefaultApiUrl)
 	q := getStringOr(opts, "--query", "")
 	jwtOpt, _ := opts.String("--jwt")
 	jwt, err := loadJWT(jwtOpt)
 	if err != nil {
-		fatal(err)
+		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	qCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	strat := connect.NewClientStrategyWithDefaults(ctx)
-	api := connect.NewBringYourApi(ctx, strat, apiUrl)
-	api.SetByJwt(jwt)
 
 	var res *findLocationsHTTPResult
 	if q == "" || q == "*" || q == "country:*" || q == "region:*" || q == "group:*" {
-		httpRes, err := httpProviderLocations(ctx, apiUrl, jwt)
+		httpRes, err := httpProviderLocations(qCtx, apiUrl, jwt)
 		if err != nil {
-			fatal(err)
+			return err
 		}
 		res = httpRes
 	} else {
-		if httpRes, err := httpFindLocations(ctx, apiUrl, jwt, q); err == nil && httpRes != nil {
+		if httpRes, err := httpFindLocations(qCtx, apiUrl, jwt, q); err == nil && httpRes != nil {
 			res = httpRes
 		}
 		if res == nil || (len(res.Groups) == 0 && len(res.Locations) == 0) {
-			fbSpecs, fbRes := filterLocationsFallback(ctx, strat, apiUrl, jwt, q)
+			fbSpecs, fbRes := filterLocationsFallback(qCtx, apiUrl, jwt, q)
 			if fbRes != nil {
 				res = fbRes
 			}
 			if len(fbSpecs) == 0 && (res == nil || (len(res.Groups) == 0 && len(res.Locations) == 0)) {
 				fmt.Println("no results")
-				return
+				return nil
 			}
 		}
 	}
 	if res == nil {
 		fmt.Println("no results")
-		return
+		return nil
 	}
-
-	_ = api // used above for SetByJwt; suppress unused warning
 
 	if len(res.Groups) > 0 {
 		fmt.Println("Groups:")
@@ -80,4 +74,5 @@ func cmdLocations(opts docopt.Opts) {
 			}
 		}
 	}
+	return nil
 }

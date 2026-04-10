@@ -11,55 +11,42 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/docopt/docopt-go"
 	"github.com/songgao/water"
 )
 
-func cmdVpn(opts docopt.Opts) {
-	apiUrl := getStringOr(opts, "--api_url", DefaultApiUrl)
-	connectUrl := getStringOr(opts, "--connect_url", DefaultConnectUrl)
-	// Default: no TUN unless explicitly provided
-	tunName := getStringOr(opts, "--tun", "")
+func cmdVpn(ctx context.Context, cfg VPNConfig) error {
+	tunName := cfg.TunName
 	rawTun := strings.TrimSpace(tunName)
 	tunLikelyMissingArg := rawTun != "" && strings.HasPrefix(rawTun, "-")
-	ipCIDR := getStringOr(opts, "--ip_cidr", "10.255.0.2/24")
-	mtu := getIntOr(opts, "--mtu", 1420)
-	defRoute, _ := opts.Bool("--default_route")
-	extraRoutes := getStringOr(opts, "--route", "")
-	excludeRoutes := getStringOr(opts, "--exclude_route", "")
-	dnsList := getStringOr(opts, "--dns", "")
-	debugOn, _ := opts.Bool("--debug")
-	socksListen := strings.TrimSpace(getStringOr(opts, "--socks", getStringOr(opts, "--socks_listen", "")))
-	allowDomains := splitCSV(getStringOr(opts, "--domain", ""))
-	excludeDomains := splitCSV(getStringOr(opts, "--exclude_domain", ""))
-	_ = time.Duration(getIntOr(opts, "--stats_interval", 5)) * time.Second
-	jwtOpt, _ := opts.String("--jwt")
-	jwt, err := loadJWT(jwtOpt)
-	if err != nil {
-		fatal(err)
-	}
+	ipCIDR := cfg.IPCIDR
+	mtu := cfg.MTU
+	defRoute := cfg.DefaultRoute
+	extraRoutes := cfg.ExtraRoutes
+	excludeRoutes := cfg.ExcludeRoutes
+	dnsList := cfg.DNSList
+	debugOn := cfg.Debug
+	socksListen := cfg.SOCKSListen
+	allowDomains := cfg.AllowDomains
+	excludeDomains := cfg.ExcludeDomains
+	jwt := cfg.JWT
 
-	logStartupConfig(opts, jwt)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	logStartupConfig(cfg)
 
 	// TUN-less mode for SOCKS-only usage
 	if isTUNDisabled(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
 		if socksListen == "" {
 			logError("--tun=none specified but no --socks provided; nothing to do\n")
-			return
+			return nil
 		}
 		stopSocks, err := StartSocks5(ctx, socksListen, "", debugOn, allowDomains, excludeDomains)
 		if err != nil {
-			fatal(fmt.Errorf("start socks failed: %w", err))
+			return fmt.Errorf("start socks failed: %w", err)
 		}
-		defer stopSocks()
+		defer func() { _ = stopSocks() }()
 		logInfo("SOCKS started without TUN (system routes only). Press Ctrl+C to exit.\n")
-		waitForInterrupt(cancel)
-		return
+		<-ctx.Done()
+		return nil
 	}
 
 	// If tun name looks like a flag (missing value), choose a sane default name
@@ -68,13 +55,13 @@ func cmdVpn(opts docopt.Opts) {
 		tunName = "urnet0"
 	}
 
-	cfg := water.Config{DeviceType: water.TUN}
-	cfg.Name = tunName
-	dev, err := water.New(cfg)
+	waterCfg := water.Config{DeviceType: water.TUN}
+	waterCfg.Name = tunName
+	dev, err := water.New(waterCfg)
 	if err != nil {
-		fatal(fmt.Errorf("create TUN failed: %w", err))
+		return fmt.Errorf("create TUN failed: %w", err)
 	}
-	defer dev.Close()
+	defer func() { _ = dev.Close() }()
 	logInfo("TUN %s created (configuring IP/MTU/routes as requested)\n", tunName)
 
 	// Configure IP and MTU
@@ -180,10 +167,9 @@ func cmdVpn(opts docopt.Opts) {
 		}
 	}
 
-	// Run shared dataplane + SOCKS + stats
+	// Run shared dataplane + SOCKS + stats; ctx cancelled by signal (from main's NotifyContext).
 	var pktsIn, bytesIn, pktsOut, bytesOut uint64
-	go waitForInterrupt(cancel)
-	vpnRunCore(ctx, dev, tunName, opts, jwt, &pktsIn, &pktsOut, &bytesIn, &bytesOut, func() {})
+	vpnRunCore(ctx, dev, tunName, cfg, &pktsIn, &pktsOut, &bytesIn, &bytesOut, func() {})
 
 	// Cleanup on exit: delete routes, bring link down, and delete address
 	if defRoute {
@@ -218,6 +204,7 @@ func cmdVpn(opts docopt.Opts) {
 	}
 	_ = run("ip", "link", "set", tunName, "down")
 	_ = run("ip", "addr", "flush", "dev", tunName)
+	return nil
 }
 
 func run(name string, args ...string) error {

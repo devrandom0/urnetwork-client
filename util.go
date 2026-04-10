@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 
@@ -49,26 +47,10 @@ func getIntOr(opts docopt.Opts, key string, def int) int {
 	return def
 }
 
-// mustString returns the string value for key, printing an error and exiting if blank.
-func mustString(opts docopt.Opts, key string) string {
-	v, _ := opts.String(key)
-	if strings.TrimSpace(v) == "" {
-		fmt.Fprintf(os.Stderr, "%s is required\n", key)
-		os.Exit(2)
-	}
-	return v
-}
-
 // mustBool returns the bool value of key from opts, ignoring errors.
 func mustBool(opts docopt.Opts, key string) bool {
 	b, _ := opts.Bool(key)
 	return b
-}
-
-// fatal prints an error to stderr and exits with code 1.
-func fatal(err error) {
-	fmt.Fprintf(os.Stderr, "error: %v\n", err)
-	os.Exit(1)
 }
 
 // idsToStrings converts a slice of connect.Id to a slice of their string representations.

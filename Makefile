@@ -64,6 +64,7 @@ lint:
 	  echo "gofmt found issues:" && echo "$$fmt_out" && exit 1; \
 	fi
 	go vet ./...
+	golangci-lint run ./...
 
 .PHONY: hooks-install
 hooks-install:

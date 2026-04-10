@@ -2,61 +2,32 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
 
 	"github.com/docopt/docopt-go"
 )
 
-func cmdSocks(opts docopt.Opts) {
-	listenAddr, _ := opts.String("--listen")
-	extenderIP, _ := opts.String("--extender_ip")
-	extenderPort, _ := opts.String("--extender_port")
-	extenderSNI, _ := opts.String("--extender_sni")
-	extenderSecret, _ := opts.String("--extender_secret")
-	debugOn, _ := opts.Bool("--debug")
+func cmdSocks(ctx context.Context, opts docopt.Opts) error {
+	cfg := parseSOCKSConfig(opts)
 
-	if listenAddr == "" {
-		fatal(errors.New("--listen is required for socks command"))
+	if cfg.ListenAddr == "" {
+		return fmt.Errorf("--listen is required for socks command")
 	}
-	if extenderIP == "" {
-		fatal(errors.New("--extender_ip is required for socks command"))
-	}
-	if extenderPort == "" {
-		fatal(errors.New("--extender_port is required for socks command"))
-	}
-	if extenderSNI == "" {
-		fatal(errors.New("--extender_sni is required for socks command"))
-	}
-
-	allowDomains := splitCSV(getStringOr(opts, "--domain", ""))
-	excludeDomains := splitCSV(getStringOr(opts, "--exclude_domain", ""))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// NOTE: extender connection is not yet implemented; the binary logs the target
 	// and runs a plain SOCKS5 proxy. Track as a known gap.
-	_ = extenderSecret
-	logInfo("Extender details: IP=%s Port=%s SNI=%s\n", extenderIP, extenderPort, extenderSNI)
+	logInfo("Extender details: IP=%s Port=%s SNI=%s\n", cfg.ExtenderIP, cfg.ExtenderPort, cfg.ExtenderSNI)
 
-	stopSocks, err := StartSocks5(ctx, listenAddr, "", debugOn, allowDomains, excludeDomains)
+	stopSocks, err := StartSocks5(ctx, cfg.ListenAddr, "", cfg.Debug, cfg.AllowDomains, cfg.ExcludeDomains)
 	if err != nil {
-		fatal(fmt.Errorf("failed to start SOCKS5 proxy: %w", err))
+		return fmt.Errorf("failed to start SOCKS5 proxy: %w", err)
 	}
 	defer func() { _ = stopSocks() }()
 
-	logInfo("SOCKS5 proxy listening at %s\n", listenAddr)
-	logInfo("Connecting to extender at %s:%s (SNI: %s)\n", extenderIP, extenderPort, extenderSNI)
+	logInfo("SOCKS5 proxy listening at %s\n", cfg.ListenAddr)
+	logInfo("Connecting to extender at %s:%s (SNI: %s)\n", cfg.ExtenderIP, cfg.ExtenderPort, cfg.ExtenderSNI)
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	<-sigCh
-
-	_ = strings.TrimSpace // keep import used elsewhere in same package
+	<-ctx.Done()
 	logInfo("Shutting down SOCKS5 proxy...\n")
+	return nil
 }

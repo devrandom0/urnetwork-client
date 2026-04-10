@@ -5,19 +5,51 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
-	"os"
-	"os/signal"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"time"
 
-	"github.com/docopt/docopt-go"
 	"github.com/songgao/water"
 
 	"github.com/urnetwork/connect"
 	"github.com/urnetwork/connect/protocol"
 )
+
+// shouldDropInbound returns true when the packet should be dropped by inbound filtering.
+// allowCIDRs is the list of permitted source CIDRs for new inbound connections.
+// If allowCIDRs is empty, all new inbound TCP SYNs are dropped.
+func shouldDropInbound(packet []byte, allowCIDRs []*net.IPNet) bool {
+	if len(packet) < 20 || (packet[0]>>4) != 4 {
+		return false // not IPv4
+	}
+	ihl := int(packet[0]&0x0F) * 4
+	if ihl < 20 || len(packet) < ihl+20 {
+		return false
+	}
+	if packet[9] != 6 { // not TCP
+		return false
+	}
+	tcpFlags := packet[ihl+13]
+	syn := tcpFlags&0x02 != 0
+	ack := tcpFlags&0x10 != 0
+	if syn && !ack {
+		// New inbound SYN: drop unless source IP is in the allowlist.
+		if len(allowCIDRs) > 0 {
+			srcIP := net.IPv4(packet[12], packet[13], packet[14], packet[15])
+			for _, n := range allowCIDRs {
+				if n != nil && n.Contains(srcIP) {
+					return false // allowed
+				}
+			}
+		}
+		return true // drop
+	}
+	if !ack {
+		// Non-SYN TCP without ACK (e.g., stray RST): drop.
+		return true
+	}
+	return false
+}
 
 // vpnRunCore encapsulates the common dataplane loop, provider selection, stats, and SOCKS handling.
 // It waits for termination and then invokes onBeforeExit for OS-specific cleanup.
@@ -25,63 +57,47 @@ func vpnRunCore(
 	ctx context.Context,
 	dev *water.Interface,
 	tunIfName string,
-	opts docopt.Opts,
-	jwt string,
+	cfg VPNConfig,
 	pktsIn, pktsOut, bytesIn, bytesOut *uint64,
 	onBeforeExit func(),
 ) {
-	apiUrl := getStringOr(opts, "--api_url", DefaultApiUrl)
-	connectUrl := getStringOr(opts, "--connect_url", DefaultConnectUrl)
-	debugOn, _ := opts.Bool("--debug")
-	statsInt := time.Duration(getIntOr(opts, "--stats_interval", 5)) * time.Second
+	apiUrl := cfg.APIUrl
+	connectUrl := cfg.ConnectUrl
+	debugOn := cfg.Debug
+	statsInt := cfg.StatsInterval
 
-	// Build provider specs from location flags (--location_id / --location_group_id / --location_query).
-	strat, specs := buildProviderSpecs(ctx, apiUrl, jwt, opts)
+	// Build provider specs from location flags.
+	strat, specs := buildProviderSpecs(ctx, apiUrl, cfg.JWT, cfg.Location)
 	appVer := fmt.Sprintf("urnet-client %s", Version)
 	gen := connect.NewApiMultiClientGeneratorWithDefaults(
-		ctx, specs, strat, nil, apiUrl, jwt, fmt.Sprintf("%s/", connectUrl), "", "", appVer, nil,
+		ctx, specs, strat, nil, apiUrl, cfg.JWT, fmt.Sprintf("%s/", connectUrl), "", "", appVer, nil,
 	)
 
-	// New userspace control: drop new inbound connections when allowlists are provided.
-	// Behavior: if --allow_inbound_src or --allow_inbound_local is set, block new inbound TCP SYNs
-	// and allow only sources matching those allowlists. Additionally, drop inbound TCP segments
-	// without the ACK flag (e.g., stray RST) since they cannot belong to an established flow we initiated.
-	allowInboundSrcList := stringsTrim(getStringOr(opts, "--allow_inbound_src", ""))
-	allowInboundLocal, _ := opts.Bool("--allow_inbound_local")
-	blockNewInbound := allowInboundLocal || (allowInboundSrcList != "")
+	// Inbound connection control: build allowlist from config.
+	blockNewInbound := cfg.AllowInboundLocal || cfg.AllowInboundSrcList != ""
 	var allowInboundCIDRs []*net.IPNet
-	if allowInboundSrcList != "" {
-		for _, s := range splitCSV(allowInboundSrcList) {
+	if cfg.AllowInboundSrcList != "" {
+		for _, s := range splitCSV(cfg.AllowInboundSrcList) {
 			if n := parseCIDRHost(s); n != nil {
 				allowInboundCIDRs = append(allowInboundCIDRs, n)
 			}
 		}
 	}
-	// If allow-local requested, append local ranges and the TUN subnet (if provided)
-	if allowInboundLocal {
+	if cfg.AllowInboundLocal {
 		appendNet := func(cidr string) {
 			if n := parseCIDRHost(cidr); n != nil {
 				allowInboundCIDRs = append(allowInboundCIDRs, n)
 			}
 		}
-		// Common local ranges
-		appendNet("127.0.0.0/8")    // loopback
-		appendNet("169.254.0.0/16") // link-local
-		appendNet("10.0.0.0/8")     // RFC1918
-		appendNet("172.16.0.0/12")  // RFC1918
-		appendNet("192.168.0.0/16") // RFC1918
-		appendNet("100.64.0.0/10")  // CGNAT
-		// TUN subnet from --ip_cidr, if provided
-		if cidr := stringsTrim(getStringOr(opts, "--ip_cidr", "")); cidr != "" {
-			if strings.Contains(cidr, "/") {
-				if n := parseCIDRHost(cidr); n != nil {
-					allowInboundCIDRs = append(allowInboundCIDRs, n)
-				}
-			} else {
-				// Single host provided; treat as /32
-				if n := parseCIDRHost(cidr); n != nil {
-					allowInboundCIDRs = append(allowInboundCIDRs, n)
-				}
+		appendNet("127.0.0.0/8")
+		appendNet("169.254.0.0/16")
+		appendNet("10.0.0.0/8")
+		appendNet("172.16.0.0/12")
+		appendNet("192.168.0.0/16")
+		appendNet("100.64.0.0/10")
+		if cidr := cfg.IPCIDR; cidr != "" {
+			if n := parseCIDRHost(cidr); n != nil {
+				allowInboundCIDRs = append(allowInboundCIDRs, n)
 			}
 		}
 	}
@@ -90,69 +106,26 @@ func vpnRunCore(
 		logInfo("inbound-control: enabled (allowlist=%d entries); policy: drop new inbound SYN not in allowlist, and drop inbound TCP without ACK\n", len(allowInboundCIDRs))
 	}
 
-	// Provider receive: optional userspace filtering, then write to TUN and update counters
+	// Provider receive: optional userspace filtering, then write to TUN and update counters.
 	receive := func(source connect.TransferPath, provideMode protocol.ProvideMode, ipPath *connect.IpPath, packet []byte) {
 		if debugOn || isDebugEnabled() {
 			logInfo("<- provider len=%d src=%v mode=%v ipPath=%v\n", len(packet), source, provideMode, ipPath)
 		}
-		// If enabled: drop new inbound TCP connections (SYN set, ACK not set)
-		if blockNewInbound {
-			if len(packet) >= 20 && (packet[0]>>4) == 4 { // IPv4
-				ihl := int(packet[0]&0x0F) * 4
-				if ihl >= 20 && len(packet) >= ihl+20 { // ensure room for TCP header
-					proto := packet[9]
-					if proto == 6 { // TCP
-						// TCP header starts at ihl; flags are at offset 13 of TCP header
+		if blockNewInbound && shouldDropInbound(packet, allowInboundCIDRs) {
+			if debugOn || isDebugEnabled() {
+				if len(packet) >= 20 && (packet[0]>>4) == 4 {
+					ihl := int(packet[0]&0x0F) * 4
+					if ihl >= 20 && len(packet) >= ihl+20 && packet[9] == 6 {
+						srcIP := net.IPv4(packet[12], packet[13], packet[14], packet[15])
+						dstIP := net.IPv4(packet[16], packet[17], packet[18], packet[19])
+						srcPort := binary.BigEndian.Uint16(packet[ihl : ihl+2])
+						dstPort := binary.BigEndian.Uint16(packet[ihl+2 : ihl+4])
 						tcpFlags := packet[ihl+13]
-						syn := tcpFlags&0x02 != 0
-						ack := tcpFlags&0x10 != 0
-						// 1) Drop new inbound SYN if not allowlisted
-						if syn && !ack {
-							// If allowlist is provided, permit new inbound from those sources
-							if len(allowInboundCIDRs) > 0 {
-								srcIP := net.IPv4(packet[12], packet[13], packet[14], packet[15])
-								allowed := false
-								for _, n := range allowInboundCIDRs {
-									if n != nil && n.Contains(srcIP) {
-										allowed = true
-										break
-									}
-								}
-								if allowed {
-									// pass through
-								} else {
-									if debugOn || isDebugEnabled() {
-										dstIP := net.IPv4(packet[16], packet[17], packet[18], packet[19])
-										srcPort := binary.BigEndian.Uint16(packet[ihl : ihl+2])
-										dstPort := binary.BigEndian.Uint16(packet[ihl+2 : ihl+4])
-										logInfo("dropped new inbound TCP SYN %s:%d -> %s:%d (not in allowlist)\n", srcIP.String(), srcPort, dstIP.String(), dstPort)
-									}
-									return
-								}
-							} else {
-								if debugOn || isDebugEnabled() {
-									srcIP := net.IPv4(packet[12], packet[13], packet[14], packet[15])
-									dstIP := net.IPv4(packet[16], packet[17], packet[18], packet[19])
-									srcPort := binary.BigEndian.Uint16(packet[ihl : ihl+2])
-									dstPort := binary.BigEndian.Uint16(packet[ihl+2 : ihl+4])
-									logInfo("dropped new inbound TCP SYN %s:%d -> %s:%d\n", srcIP.String(), srcPort, dstIP.String(), dstPort)
-								}
-								return
-							}
-							// 2) Drop any inbound TCP segment without ACK (e.g., stray RST), since it can't be part of a valid response path
-						} else if !ack {
-							srcIP := net.IPv4(packet[12], packet[13], packet[14], packet[15])
-							dstIP := net.IPv4(packet[16], packet[17], packet[18], packet[19])
-							srcPort := binary.BigEndian.Uint16(packet[ihl : ihl+2])
-							dstPort := binary.BigEndian.Uint16(packet[ihl+2 : ihl+4])
-							if debugOn || isDebugEnabled() {
-								logInfo("dropped inbound TCP without ACK %s:%d -> %s:%d (flags=0x%02x)\n", srcIP.String(), srcPort, dstIP.String(), dstPort, tcpFlags)
-							}
-							return
-						}
+						logInfo("dropped inbound TCP %s:%d -> %s:%d (flags=0x%02x)\n", srcIP, srcPort, dstIP, dstPort, tcpFlags)
 					}
 				}
 			}
+			return
 		}
 		_, _ = dev.Write(packet)
 		if pktsIn != nil {
@@ -209,9 +182,9 @@ func vpnRunCore(
 	}
 
 	// Optional SOCKS5 proxy bound to the VPN interface
-	socksListen := stringsTrim(getStringOr(opts, "--socks", getStringOr(opts, "--socks_listen", "")))
-	allowDomains := splitCSV(getStringOr(opts, "--domain", ""))
-	excludeDomains := splitCSV(getStringOr(opts, "--exclude_domain", ""))
+	socksListen := cfg.SOCKSListen
+	allowDomains := cfg.AllowDomains
+	excludeDomains := cfg.ExcludeDomains
 	var stopSocks func() error
 	if socksListen != "" {
 		if s, err := StartSocks5(ctx, socksListen, tunIfName, debugOn || isDebugEnabled(), allowDomains, excludeDomains); err != nil {
@@ -237,9 +210,6 @@ func vpnRunCore(
 		onBeforeExit()
 	}
 }
-
-// tiny helper to avoid repeated TrimSpace everywhere
-func stringsTrim(s string) string { return strings.TrimSpace(s) }
 
 // parseCIDRHost parses a CIDR or single IPv4 host into *net.IPNet. Returns nil on failure or non-IPv4.
 func parseCIDRHost(s string) *net.IPNet {
@@ -269,14 +239,6 @@ func parseCIDRHost(s string) *net.IPNet {
 	return &net.IPNet{IP: ip4, Mask: ipn.Mask}
 }
 
-// waitForInterrupt blocks until SIGINT or SIGTERM, then calls cancel.
-func waitForInterrupt(cancel context.CancelFunc) {
-	sigc := make(chan os.Signal, 1)
-	signal.Notify(sigc, os.Interrupt, syscall.SIGTERM)
-	<-sigc
-	cancel()
-}
-
 // isTUNDisabled returns true when the provided name represents a disabled TUN
 // (e.g., "none", "no", "off", "false", "disable", "0").
 func isTUNDisabled(name string) bool {
@@ -288,65 +250,47 @@ func isTUNDisabled(name string) bool {
 	}
 }
 
-// logStartupConfig logs the effective VPN configuration summary derived from opts.
-// Reading directly from opts makes this safe to call from any platform's cmdVpn before
-// TUN creation.
-func logStartupConfig(opts docopt.Opts, jwt string) {
-	apiUrl := getStringOr(opts, "--api_url", DefaultApiUrl)
-	connectUrl := getStringOr(opts, "--connect_url", DefaultConnectUrl)
-	tunName := getStringOr(opts, "--tun", "")
-	ipCIDR := getStringOr(opts, "--ip_cidr", "10.255.0.2/24")
-	mtu := getIntOr(opts, "--mtu", 1420)
-	defRoute, _ := opts.Bool("--default_route")
-	extraRoutes := getStringOr(opts, "--route", "")
-	excludeRoutes := getStringOr(opts, "--exclude_route", "")
-	dnsList := getStringOr(opts, "--dns", "")
-	dnsService := strings.TrimSpace(getStringOr(opts, "--dns_service", ""))
-	dnsBootstrap := strings.TrimSpace(getStringOr(opts, "--dns_bootstrap", ""))
-	socksListen := strings.TrimSpace(getStringOr(opts, "--socks", getStringOr(opts, "--socks_listen", "")))
-	allowDomains := splitCSV(getStringOr(opts, "--domain", ""))
-	excludeDomains := splitCSV(getStringOr(opts, "--exclude_domain", ""))
-	debugOn, _ := opts.Bool("--debug")
-
-	cfg := []string{
-		fmt.Sprintf("api_url=%s", apiUrl),
-		fmt.Sprintf("connect_url=%s", connectUrl),
-		fmt.Sprintf("tun=%s", tunName),
-		fmt.Sprintf("ip_cidr=%s", ipCIDR),
-		fmt.Sprintf("mtu=%d", mtu),
-		fmt.Sprintf("default_route=%t", defRoute),
+// logStartupConfig logs the effective VPN configuration summary from a VPNConfig.
+func logStartupConfig(cfg VPNConfig) {
+	configItems := []string{
+		fmt.Sprintf("api_url=%s", cfg.APIUrl),
+		fmt.Sprintf("connect_url=%s", cfg.ConnectUrl),
+		fmt.Sprintf("tun=%s", cfg.TunName),
+		fmt.Sprintf("ip_cidr=%s", cfg.IPCIDR),
+		fmt.Sprintf("mtu=%d", cfg.MTU),
+		fmt.Sprintf("default_route=%t", cfg.DefaultRoute),
 	}
-	if strings.TrimSpace(extraRoutes) != "" {
-		cfg = append(cfg, fmt.Sprintf("route=%s", strings.TrimSpace(extraRoutes)))
+	if strings.TrimSpace(cfg.ExtraRoutes) != "" {
+		configItems = append(configItems, fmt.Sprintf("route=%s", strings.TrimSpace(cfg.ExtraRoutes)))
 	}
-	if strings.TrimSpace(excludeRoutes) != "" {
-		cfg = append(cfg, fmt.Sprintf("exclude_route=%s", strings.TrimSpace(excludeRoutes)))
+	if strings.TrimSpace(cfg.ExcludeRoutes) != "" {
+		configItems = append(configItems, fmt.Sprintf("exclude_route=%s", strings.TrimSpace(cfg.ExcludeRoutes)))
 	}
-	if strings.TrimSpace(dnsList) != "" {
-		cfg = append(cfg, fmt.Sprintf("dns=%s", strings.TrimSpace(dnsList)))
+	if strings.TrimSpace(cfg.DNSList) != "" {
+		configItems = append(configItems, fmt.Sprintf("dns=%s", strings.TrimSpace(cfg.DNSList)))
 	}
-	if dnsService != "" {
-		cfg = append(cfg, fmt.Sprintf("dns_service=%s", dnsService))
+	if cfg.DNSService != "" {
+		configItems = append(configItems, fmt.Sprintf("dns_service=%s", cfg.DNSService))
 	}
-	if dnsBootstrap != "" {
-		cfg = append(cfg, fmt.Sprintf("dns_bootstrap=%s", dnsBootstrap))
+	if cfg.DNSBootstrap != "" {
+		configItems = append(configItems, fmt.Sprintf("dns_bootstrap=%s", cfg.DNSBootstrap))
 	}
-	if socksListen != "" {
-		cfg = append(cfg, fmt.Sprintf("socks=%s", socksListen))
+	if cfg.SOCKSListen != "" {
+		configItems = append(configItems, fmt.Sprintf("socks=%s", cfg.SOCKSListen))
 	}
-	if len(allowDomains) > 0 {
-		cfg = append(cfg, fmt.Sprintf("domain=%s", strings.Join(allowDomains, ",")))
+	if len(cfg.AllowDomains) > 0 {
+		configItems = append(configItems, fmt.Sprintf("domain=%s", strings.Join(cfg.AllowDomains, ",")))
 	}
-	if len(excludeDomains) > 0 {
-		cfg = append(cfg, fmt.Sprintf("exclude_domain=%s", strings.Join(excludeDomains, ",")))
+	if len(cfg.ExcludeDomains) > 0 {
+		configItems = append(configItems, fmt.Sprintf("exclude_domain=%s", strings.Join(cfg.ExcludeDomains, ",")))
 	}
-	cfg = append(cfg, fmt.Sprintf("debug=%t", debugOn))
-	if strings.TrimSpace(jwt) != "" {
-		cfg = append(cfg, "jwt=provided")
+	configItems = append(configItems, fmt.Sprintf("debug=%t", cfg.Debug))
+	if strings.TrimSpace(cfg.JWT) != "" {
+		configItems = append(configItems, "jwt=provided")
 	} else {
-		cfg = append(cfg, "jwt=missing")
+		configItems = append(configItems, "jwt=missing")
 	}
-	logInfo("startup: %s\n", strings.Join(cfg, " "))
+	logInfo("startup: %s\n", strings.Join(configItems, " "))
 }
 
 // (removed legacy userspace filtering helpers)
