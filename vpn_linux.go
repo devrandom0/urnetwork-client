@@ -123,7 +123,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 				addedBypass = append(addedBypass, ipStr)
 			}
 		}
-		addBypass(apiUrl)
+		addBypass(cfg.APIURL)
 		addBypass(connectURL)
 		// 3) Add split default to send all non-bypass traffic via TUN
 		_ = run("ip", "route", "add", "0.0.0.0/1", "dev", tunName)
