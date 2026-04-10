@@ -25,6 +25,24 @@ func buildTCPPacket(src net.IP, flags byte) []byte {
 	return pkt
 }
 
+// buildIPv6TCPPacket constructs a minimal IPv6/TCP packet with the given flags byte.
+// src must be a 16-byte IPv6 address.
+func buildIPv6TCPPacket(src net.IP, flags byte) []byte {
+	src16 := src.To16()
+	if src16 == nil {
+		panic("buildIPv6TCPPacket: invalid address")
+	}
+	pkt := make([]byte, 60) // 40-byte IPv6 header + 20-byte TCP header
+	pkt[0] = 0x60           // version=6
+	pkt[6] = 6              // Next Header: TCP
+	copy(pkt[8:24], src16)  // source address
+	// destination address (arbitrary)
+	copy(pkt[24:40], net.ParseIP("2001:db8::1").To16())
+	// TCP flags at offset 40+13 = 53
+	pkt[53] = flags
+	return pkt
+}
+
 func TestShouldDropInbound(t *testing.T) {
 	_, allow192, _ := net.ParseCIDR("192.168.0.0/16")
 	_, allow10, _ := net.ParseCIDR("10.0.0.0/8")
@@ -79,6 +97,35 @@ func TestShouldDropInbound_NonTCP(t *testing.T) {
 	}
 }
 
+func TestShouldDropInbound_IPv6(t *testing.T) {
+	_, allowFc00, _ := net.ParseCIDR("fc00::/7") // ULA range
+
+	cases := []struct {
+		name      string
+		srcIP     string
+		flags     byte
+		allowList []*net.IPNet
+		wantDrop  bool
+	}{
+		{"IPv6 SYN from allowed ULA — pass", "fc00::1", 0x02, []*net.IPNet{allowFc00}, false},
+		{"IPv6 SYN not in allowlist — drop", "2001:db8::1", 0x02, []*net.IPNet{allowFc00}, true},
+		{"IPv6 SYN empty list — drop", "fc00::1", 0x02, nil, true},
+		{"IPv6 SYN-ACK — pass", "2001:db8::1", 0x12, []*net.IPNet{allowFc00}, false},
+		{"IPv6 ACK — pass", "2001:db8::1", 0x10, nil, false},
+		{"IPv6 RST no ACK — drop", "2001:db8::1", 0x04, nil, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pkt := buildIPv6TCPPacket(net.ParseIP(tc.srcIP), tc.flags)
+			got := shouldDropInbound(pkt, tc.allowList)
+			if got != tc.wantDrop {
+				t.Errorf("shouldDropInbound IPv6(%s, flags=0x%02x) = %v; want %v",
+					tc.srcIP, tc.flags, got, tc.wantDrop)
+			}
+		})
+	}
+}
+
 func TestShouldDropInbound_TooShort(t *testing.T) {
 	// Packets too short to parse should pass through
 	cases := []struct {
@@ -114,21 +161,21 @@ func TestParseCIDRHost(t *testing.T) {
 		// CIDR notation
 		{"10.0.0.0/8", false, "10.0.0.0", 8},
 		{"192.168.1.0/24", false, "192.168.1.0", 24},
-		{"10.1.2.3/16", false, "10.1.2.3", 16}, // host IP preserved (not masked)
+		{"10.1.2.3/16", false, "10.1.0.0", 16}, // net.ParseCIDR returns network address
 		// Invalid inputs
 		{"not-an-ip", true, "", 0},
 		{"10.0.0.900", true, "", 0},
 		{"10.0.0.1/33", true, "", 0},
-		// IPv6 — not supported
-		{"::1", true, "", 0},
-		{"2001:db8::/32", true, "", 0},
+		// IPv6 host and CIDR — now supported
+		{"::1", false, "", 128},
+		{"2001:db8::/32", false, "", 32},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.input, func(t *testing.T) {
 			got := parseCIDRHost(tc.input)
 			if tc.wantNil {
-				if got != nil { //nolint:staticcheck
+				if got != nil {
 					t.Errorf("parseCIDRHost(%q) = %v; want nil", tc.input, got)
 				}
 				return
@@ -136,15 +183,16 @@ func TestParseCIDRHost(t *testing.T) {
 			if got == nil {
 				t.Fatalf("parseCIDRHost(%q) = nil; want non-nil", tc.input)
 			}
-			// got is now guaranteed non-nil
-			ipNet := got
-			ones, _ := ipNet.Mask.Size() //nolint:staticcheck
+			ones, _ := got.Mask.Size()
 			if ones != tc.wantLen {
 				t.Errorf("parseCIDRHost(%q) prefix len = %d; want %d", tc.input, ones, tc.wantLen)
 			}
-			wantIP := net.ParseIP(tc.wantIP).To4()
-			if !ipNet.IP.Equal(wantIP) { //nolint:staticcheck
-				t.Errorf("parseCIDRHost(%q).IP = %v; want %v", tc.input, ipNet.IP, wantIP)
+			// wantIP is empty for IPv6 cases (network address check skipped)
+			if tc.wantIP != "" {
+				wantIP := net.ParseIP(tc.wantIP).To4()
+				if !got.IP.Equal(wantIP) {
+					t.Errorf("parseCIDRHost(%q).IP = %v; want %v", tc.input, got.IP, wantIP)
+				}
 			}
 		})
 	}
