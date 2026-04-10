@@ -55,7 +55,7 @@ func httpFindLocations(ctx context.Context, apiUrl, jwt, q string) (*findLocatio
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		data, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("find-locations http %d: %s", resp.StatusCode, string(data))
@@ -79,7 +79,7 @@ func httpProviderLocations(ctx context.Context, apiUrl, jwt string) (*findLocati
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		data, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("provider-locations http %d: %s", resp.StatusCode, string(data))

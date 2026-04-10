@@ -36,7 +36,7 @@ func StartSocks5(
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
-				if ne, ok := err.(net.Error); ok && ne.Temporary() {
+				if ne, ok := err.(net.Error); ok && ne.Timeout() {
 					continue
 				}
 				return
@@ -56,7 +56,7 @@ func handleSocksConn(
 	allowDomains []string,
 	excludeDomains []string,
 ) {
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	// Apply a deadline for the SOCKS handshake phase to avoid leaking goroutines
 	// on clients that connect but never send data. Once the tunnel is established
@@ -216,7 +216,7 @@ func handleSocksConn(
 		_ = writeSocksReply(c, rep, nil)
 		return
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	if err := writeSocksReply(c, 0, rc.LocalAddr()); err != nil {
 		return
 	}
@@ -269,7 +269,7 @@ func runUDPAssociate(ctx context.Context, ctrl net.Conn, bindIf string, debug bo
 		_ = writeSocksReply(ctrl, 1, nil)
 		return
 	}
-	defer pcClient.Close()
+	defer func() { _ = pcClient.Close() }()
 	la := pcClient.LocalAddr().(*net.UDPAddr)
 	// Reply success with our UDP bind address
 	if debug {
