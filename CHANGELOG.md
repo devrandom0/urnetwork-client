@@ -1,3 +1,14 @@
+## [1.8.3](https://github.com/devrandom0/urnetwork-client/compare/v1.8.2...v1.8.3) (2026-04-10)
+
+### Bug Fixes
+
+* lint ([a9e4a79](https://github.com/devrandom0/urnetwork-client/commit/a9e4a79217e551d8c87f83df1a11411406560fe0))
+* lint ([05cea66](https://github.com/devrandom0/urnetwork-client/commit/05cea66e932d9b45f17eb600e194a016b3e485ba))
+* update for lint ([f478fab](https://github.com/devrandom0/urnetwork-client/commit/f478fab3b02763362d2c52f9818461186abb4161))
+* update for lint ([9fe3911](https://github.com/devrandom0/urnetwork-client/commit/9fe39110a5e8dbaf7921fcf8041cf24c40de930d))
+* update workflow ([b2dd668](https://github.com/devrandom0/urnetwork-client/commit/b2dd668ddcf3b0d22f4e707f9bf79f60ffa2725a))
+* update workflow ([feee906](https://github.com/devrandom0/urnetwork-client/commit/feee9063a503a894428faab66942bf1f05573a05))
+
 ## [1.8.2](https://github.com/devrandom0/urnetwork-client/compare/v1.8.1...v1.8.2) (2026-04-10)
 
 ## [1.8.1](https://github.com/devrandom0/urnetwork-client/compare/v1.8.0...v1.8.1) (2026-04-10)
