@@ -18,11 +18,24 @@ sudo ./urnet-client vpn \
   --exclude_route=10.0.0.0/8,169.254.0.0/16
 ```
 
-## SOCKS-only mode
+## SOCKS proxy (bound to VPN)
+
+To use a SOCKS proxy with VPN routing, specify both `--tun` and `--socks`. SOCKS connections will be bound to the VPN interface:
 
 ```bash
-sudo ./urnet-client vpn --socks=127.0.0.1:1080
+sudo ./urnet-client vpn \
+  --tun utun10 \
+  --socks=127.0.0.1:1080 \
+  --location_query="country:Germany"
 ```
+
+Then connect through it:
+
+```bash
+curl --socks5 127.0.0.1:1080 https://example.com
+```
+
+**Note:** Without `--tun`, SOCKS connections use the system's default routes. For a standalone SOCKS proxy without VPN, use the separate `socks` subcommand (see below).
 
 ## DNS over VPN
 
