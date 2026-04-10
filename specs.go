@@ -4,35 +4,34 @@ import (
 	"context"
 	"strings"
 
-	"github.com/docopt/docopt-go"
 	"github.com/urnetwork/connect"
 )
 
-// buildProviderSpecs constructs ProviderSpecs from the location-related CLI flags.
-// Priority: --location_id / --location_group_id → --location_query (with HTTP fallback) → BestAvailable.
+// buildProviderSpecs constructs ProviderSpecs from a LocationConfig.
+// Priority: LocationID / LocationGroupID → LocationQuery (with HTTP fallback) → BestAvailable.
 // It also creates and returns the ClientStrategy needed by the VPN generator.
-func buildProviderSpecs(ctx context.Context, apiUrl, jwt string, opts docopt.Opts) (*connect.ClientStrategy, []*connect.ProviderSpec) {
+func buildProviderSpecs(ctx context.Context, apiUrl, jwt string, loc LocationConfig) (*connect.ClientStrategy, []*connect.ProviderSpec) {
 	strat := connect.NewClientStrategyWithDefaults(ctx)
 	specs := []*connect.ProviderSpec{}
 
-	if id := strings.TrimSpace(getStringOr(opts, "--location_id", "")); id != "" {
-		if loc, err := connect.ParseId(id); err == nil {
-			specs = append(specs, &connect.ProviderSpec{LocationId: &loc})
+	if loc.LocationID != "" {
+		if l, err := connect.ParseId(loc.LocationID); err == nil {
+			specs = append(specs, &connect.ProviderSpec{LocationId: &l})
 		}
 	}
-	if gid := strings.TrimSpace(getStringOr(opts, "--location_group_id", "")); gid != "" {
-		if lg, err := connect.ParseId(gid); err == nil {
+	if loc.LocationGroupID != "" {
+		if lg, err := connect.ParseId(loc.LocationGroupID); err == nil {
 			specs = append(specs, &connect.ProviderSpec{LocationGroupId: &lg})
 		}
 	}
 	if len(specs) == 0 {
-		if q := strings.TrimSpace(getStringOr(opts, "--location_query", "")); q != "" {
+		if q := loc.LocationQuery; q != "" {
 			if httpRes, err := httpFindLocations(ctx, apiUrl, jwt, q); err == nil && httpRes != nil && len(httpRes.Specs) > 0 {
 				specs = httpRes.Specs
 				logInfo("using %d specs from location query: %s\n", len(specs), q)
 			}
 			if len(specs) == 0 {
-				if fb := findSpecsByQueryFallback(ctx, strat, apiUrl, jwt, q); len(fb) > 0 {
+				if fb := findSpecsByQueryFallback(ctx, apiUrl, jwt, q); len(fb) > 0 {
 					specs = fb
 					logInfo("using %d specs from provider-locations (fallback) for: %s\n", len(specs), q)
 				}
@@ -47,8 +46,8 @@ func buildProviderSpecs(ctx context.Context, apiUrl, jwt string, opts docopt.Opt
 
 // findSpecsByQueryFallback queries /network/provider-locations and builds ProviderSpecs
 // by client-side filtering for queries like 'country:Germany', 'region:Europe', 'group:West'.
-func findSpecsByQueryFallback(ctx context.Context, strat *connect.ClientStrategy, apiUrl, jwt, q string) []*connect.ProviderSpec {
-	_, res := filterLocationsFallback(ctx, strat, apiUrl, jwt, q)
+func findSpecsByQueryFallback(ctx context.Context, apiUrl, jwt, q string) []*connect.ProviderSpec {
+	_, res := filterLocationsFallback(ctx, apiUrl, jwt, q)
 	if res == nil {
 		return nil
 	}
@@ -107,7 +106,7 @@ func findSpecsByQueryFallback(ctx context.Context, strat *connect.ClientStrategy
 
 // filterLocationsFallback fetches /network/provider-locations and returns a filtered result
 // plus convenience ProviderSpecs for the given query q.
-func filterLocationsFallback(ctx context.Context, strat *connect.ClientStrategy, apiUrl, jwt, q string) ([]*connect.ProviderSpec, *findLocationsHTTPResult) {
+func filterLocationsFallback(ctx context.Context, apiUrl, jwt, q string) ([]*connect.ProviderSpec, *findLocationsHTTPResult) {
 	res, err := httpProviderLocations(ctx, apiUrl, jwt)
 	if err != nil || res == nil {
 		return nil, nil

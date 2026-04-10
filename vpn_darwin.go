@@ -13,79 +13,68 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/docopt/docopt-go"
 	"github.com/songgao/water"
 )
 
 // cmdVpn (macOS): create a utun device and bridge packets with RemoteUserNatMultiClient.
 // Note: You typically need sudo to create/configure utun and set routes.
-func cmdVpn(opts docopt.Opts) {
-	apiUrl := getStringOr(opts, "--api_url", DefaultApiUrl)
-	connectUrl := getStringOr(opts, "--connect_url", DefaultConnectUrl)
-	// Default: no TUN unless explicitly provided
-	tunName := getStringOr(opts, "--tun", "") // Name is advisory on darwin; kernel assigns utunX
+func cmdVpn(ctx context.Context, cfg VPNConfig) error {
+	tunName := cfg.TunName
 	rawTun := strings.TrimSpace(tunName)
 	// If user passed `--tun` without a value, docopt may consume the next flag token (e.g., "--default_route").
 	// Detect such cases and treat as a request for an auto-assigned utun.
 	tunLikelyMissingArg := rawTun != "" && strings.HasPrefix(rawTun, "-")
-	ipCIDR := getStringOr(opts, "--ip_cidr", "10.255.0.2/24")
-	mtu := getIntOr(opts, "--mtu", 1420)
-	defRoute, _ := opts.Bool("--default_route")
-	extraRoutes := getStringOr(opts, "--route", "")
-	excludeRoutes := getStringOr(opts, "--exclude_route", "")
-	dnsList := getStringOr(opts, "--dns", "")
-	dnsService := strings.TrimSpace(getStringOr(opts, "--dns_service", ""))
-	dnsBootstrap := strings.TrimSpace(getStringOr(opts, "--dns_bootstrap", "bypass")) // bypass|cache|none
-	socksListen := strings.TrimSpace(getStringOr(opts, "--socks", getStringOr(opts, "--socks_listen", "")))
-	allowDomains := splitCSV(getStringOr(opts, "--domain", ""))
-	excludeDomains := splitCSV(getStringOr(opts, "--exclude_domain", ""))
-	debugOn, _ := opts.Bool("--debug")
-	_ = time.Duration(getIntOr(opts, "--stats_interval", 5)) * time.Second
-	jwtOpt, _ := opts.String("--jwt")
-	jwt, err := loadJWT(jwtOpt)
-	if err != nil {
-		fatal(err)
-	}
+	ipCIDR := cfg.IPCIDR
+	mtu := cfg.MTU
+	defRoute := cfg.DefaultRoute
+	extraRoutes := cfg.ExtraRoutes
+	excludeRoutes := cfg.ExcludeRoutes
+	dnsList := cfg.DNSList
+	dnsService := cfg.DNSService
+	dnsBootstrap := cfg.DNSBootstrap
+	socksListen := cfg.SOCKSListen
+	allowDomains := cfg.AllowDomains
+	excludeDomains := cfg.ExcludeDomains
+	debugOn := cfg.Debug
+	apiUrl := cfg.APIUrl
+	connectUrl := cfg.ConnectUrl
 
-	logStartupConfig(opts, jwt)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	logStartupConfig(cfg)
 
 	// If TUN is disabled or not specified (and not a missing-arg case), run SOCKS-only.
 	if isTUNDisabled(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
 		if socksListen == "" {
 			logError("--tun=none specified but no --socks provided; nothing to do\n")
-			return
+			return nil
 		}
 		stopSocks, err := StartSocks5(ctx, socksListen, "", debugOn, allowDomains, excludeDomains)
 		if err != nil {
-			fatal(fmt.Errorf("start socks failed: %w", err))
+			return fmt.Errorf("start socks failed: %w", err)
 		}
 		defer func() { _ = stopSocks() }()
 		logInfo("SOCKS started without TUN (system routes only). Press Ctrl+C to exit.\n")
-		waitForInterrupt(cancel)
-		return
+		<-ctx.Done()
+		return nil
 	}
 
-	cfg := water.Config{DeviceType: water.TUN}
+	waterCfg := water.Config{DeviceType: water.TUN}
 	if tunLikelyMissingArg {
 		// Auto-assign utun: kernel picks a free name when Name is empty
-		cfg.Name = ""
+		waterCfg.Name = ""
 		logWarn("--tun provided without a valid name (got %q); using auto utun\n", rawTun)
 	} else {
-		cfg.Name = tunName
+		waterCfg.Name = tunName
 	}
-	dev, err := water.New(cfg)
+	dev, err := water.New(waterCfg)
 	if err != nil {
 		// If a specific utun name fails (format or in use), retry with auto assignment
-		if strings.TrimSpace(cfg.Name) != "" {
-			logWarn("failed to create %s (%v); retrying with auto utun name\n", cfg.Name, err)
-			cfg.Name = ""
-			dev, err = water.New(cfg)
+		if strings.TrimSpace(waterCfg.Name) != "" {
+			logWarn("failed to create %s (%v); retrying with auto utun name\n", waterCfg.Name, err)
+			waterCfg.Name = ""
+			dev, err = water.New(waterCfg)
 		}
 		if err != nil {
-			fatal(fmt.Errorf("create utun failed: %w", err))
+			return fmt.Errorf("create utun failed: %w", err)
 		}
 	}
 	defer func() { _ = dev.Close() }()
@@ -455,9 +444,8 @@ func cmdVpn(opts docopt.Opts) {
 		}()
 	}
 
-	// Run shared dataplane + SOCKS + stats; cancel ctx on SIGINT/SIGTERM in background
-	go waitForInterrupt(cancel)
-	vpnRunCore(ctx, dev, actualName, opts, jwt, &pktsIn, &pktsOut, &bytesIn, &bytesOut, func() {})
+	// Run shared dataplane + SOCKS + stats; ctx cancelled by signal (from main's NotifyContext).
+	vpnRunCore(ctx, dev, actualName, cfg, &pktsIn, &pktsOut, &bytesIn, &bytesOut, func() {})
 
 	// After core returns, perform OS-specific cleanup
 	if defRoute {
@@ -532,6 +520,7 @@ func cmdVpn(opts docopt.Opts) {
 	}
 	// no local-only cleanup required
 	_ = runSudo("ifconfig", actualName, "down")
+	return nil
 }
 
 func runSudo(name string, args ...string) error {

@@ -1,33 +1,31 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"os"
 
 	"github.com/docopt/docopt-go"
 )
 
-func cmdLogin(opts docopt.Opts) {
+func cmdLogin(ctx context.Context, opts docopt.Opts) error {
 	apiUrl := getStringOr(opts, "--api_url", DefaultApiUrl)
-	userAuth := mustString(opts, "--user_auth")
-	password := mustString(opts, "--password")
+	userAuth, _ := opts.String("--user_auth")
+	password, _ := opts.String("--password")
 
-	res, err := loginWithPassword(apiUrl, userAuth, password)
+	res, err := loginWithPassword(ctx, apiUrl, userAuth, password)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "login error: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("login error: %w", err)
 	}
 	if res.VerificationRequired {
 		fmt.Printf("verification required for %s\n", userAuth)
-		return
+		return nil
 	}
 	if res.ByJwt == "" {
-		fmt.Fprintln(os.Stderr, "login succeeded but no by_jwt returned")
-		os.Exit(1)
+		return fmt.Errorf("login succeeded but no by_jwt returned")
 	}
 	if err := saveJWT(res.ByJwt); err != nil {
-		fmt.Fprintf(os.Stderr, "save jwt failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("save jwt failed: %w", err)
 	}
 	fmt.Printf("saved JWT for network %s -> %s\n", res.NetworkName, jwtPath())
+	return nil
 }

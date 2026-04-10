@@ -10,6 +10,17 @@ import (
 	"github.com/urnetwork/connect"
 )
 
+// newByAPI creates a BringYourApi client with an optional pre-set JWT.
+// Pass an empty jwt for pre-auth calls such as Login.
+func newByAPI(ctx context.Context, apiUrl, jwt string) *connect.BringYourApi {
+	strat := connect.NewClientStrategyWithDefaults(ctx)
+	api := connect.NewBringYourApi(ctx, strat, apiUrl)
+	if strings.TrimSpace(jwt) != "" {
+		api.SetByJwt(jwt)
+	}
+	return api
+}
+
 // LoginResult holds the outcome of a successful login attempt.
 type LoginResult struct {
 	ByJwt                string
@@ -19,11 +30,10 @@ type LoginResult struct {
 
 // loginWithPassword calls AuthLoginWithPassword synchronously and returns a LoginResult.
 // If verification is required before a JWT can be issued, VerificationRequired is set and ByJwt is empty.
-func loginWithPassword(apiUrl, userAuth, password string) (*LoginResult, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func loginWithPassword(ctx context.Context, apiUrl, userAuth, password string) (*LoginResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	strat := connect.NewClientStrategyWithDefaults(ctx)
-	api := connect.NewBringYourApi(ctx, strat, apiUrl)
+	api := newByAPI(ctx, apiUrl, "")
 
 	type outcome struct {
 		lr  *LoginResult
@@ -57,11 +67,10 @@ func loginWithPassword(apiUrl, userAuth, password string) (*LoginResult, error) 
 }
 
 // verifyCode calls AuthVerify synchronously and returns the network-scoped BY JWT.
-func verifyCode(apiUrl, userAuth, code string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func verifyCode(ctx context.Context, apiUrl, userAuth, code string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	strat := connect.NewClientStrategyWithDefaults(ctx)
-	api := connect.NewBringYourApi(ctx, strat, apiUrl)
+	api := newByAPI(ctx, apiUrl, "")
 
 	type outcome struct {
 		byJwt string
@@ -91,12 +100,10 @@ func verifyCode(apiUrl, userAuth, code string) (string, error) {
 }
 
 // mintClientJWT exchanges any BY JWT (network- or client-scoped) for a fresh client-scoped JWT.
-func mintClientJWT(apiUrl, byJwt string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func mintClientJWT(ctx context.Context, apiUrl, byJwt string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	strat := connect.NewClientStrategyWithDefaults(ctx)
-	api := connect.NewBringYourApi(ctx, strat, apiUrl)
-	api.SetByJwt(byJwt)
+	api := newByAPI(ctx, apiUrl, byJwt)
 	res, err := api.AuthNetworkClientSync(&connect.AuthNetworkClientArgs{Description: "", DeviceSpec: ""})
 	if err != nil {
 		return "", err

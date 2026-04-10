@@ -147,21 +147,21 @@ This is ordered by impact and risk. Each phase is independently shippable.
 | 2.5 | Fix `setupLogFile` permissions: `0o644` → `0o600` | `process.go` (new file used `0o600` from the start) | ✅ Done |
 | 2.6 | Remove dead `spawnProcessDetached` duplicate | `process.go` — only `spawnBackground` kept | ✅ Done |
 
-### Phase 3: Decouple, Test & Lint ⬜ Not started
+### Phase 3: Decouple, Test & Lint ✅ Complete
 
 **Goal:** Make the codebase testable, statically checked, and safe to refactor in Phase 4.
 
-| # | Task | Files | Effort | Why |
-|---|------|-------|--------|-----|
-| 3.0 | **Add `golangci-lint` + `go vet` to Makefile `lint` target and CI.** Run immediately to catch existing issues before writing new code | `Makefile`, new `.golangci.yml` | Small | Catches bugs in Phases 3–5; moved from Phase 5.6 |
-| 3.1 | **Eliminate `fatal()` / `os.Exit()` from all `cmd*` functions.** Return `error` up to `main()`, which is the only place that calls `os.Exit`. This is a correctness fix: `os.Exit` bypasses all `defer` cleanup (routes, DNS, TUN) | All `cmd_*.go`, `main.go`, `util.go` | Medium | Fixes 1.4, 1.17 |
-| 3.2 | **Define config structs; decouple from `docopt.Opts`.** Parse CLI → struct at the `main()` boundary, pass structs into `cmd*` and `buildProviderSpecs`. Example: `VPNConfig`, `QuickConnectConfig`, `SOCKSConfig` | New `config.go`, all `cmd_*.go`, `specs.go` | Medium | Fixes 1.14 |
-| 3.3 | **Propagate `context.Context` as first parameter.** `loginWithPassword`, `verifyCode`, `mintClientJWT`, `validateClientJWT`, and `buildProviderSpecs` must accept caller-provided `ctx` instead of creating `context.Background()` internally | `auth.go`, `jwt.go`, `specs.go`, all callers | Medium | Fixes 1.13 |
-| 3.4 | **Create an API client factory / struct.** Replace the repeated `ctx+cancel → NewClientStrategyWithDefaults → NewBringYourApi` pattern (5 occurrences) with a single `NewAPIClient(ctx, apiUrl, jwt)` that returns a lightweight wrapper | New helper in `api_http.go` or `auth.go`, all callers | Small | Fixes 1.16 |
-| 3.5 | **Define interfaces for key dependencies.** At minimum: `AuthClient` interface (Login, Verify, MintClient) and injectable `*http.Client` for `api_http.go`. Enables unit testing without network calls | `auth.go`, `api_http.go` | Medium | Fixes 1.15; expands old 3.2 |
-| 3.6 | Extract inbound packet filter from the `receive` closure into `shouldDropInbound(packet []byte, allowCIDRs []*net.IPNet) bool` and add unit tests | `vpn_core.go`, new `vpn_core_test.go` | Medium | — |
-| 3.7 | Add table-driven tests for `parseCIDRHost` | `vpn_core_test.go` | Small | — |
-| 3.8 | Add tests for `buildProviderSpecs` with mocked HTTP server (uses interface from 3.5) | New `specs_test.go` | Small | — |
+| # | Task | Files | Effort | Why | Status |
+|---|------|-------|--------|-----|--------|
+| 3.0 | **Add `golangci-lint` + `go vet` to Makefile `lint` target and CI.** Run immediately to catch existing issues before writing new code | `Makefile`, new `.golangci.yml` | Small | Catches bugs in Phases 3–5; moved from Phase 5.6 | ✅ Done |
+| 3.1 | **Eliminate `fatal()` / `os.Exit()` from all `cmd*` functions.** Return `error` up to `main()`, which is the only place that calls `os.Exit`. This is a correctness fix: `os.Exit` bypasses all `defer` cleanup (routes, DNS, TUN) | All `cmd_*.go`, `main.go`, `util.go` | Medium | Fixes 1.4, 1.17 | ✅ Done |
+| 3.2 | **Define config structs; decouple from `docopt.Opts`.** Parse CLI → struct at the `main()` boundary, pass structs into `cmd*` and `buildProviderSpecs`. Example: `VPNConfig`, `QuickConnectConfig`, `SOCKSConfig` | New `config.go`, all `cmd_*.go`, `specs.go` | Medium | Fixes 1.14 | ✅ Done |
+| 3.3 | **Propagate `context.Context` as first parameter.** `loginWithPassword`, `verifyCode`, `mintClientJWT`, `validateClientJWT`, and `buildProviderSpecs` must accept caller-provided `ctx` instead of creating `context.Background()` internally | `auth.go`, `jwt.go`, `specs.go`, all callers | Medium | Fixes 1.13 | ✅ Done |
+| 3.4 | **Create an API client factory / struct.** Replace the repeated `ctx+cancel → NewClientStrategyWithDefaults → NewBringYourApi` pattern (5 occurrences) with a single `newByAPI(ctx, apiUrl, jwt)` | `auth.go`, all callers | Small | Fixes 1.16 | ✅ Done |
+| 3.5 | **Define interfaces for key dependencies.** At minimum: `AuthClient` interface (Login, Verify, MintClient) and injectable `*http.Client` for `api_http.go`. Enables unit testing without network calls | `auth.go`, `api_http.go` | Medium | Fixes 1.15; expands old 3.2 | ⬜ Deferred to Phase 4 |
+| 3.6 | Extract inbound packet filter from the `receive` closure into `shouldDropInbound(packet []byte, allowCIDRs []*net.IPNet) bool` | `vpn_core.go` | Medium | — | ✅ Done |
+| 3.7 | Add table-driven tests for `parseCIDRHost` and `shouldDropInbound` | `vpn_core_test.go` | Small | — | ✅ Done |
+| 3.8 | Add tests for `buildProviderSpecs` with mocked HTTP server (uses interface from 3.5) | New `specs_test.go` | Small | — | ⬜ Deferred (requires 3.5) |
 
 ### Phase 4: Simplify Route Management ⬜ Not started
 

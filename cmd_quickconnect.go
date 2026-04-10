@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,26 +12,8 @@ import (
 )
 
 // cmdQuickConnect performs: optional login+verify → ensure client JWT (with refresh) → start VPN.
-func cmdQuickConnect(opts docopt.Opts) {
-	if bg, _ := opts.Bool("--background"); bg {
-		pid, err := spawnBackground(os.Args)
-		if err != nil {
-			fatal(fmt.Errorf("background start failed: %w", err))
-		}
-		fmt.Printf("started in background pid=%d\n", pid)
-		return
-	}
-
+func cmdQuickConnect(ctx context.Context, opts docopt.Opts) error {
 	apiUrl := getStringOr(opts, "--api_url", DefaultApiUrl)
-
-	if logPath := strings.TrimSpace(getStringOr(opts, "--log_file", "")); logPath != "" {
-		if err := setupLogFile(logPath); err != nil {
-			fatal(fmt.Errorf("log setup failed: %w", err))
-		}
-	}
-	lvl := strings.TrimSpace(getStringOr(opts, "--log_level", ""))
-	dbg, _ := opts.Bool("--debug")
-	setLogLevel(lvl, dbg)
 
 	userAuth := strings.TrimSpace(getStringOr(opts, "--user_auth", ""))
 	password := strings.TrimSpace(getStringOr(opts, "--password", ""))
@@ -56,42 +39,34 @@ func cmdQuickConnect(opts docopt.Opts) {
 	// 1) Login if credentials provided
 	if userAuth != "" || password != "" {
 		if userAuth == "" || password == "" {
-			fatal(errors.New("--user_auth and --password must be provided together"))
+			return errors.New("--user_auth and --password must be provided together")
 		}
-		loginRes, loginErr := loginWithPassword(apiUrl, userAuth, password)
+		loginRes, loginErr := loginWithPassword(ctx, apiUrl, userAuth, password)
 		if loginErr != nil {
-			logError("login error: %v\n", loginErr)
-			os.Exit(1)
+			return fmt.Errorf("login error: %w", loginErr)
 		}
 		if loginRes.VerificationRequired {
 			if codeOpt == "" {
-				logError("verification required (re-run with --code=<code> or run 'verify')\n")
-				os.Exit(1)
+				return errors.New("verification required (re-run with --code=<code> or run 'verify')")
 			}
 			// Verification required + code provided → proceed to verify step below.
-			// Network JWT is not available yet; don't save.
 		} else {
 			if loginRes.ByJwt == "" {
-				logError("login succeeded but no by_jwt returned\n")
-				os.Exit(1)
+				return errors.New("login succeeded but no by_jwt returned")
 			}
 			if err := saveJWT(loginRes.ByJwt); err != nil {
-				logError("save jwt failed: %v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("save jwt failed: %w", err)
 			}
 			logInfo("saved JWT for network %s -> %s\n", loginRes.NetworkName, jwtPath())
 		}
 
-		// Verify if a code was provided (either because it was always present or VerificationRequired)
 		if codeOpt != "" {
-			byJwt2, verifyErr := verifyCode(apiUrl, userAuth, codeOpt)
+			byJwt2, verifyErr := verifyCode(ctx, apiUrl, userAuth, codeOpt)
 			if verifyErr != nil {
-				logError("verify error: %v\n", verifyErr)
-				os.Exit(1)
+				return fmt.Errorf("verify error: %w", verifyErr)
 			}
 			if err := saveJWT(byJwt2); err != nil {
-				logError("save jwt failed: %v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("save jwt failed: %w", err)
 			}
 			logInfo("verified and saved JWT -> %s\n", jwtPath())
 		}
@@ -101,48 +76,50 @@ func cmdQuickConnect(opts docopt.Opts) {
 	{
 		jwt, err := loadJWT(jwtOpt)
 		if err != nil {
-			fatal(errors.New("no JWT available; provide --user_auth/--password to login or --jwt to use an existing token"))
+			return errors.New("no JWT available; provide --user_auth/--password to login or --jwt to use an existing token")
 		}
 
 		if id := parseClientID(jwt); id != "" && !forceJWT {
-			if validateClientJWT(apiUrl, jwt) {
+			if validateClientJWT(ctx, apiUrl, jwt) {
 				logInfo("using existing client JWT (client_id=%s)\n", id)
 			} else {
-				// Invalid client JWT → retry with credentials or exit.
 				retryEvery := renewInterval
 				if retryEvery <= 0 {
 					retryEvery = time.Minute
 				}
 				for {
 					if userAuth == "" || password == "" {
-						fatal(errors.New("existing client JWT appears invalid; provide --user_auth and --password or a BY token via --jwt to refresh"))
+						return errors.New("existing client JWT appears invalid; provide --user_auth and --password or a BY token via --jwt to refresh")
 					}
-					loginRes, loginErr := loginWithPassword(apiUrl, userAuth, password)
+					loginRes, loginErr := loginWithPassword(ctx, apiUrl, userAuth, password)
 					if loginErr != nil {
 						logWarn("jwt refresh: login failed: %v\n", loginErr)
 					} else if !loginRes.VerificationRequired && loginRes.ByJwt != "" {
-						clientJwt, mintErr := mintClientJWT(apiUrl, loginRes.ByJwt)
+						clientJwt, mintErr := mintClientJWT(ctx, apiUrl, loginRes.ByJwt)
 						if mintErr != nil {
 							logWarn("jwt refresh: mint failed: %v\n", mintErr)
 						} else if saveErr := saveJWT(clientJwt); saveErr != nil {
 							logWarn("jwt refresh: save failed: %v\n", saveErr)
-						} else if validateClientJWT(apiUrl, clientJwt) {
+						} else if validateClientJWT(ctx, apiUrl, clientJwt) {
 							logInfo("obtained new client JWT; proceeding\n")
 							break
 						}
 					}
 					logWarn("jwt still not usable; retrying in %s\n", retryEvery.String())
-					time.Sleep(retryEvery)
+					select {
+					case <-time.After(retryEvery):
+					case <-ctx.Done():
+						return ctx.Err()
+					}
 				}
 			}
 		} else {
-			// Network-scoped token or --force_jwt: mint a fresh client JWT.
-			clientJwt, mintErr := mintClientJWT(apiUrl, jwt)
+			clientJwt, mintErr := mintClientJWT(ctx, apiUrl, jwt)
 			if mintErr != nil {
-				fatal(mintErr)
+				return mintErr
 			}
 			if err := saveJWT(clientJwt); err != nil {
-				fatal(err)
+				return err
 			}
 			if id := parseClientID(clientJwt); id != "" {
 				logInfo("saved client JWT (client_id=%s) -> %s\n", id, jwtPath())
@@ -161,13 +138,12 @@ func cmdQuickConnect(opts docopt.Opts) {
 			for {
 				select {
 				case <-ticker.C:
-					// Try to mint a fresh client JWT from the current saved token.
 					currentJwt, err := loadJWT("")
 					if err != nil {
 						logWarn("jwt renew: no jwt available: %v\n", err)
 						continue
 					}
-					clientJwt, mintErr := mintClientJWT(apiUrl, currentJwt)
+					clientJwt, mintErr := mintClientJWT(ctx, apiUrl, currentJwt)
 					if mintErr == nil {
 						if saveErr := saveJWT(clientJwt); saveErr != nil {
 							logWarn("jwt renew: save failed: %v\n", saveErr)
@@ -178,9 +154,8 @@ func cmdQuickConnect(opts docopt.Opts) {
 						}
 						continue
 					}
-					// Fallback: re-login with credentials and mint.
 					if userAuth != "" && password != "" {
-						loginRes, loginErr := loginWithPassword(apiUrl, userAuth, password)
+						loginRes, loginErr := loginWithPassword(ctx, apiUrl, userAuth, password)
 						if loginErr != nil {
 							logWarn("jwt renew: login failed: %v\n", loginErr)
 							continue
@@ -189,7 +164,7 @@ func cmdQuickConnect(opts docopt.Opts) {
 							logWarn("jwt renew: login requires verification or returned no JWT\n")
 							continue
 						}
-						clientJwt2, mintErr2 := mintClientJWT(apiUrl, loginRes.ByJwt)
+						clientJwt2, mintErr2 := mintClientJWT(ctx, apiUrl, loginRes.ByJwt)
 						if mintErr2 != nil {
 							logWarn("jwt renew: mint failed: %v\n", mintErr2)
 							continue
@@ -209,7 +184,14 @@ func cmdQuickConnect(opts docopt.Opts) {
 		}()
 	}
 
-	// 4) Start VPN in the foreground
-	cmdVpn(opts)
+	// 4) Load the final JWT and start VPN
+	finalJWT, err := loadJWT("")
+	if err != nil {
+		close(stopRenew)
+		return fmt.Errorf("no jwt available after setup: %w", err)
+	}
+	vpnCfg := parseVPNConfig(opts, finalJWT)
+	runErr := cmdVpn(ctx, vpnCfg)
 	close(stopRenew)
+	return runErr
 }

@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/docopt/docopt-go"
 )
@@ -83,44 +86,63 @@ Options:
 		return
 	}
 
-	switch {
-	case mustBool(opts, "login"):
-		cmdLogin(opts)
-	case mustBool(opts, "verify"):
-		cmdVerify(opts)
-	case mustBool(opts, "save-jwt"):
-		cmdSaveJWT(opts)
-	case mustBool(opts, "mint-client"):
-		cmdMintClient(opts)
-	case mustBool(opts, "quick-connect"):
-		cmdQuickConnect(opts)
-	case mustBool(opts, "find-providers"):
-		cmdFindProviders(opts)
-	case mustBool(opts, "open"):
-		cmdOpen(opts)
-	case mustBool(opts, "locations"):
-		cmdLocations(opts)
-	case mustBool(opts, "socks"):
-		cmdSocks(opts)
-	case mustBool(opts, "vpn"):
-		if bg, _ := opts.Bool("--background"); bg {
+	// Set up log file and level for commands that support it.
+	if logPath := strings.TrimSpace(getStringOr(opts, "--log_file", "")); logPath != "" {
+		if err := setupLogFile(logPath); err != nil {
+			fmt.Fprintf(os.Stderr, "log setup failed: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	lvl := strings.TrimSpace(getStringOr(opts, "--log_level", ""))
+	dbg, _ := opts.Bool("--debug")
+	setLogLevel(lvl, dbg)
+
+	// Handle --background for commands that support it before creating context.
+	if bg, _ := opts.Bool("--background"); bg {
+		if mustBool(opts, "quick-connect") || mustBool(opts, "vpn") {
 			pid, err := spawnBackground(os.Args)
 			if err != nil {
-				fatal(fmt.Errorf("background start failed: %w", err))
+				fmt.Fprintf(os.Stderr, "background start failed: %v\n", err)
+				os.Exit(1)
 			}
 			fmt.Printf("started in background pid=%d\n", pid)
 			return
 		}
-		if logPath := strings.TrimSpace(getStringOr(opts, "--log_file", "")); logPath != "" {
-			if err := setupLogFile(logPath); err != nil {
-				fatal(fmt.Errorf("log setup failed: %w", err))
-			}
-		}
-		lvl := strings.TrimSpace(getStringOr(opts, "--log_level", ""))
-		dbg, _ := opts.Bool("--debug")
-		setLogLevel(lvl, dbg)
-		cmdVpn(opts)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	var runErr error
+	switch {
+	case mustBool(opts, "login"):
+		runErr = cmdLogin(ctx, opts)
+	case mustBool(opts, "verify"):
+		runErr = cmdVerify(ctx, opts)
+	case mustBool(opts, "save-jwt"):
+		runErr = cmdSaveJWT(opts)
+	case mustBool(opts, "mint-client"):
+		runErr = cmdMintClient(ctx, opts)
+	case mustBool(opts, "quick-connect"):
+		runErr = cmdQuickConnect(ctx, opts)
+	case mustBool(opts, "find-providers"):
+		runErr = cmdFindProviders(ctx, opts)
+	case mustBool(opts, "open"):
+		runErr = cmdOpen(ctx, opts)
+	case mustBool(opts, "locations"):
+		runErr = cmdLocations(ctx, opts)
+	case mustBool(opts, "socks"):
+		runErr = cmdSocks(ctx, opts)
+	case mustBool(opts, "vpn"):
+		jwt, _ := loadJWT(getStringOr(opts, "--jwt", ""))
+		cfg := parseVPNConfig(opts, jwt)
+		runErr = cmdVpn(ctx, cfg)
 	default:
 		fmt.Println(usage)
+	}
+
+	if runErr != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", runErr)
+		os.Exit(1)
 	}
 }
