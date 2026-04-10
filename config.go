@@ -36,6 +36,7 @@ type VPNConfig struct {
 	AllowInboundSrcList string
 	AllowInboundLocal   bool
 	EnableIPv6          bool
+	EnableKillSwitch    bool
 	Debug               bool
 	StatsInterval       time.Duration
 	JWT                 string
@@ -70,6 +71,7 @@ func parseVPNConfig(opts docopt.Opts, jwt string) VPNConfig {
 	dbg, _ := opts.Bool("--debug")
 	allowLocal, _ := opts.Bool("--allow_inbound_local")
 	enableIPv6, _ := opts.Bool("--enable_ipv6")
+	killSwitch, _ := opts.Bool("--kill_switch")
 	socksListen := strings.TrimSpace(getStringOr(opts, "--socks", getStringOr(opts, "--socks_listen", "")))
 	return VPNConfig{
 		APIURL:              getStringOr(opts, "--api_url", DefaultAPIURL),
@@ -89,6 +91,7 @@ func parseVPNConfig(opts docopt.Opts, jwt string) VPNConfig {
 		AllowInboundSrcList: strings.TrimSpace(getStringOr(opts, "--allow_inbound_src", "")),
 		AllowInboundLocal:   allowLocal,
 		EnableIPv6:          enableIPv6,
+		EnableKillSwitch:    killSwitch,
 		Debug:               dbg,
 		StatsInterval:       time.Duration(getIntOr(opts, "--stats_interval", 5)) * time.Second,
 		JWT:                 jwt,

@@ -20,6 +20,10 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 
 	logStartupConfig(cfg)
 
+	if cfg.EnableKillSwitch && !cfg.DefaultRoute {
+		logWarn("--kill_switch has no effect without --default_route; kill switch requires a full default route to block leaks\n")
+	}
+
 	// TUN-less mode: SOCKS-only when TUN is disabled or not specified.
 	if isTUNDisabled(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
 		if cfg.SOCKSListen == "" {
@@ -81,6 +85,9 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 
 	// Install routes.
 	if cfg.DefaultRoute {
+		if cfg.EnableKillSwitch {
+			rm.AddKillSwitchRoute()
+		}
 		rm.AddBypassEndpoint(cfg.APIURL)
 		rm.AddBypassEndpoint(cfg.ConnectURL)
 		rm.AddSplitDefault()

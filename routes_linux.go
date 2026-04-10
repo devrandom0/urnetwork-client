@@ -19,6 +19,9 @@ type linuxRouteManager struct {
 	addedExtra   []string // extra destinations routed through TUN
 	addedDNSTun  []string // DNS server IPs routed through TUN
 	addedSplits  bool     // whether 0.0.0.0/1 + 128.0.0.0/1 were installed
+
+	killSwitch      bool // whether kill-switch mode is active
+	killSwitchAdded bool // whether the blackhole default was successfully installed
 }
 
 // newLinuxRouteManager creates a route manager for the named TUN interface.
@@ -56,6 +59,32 @@ func (m *linuxRouteManager) AddSplitDefault() {
 	_ = run("ip", "route", "add", "0.0.0.0/1", "dev", m.tunName)
 	_ = run("ip", "route", "add", "128.0.0.0/1", "dev", m.tunName)
 	m.addedSplits = true
+}
+
+// AddKillSwitchRoute installs a blackhole default route so that if the VPN split
+// routes are removed, all traffic is blocked rather than leaking via the real
+// default gateway. Call this before AddSplitDefault so the /1 routes take priority.
+// The route is left in place on Cleanup when kill-switch mode is active.
+func (m *linuxRouteManager) AddKillSwitchRoute() {
+	m.killSwitch = true
+	// Remove the original default route first so the blackhole can be installed.
+	if m.origGw != "" && m.origDev != "" {
+		_ = run("ip", "route", "del", "default", "via", m.origGw, "dev", m.origDev)
+	} else if m.origDev != "" {
+		_ = run("ip", "route", "del", "default", "dev", m.origDev)
+	} else {
+		_ = run("ip", "route", "del", "default")
+	}
+	if err := run("ip", "route", "add", "blackhole", "default"); err == nil {
+		m.killSwitchAdded = true
+		logInfo("kill switch: blackhole default route installed\n")
+	} else {
+		logWarn("kill switch: failed to install blackhole default route; restoring original and continuing without kill switch\n")
+		// Restore original default so connectivity isn't broken
+		if m.origGw != "" && m.origDev != "" {
+			_ = run("ip", "route", "add", "default", "via", m.origGw, "dev", m.origDev)
+		}
+	}
 }
 
 func (m *linuxRouteManager) AddExclude(dest string) {
@@ -128,4 +157,16 @@ func (m *linuxRouteManager) Cleanup() {
 	}
 	_ = run("ip", "link", "set", m.tunName, "down")
 	_ = run("ip", "addr", "flush", "dev", m.tunName)
+	// Kill switch: keep blackhole in place (traffic stays blocked after VPN exits).
+	// Without kill switch: remove blackhole and restore original default gateway.
+	if m.killSwitchAdded {
+		if m.killSwitch {
+			logInfo("kill switch: blackhole default route preserved; all traffic is blocked until you run: ip route del blackhole default && ip route add default via <gateway>\n")
+		} else {
+			_ = run("ip", "route", "del", "blackhole", "default")
+			if m.origGw != "" && m.origDev != "" {
+				_ = run("ip", "route", "add", "default", "via", m.origGw, "dev", m.origDev)
+			}
+		}
+	}
 }

@@ -88,6 +88,10 @@ For a standalone SOCKS proxy (without TUN/VPN), use the separate `socks` command
 
 - `--enable_ipv6` — Allow IPv6 traffic through the VPN (disabled by default). Only use if your provider supports IPv6.
 
+### Kill switch
+
+- `--kill_switch` — Block all traffic if the VPN connection drops. **Requires `--default_route`.** On graceful exit, the blackhole default route is preserved — traffic stays blocked until you manually restore your gateway.
+
 ### Diagnostics
 
 - `--log_level=quiet|error|warn|info|debug`

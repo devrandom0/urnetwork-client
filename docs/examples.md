@@ -70,6 +70,24 @@ sudo ./urnet-client vpn --tun utun10 --default_route \
   --allow_inbound_src=192.168.1.50/32,10.0.0.0/8
 ```
 
+## Kill switch (prevent IP leaks on VPN drop)
+
+```bash
+sudo ./urnet-client vpn \
+  --tun utun10 \
+  --default_route \
+  --kill_switch \
+  --location_query="country:Germany"
+```
+
+Installs a blackhole default route before the VPN split routes. If the VPN drops, all traffic is blocked rather than leaking through your real IP. On exit, the block stays active until you manually restore your gateway.
+
+Restore connectivity on macOS:
+
+```bash
+sudo route delete default && sudo route add default <router-ip>
+```
+
 ## Background mode
 
 ```bash

@@ -352,6 +352,12 @@ func logStartupConfig(cfg VPNConfig) {
 	if len(cfg.ExcludeDomains) > 0 {
 		configItems = append(configItems, fmt.Sprintf("exclude_domain=%s", strings.Join(cfg.ExcludeDomains, ",")))
 	}
+	if cfg.EnableKillSwitch {
+		configItems = append(configItems, "kill_switch=enabled")
+	}
+	if cfg.EnableIPv6 {
+		configItems = append(configItems, "ipv6=enabled")
+	}
 	configItems = append(configItems, fmt.Sprintf("debug=%t", cfg.Debug))
 	if strings.TrimSpace(cfg.JWT) != "" {
 		configItems = append(configItems, "jwt=provided")
