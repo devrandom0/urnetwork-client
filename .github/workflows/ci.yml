@@ -42,7 +42,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.8.0
+          version: v2.11.4
       - name: Commit message lint (Conventional Commits)
         run: |
           chmod +x scripts/commit-msg-lint.sh
