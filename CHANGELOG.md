@@ -5,6 +5,13 @@
 * add --enable_ipv6 flag to control IPv6 traffic routing ([193d3ec](https://github.com/devrandom0/urnetwork-client/commit/193d3eccf957eb1888ef53eba69cd450f00cda7d))
 * add --kill_switch flag to prevent IP leaks on VPN disconnect ([d93cfb5](https://github.com/devrandom0/urnetwork-client/commit/d93cfb53970a6210929a01554291420430d35ce7))
 
+## [1.13.0](https://github.com/devrandom0/urnetwork-client/compare/v1.12.0...v1.13.0) (2026-04-11)
+
+### Features
+
+* add --enable_ipv6 flag to control IPv6 traffic routing ([193d3ec](https://github.com/devrandom0/urnetwork-client/commit/193d3eccf957eb1888ef53eba69cd450f00cda7d))
+* add --kill_switch flag to prevent IP leaks on VPN disconnect ([d93cfb5](https://github.com/devrandom0/urnetwork-client/commit/d93cfb53970a6210929a01554291420430d35ce7))
+
 ## [1.12.0](https://github.com/devrandom0/urnetwork-client/compare/v1.11.0...v1.12.0) (2026-04-10)
 
 ### Features
