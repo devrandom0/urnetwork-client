@@ -1,4 +1,64 @@
+# Changelog
+
+All notable changes to this project will be documented in this file by semantic-release.
+
 ## [1.13.0](https://github.com/devrandom0/urnetwork-client/compare/v1.12.0...v1.13.0) (2026-04-11)
+
+### Features
+
+* add --enable_ipv6 flag to control IPv6 traffic routing ([193d3ec](https://github.com/devrandom0/urnetwork-client/commit/193d3eccf957eb1888ef53eba69cd450f00cda7d))
+* add --kill_switch flag to prevent IP leaks on VPN disconnect ([d93cfb5](https://github.com/devrandom0/urnetwork-client/commit/d93cfb53970a6210929a01554291420430d35ce7))
+
+## [1.12.0](https://github.com/devrandom0/urnetwork-client/compare/v1.11.0...v1.12.0) (2026-04-10)
+
+### Features
+
+* add IPv6-to-IPv4 fallback for SOCKS proxy when IPv6 provider unavailable ([4f7a015](https://github.com/devrandom0/urnetwork-client/commit/4f7a015edd8c7f88eb87a71b899655d53f9d2e03))
+
+## [1.11.0](https://github.com/devrandom0/urnetwork-client/compare/v1.10.0...v1.11.0) (2026-04-10)
+
+### Features
+
+* add IPv6 address configuration to TUN interfaces on macOS and Linux ([919ff84](https://github.com/devrandom0/urnetwork-client/commit/919ff84a457063aa4cfc7c9bc7ddfcb4123d3096))
+* enable IPv6 interface binding for SOCKS on macOS and Linux ([b78adfe](https://github.com/devrandom0/urnetwork-client/commit/b78adfe465c91b5bbe8a4868284d40b0a3d01453))
+
+## [1.10.0](https://github.com/devrandom0/urnetwork-client/compare/v1.9.0...v1.10.0) (2026-04-10)
+
+### Features
+
+* implement Phase 5 – IPv6 filter, structured logging, config file, graceful shutdown ([e0c3d5e](https://github.com/devrandom0/urnetwork-client/commit/e0c3d5eec5f974c788ea50ad2ecdde939c5cc5cd))
+
+### Bug Fixes
+
+* update for lint ([591b01e](https://github.com/devrandom0/urnetwork-client/commit/591b01e2f20cc4ea46e098a6c2d7722c0ca61003))
+
+## [Unreleased]
+
+### CI/CD
+
+* CI via Makefile: lint, unit (race), integration with JWT gating, Docker build test (no push) ([d831af1](https://github.com/devrandom0/urnetwork-client/commit/d831af1), [cf99723](https://github.com/devrandom0/urnetwork-client/commit/cf99723), [229c921](https://github.com/devrandom0/urnetwork-client/commit/229c921))
+* Add get-jwt job with secrets; mask credentials; robust gating ([cf61582](https://github.com/devrandom0/urnetwork-client/commit/cf61582), [9f3b624](https://github.com/devrandom0/urnetwork-client/commit/9f3b624))
+* Release assets: build linux/darwin amd64+arm64 binaries and attach to GitHub Releases ([0455b25](https://github.com/devrandom0/urnetwork-client/commit/0455b25))
+* Build once, reuse CLI via artifact in jobs; remove redundant builds ([pending])
+
+### Build & Docker
+
+* Narrow Docker context and COPY; ignore tests/docs/ci in .dockerignore ([d09a648](https://github.com/devrandom0/urnetwork-client/commit/d09a648))
+* Update runtime base to alpine:3.22 ([ec80284](https://github.com/devrandom0/urnetwork-client/commit/ec80284))
+* docker-compose: default to GHCR image; optional local build; fix YAML ([pending])
+
+### Dependencies (Renovate)
+
+* Add Renovate configuration (gomod, Dockerfile, GitHub Actions) ([72c4276](https://github.com/devrandom0/urnetwork-client/commit/72c4276))
+* deps: actions/checkout to v5 ([e16bdd9](https://github.com/devrandom0/urnetwork-client/commit/e16bdd9), [04e7bec](https://github.com/devrandom0/urnetwork-client/commit/04e7bec), [#9](https://github.com/devrandom0/urnetwork-client/pull/9))
+* deps: node to v22 ([b8eb626](https://github.com/devrandom0/urnetwork-client/commit/b8eb626), [#3](https://github.com/devrandom0/urnetwork-client/pull/3))
+* deps: alpine to 3.22 ([ec80284](https://github.com/devrandom0/urnetwork-client/commit/ec80284), [#1](https://github.com/devrandom0/urnetwork-client/pull/1))
+* deps: github.com/urnetwork/connect digest bump ([61273b6](https://github.com/devrandom0/urnetwork-client/commit/61273b6), [#4](https://github.com/devrandom0/urnetwork-client/pull/4))
+
+### Docs/Meta
+
+* README badge and formatting ([eb0aa5e](https://github.com/devrandom0/urnetwork-client/commit/eb0aa5e))
+* Remove CircleCI config ([59ec5a8](https://github.com/devrandom0/urnetwork-client/commit/59ec5a8), [6547725](https://github.com/devrandom0/urnetwork-client/commit/6547725))## [1.13.0](https://github.com/devrandom0/urnetwork-client/compare/v1.12.0...v1.13.0) (2026-04-11)
 
 ### Features
 
