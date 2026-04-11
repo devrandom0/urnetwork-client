@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:base",
+    "config:recommended",
     ":enableVulnerabilityAlerts"
   ],
   "labels": ["dependencies", "renovate"],
@@ -25,6 +25,13 @@
     {
       "matchManagers": ["gomod", "dockerfile"],
       "matchUpdateTypes": ["patch", "digest"],
+      "automerge": true,
+      "automergeType": "pr",
+      "labels": ["dependencies", "automerge"]
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["patch"],
       "automerge": true,
       "automergeType": "pr",
       "labels": ["dependencies", "automerge"]
