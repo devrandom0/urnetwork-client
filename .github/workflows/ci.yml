@@ -569,7 +569,7 @@ jobs:
           cp dist/darwin_amd64/urnet-client dist/urnet-client_darwin_amd64
           cp dist/darwin_arm64/urnet-client dist/urnet-client_darwin_arm64
       - name: Publish GitHub Release with assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.compute.outputs.tag }}
           name: urnetwork-client ${{ steps.compute.outputs.tag }}
