@@ -8,7 +8,7 @@ require (
 	github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
-	github.com/urnetwork/connect v0.0.0-20260323055421-bd217fd04444
+	github.com/urnetwork/connect v0.0.0-20260420071158-1c4873776de7
 	gopkg.in/yaml.v3 v3.0.1
 )
 
