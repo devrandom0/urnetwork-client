@@ -18,7 +18,7 @@ func cmdSocks(ctx context.Context, opts docopt.Opts) error {
 	// and runs a plain SOCKS5 proxy. Track as a known gap.
 	logInfo("Extender details: IP=%s Port=%s SNI=%s\n", cfg.ExtenderIP, cfg.ExtenderPort, cfg.ExtenderSNI)
 
-	stopSocks, err := StartSocks5(ctx, cfg.ListenAddr, "", cfg.Debug, cfg.AllowDomains, cfg.ExcludeDomains)
+	stopSocks, err := StartSocks5(ctx, cfg.ListenAddr, "", cfg.Debug, cfg.AllowDomains, cfg.ExcludeDomains, nil)
 	if err != nil {
 		return fmt.Errorf("failed to start SOCKS5 proxy: %w", err)
 	}

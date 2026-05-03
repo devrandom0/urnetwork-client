@@ -30,7 +30,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 			logError("--tun=none specified but no --socks provided; nothing to do\n")
 			return nil
 		}
-		stopSocks, err := StartSocks5(ctx, cfg.SOCKSListen, "", cfg.Debug, cfg.AllowDomains, cfg.ExcludeDomains)
+		stopSocks, err := StartSocks5(ctx, cfg.SOCKSListen, "", cfg.Debug, cfg.AllowDomains, cfg.ExcludeDomains, splitCSV(cfg.DNSList))
 		if err != nil {
 			return fmt.Errorf("start socks failed: %w", err)
 		}

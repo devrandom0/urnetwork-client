@@ -18,6 +18,8 @@ import (
 // StartSocks5 starts a minimal SOCKS5 proxy at listenAddr.
 // If bindIf is non-empty (e.g., "utun10" or "tun0"), outbound connections will be attempted with SO_BINDTODEVICE where supported
 // (Linux) or using a control on macOS to set IP_BOUND_IF via syscall.RawConn.Control.
+// If dnsServers is non-empty, the first entry is used as the DNS resolver for hostname lookups
+// instead of the system default resolver.
 func StartSocks5(
 	ctx context.Context,
 	listenAddr string,
@@ -25,7 +27,22 @@ func StartSocks5(
 	debug bool,
 	allowDomains []string,
 	excludeDomains []string,
+	dnsServers []string,
 ) (func() error, error) {
+	resolver := net.DefaultResolver
+	if len(dnsServers) > 0 {
+		addr := dnsServers[0]
+		if _, _, err := net.SplitHostPort(addr); err != nil {
+			addr = net.JoinHostPort(addr, "53")
+		}
+		resolver = &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+				d := net.Dialer{Timeout: 5 * time.Second}
+				return d.DialContext(ctx, "udp", addr)
+			},
+		}
+	}
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		return nil, err
@@ -41,7 +58,7 @@ func StartSocks5(
 				}
 				return
 			}
-			go handleSocksConn(ctx, conn, bindIf, debug, allowDomains, excludeDomains)
+			go handleSocksConn(ctx, conn, bindIf, debug, allowDomains, excludeDomains, resolver)
 		}
 	}()
 	stop := func() error { _ = ln.Close(); <-done; return nil }
@@ -55,6 +72,7 @@ func handleSocksConn(
 	debug bool,
 	allowDomains []string,
 	excludeDomains []string,
+	resolver *net.Resolver,
 ) {
 	defer func() { _ = c.Close() }()
 
@@ -97,7 +115,7 @@ func handleSocksConn(
 		return
 	}
 	if cmd == 3 { // UDP ASSOCIATE
-		runUDPAssociate(ctx, c, bindIf, debug, allowDomains, excludeDomains)
+		runUDPAssociate(ctx, c, bindIf, debug, allowDomains, excludeDomains, resolver)
 		return
 	}
 	if cmd != 1 { // CONNECT only
@@ -140,7 +158,7 @@ func handleSocksConn(
 	if atyp == 3 { // domain
 		// Use system resolver
 		reqDomain = strings.ToLower(host)
-		addrs, _ := net.DefaultResolver.LookupIP(ctx, "ip", host)
+		addrs, _ := resolver.LookupIP(ctx, "ip", host)
 		for _, ip := range addrs {
 			if ip.To4() != nil {
 				ipForRoute = ip
@@ -262,7 +280,7 @@ func domainMatches(host string, patterns []string) bool {
 }
 
 // runUDPAssociate implements SOCKS5 UDP ASSOCIATE for a single TCP control connection.
-func runUDPAssociate(ctx context.Context, ctrl net.Conn, bindIf string, debug bool, allowDomains, excludeDomains []string) {
+func runUDPAssociate(ctx context.Context, ctrl net.Conn, bindIf string, debug bool, allowDomains, excludeDomains []string, resolver *net.Resolver) {
 	// Allocate a UDP listener for the client on loopback (IPv4)
 	pcClient, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -371,7 +389,7 @@ func runUDPAssociate(ctx context.Context, ctrl net.Conn, bindIf string, debug bo
 
 			// Resolve domain if needed
 			if dstIP == nil && reqDomain != "" {
-				addrs, _ := net.DefaultResolver.LookupIP(ctx, "ip", reqDomain)
+				addrs, _ := resolver.LookupIP(ctx, "ip", reqDomain)
 				for _, ip := range addrs {
 					if ip.To4() != nil {
 						dstIP = ip

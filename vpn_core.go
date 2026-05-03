@@ -259,7 +259,7 @@ func vpnRunCore(
 	excludeDomains := cfg.ExcludeDomains
 	var stopSocks func() error
 	if socksListen != "" {
-		if s, err := StartSocks5(ctx, socksListen, tunIfName, debugOn || isDebugEnabled(), allowDomains, excludeDomains); err != nil {
+		if s, err := StartSocks5(ctx, socksListen, tunIfName, debugOn || isDebugEnabled(), allowDomains, excludeDomains, splitCSV(cfg.DNSList)); err != nil {
 			logWarn("failed to start socks at %s: %v\n", socksListen, err)
 		} else {
 			stopSocks = s
