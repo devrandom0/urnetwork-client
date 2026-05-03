@@ -373,7 +373,9 @@ jobs:
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
-      contents: write  # needed to create tags and releases
+      contents: write       # create tags and releases
+      issues: write         # comment on issues on release
+      pull-requests: write  # comment on PRs on release
     outputs:
       released: ${{ steps.semrel.outputs.new_release_published }}
       version: ${{ steps.semrel.outputs.new_release_version }}
