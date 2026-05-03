@@ -61,7 +61,7 @@ jobs:
   build-cli:
     runs-on: ubuntu-latest
     needs: lint
-    name: Build CLI (once)
+    name: Build CLI (all platforms)
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -70,15 +70,15 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - name: Build linux/amd64
-        run: make build
-      - name: Build linux/arm64
-        run: make build-linux-arm64
+      - name: Build all platforms
+        run: make build-linux-amd64 build-linux-arm64 build-darwin-amd64 build-darwin-arm64
       - name: Stage CLI artifacts
         run: |
           set -euo pipefail
-          cp dist/urnet-client dist/urnet-client_linux_amd64
-          cp dist/linux_arm64/urnet-client dist/urnet-client_linux_arm64
+          cp dist/linux_amd64/urnet-client  dist/urnet-client_linux_amd64
+          cp dist/linux_arm64/urnet-client  dist/urnet-client_linux_arm64
+          cp dist/darwin_amd64/urnet-client dist/urnet-client_darwin_amd64
+          cp dist/darwin_arm64/urnet-client dist/urnet-client_darwin_arm64
       - name: Upload CLI artifact (linux/amd64)
         uses: actions/upload-artifact@v7
         with:
@@ -89,6 +89,16 @@ jobs:
         with:
           name: cli-linux-arm64
           path: dist/urnet-client_linux_arm64
+      - name: Upload CLI artifact (darwin/amd64)
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-darwin-amd64
+          path: dist/urnet-client_darwin_amd64
+      - name: Upload CLI artifact (darwin/arm64)
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-darwin-arm64
+          path: dist/urnet-client_darwin_arm64
 
   test:
     runs-on: ubuntu-latest
@@ -232,7 +242,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
       - name: Build Docker image (no push)
-        run: make ci-docker-build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   docker:
     runs-on: ubuntu-latest
@@ -371,7 +388,7 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, build-cli]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     concurrency:
       group: release
@@ -400,28 +417,13 @@ jobs:
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
-      - name: Set up Go
+      - name: Download CLI artifacts
         if: steps.skip_check.outputs.skip != 'true'
-        uses: actions/setup-go@v6
+        uses: actions/download-artifact@v8
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-      - name: Build cross-platform binaries
-        if: steps.skip_check.outputs.skip != 'true'
-        run: |
-          set -euo pipefail
-          make build-linux-amd64
-          make build-linux-arm64
-          make build-darwin-amd64
-          make build-darwin-arm64
-      - name: Prepare release assets
-        if: steps.skip_check.outputs.skip != 'true'
-        run: |
-          set -euo pipefail
-          cp dist/linux_amd64/urnet-client  dist/urnet-client_linux_amd64
-          cp dist/linux_arm64/urnet-client  dist/urnet-client_linux_arm64
-          cp dist/darwin_amd64/urnet-client dist/urnet-client_darwin_amd64
-          cp dist/darwin_arm64/urnet-client dist/urnet-client_darwin_arm64
+          pattern: cli-*
+          path: dist
+          merge-multiple: true
       - name: Setup Node.js
         if: steps.skip_check.outputs.skip != 'true'
         uses: actions/setup-node@v6
@@ -550,47 +552,66 @@ jobs:
             type=gha,mode=max
             type=registry,ref=ghcr.io/${{ github.repository_owner }}/urnetwork-client:buildcache,mode=max
 
-  release-on-tag:
+  build-binaries-for-tag:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: write  # needed to create/update releases
+    name: Build CLI binaries (tag)
     steps:
-      - name: Compute tag name
-        id: compute
-        run: |
-          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
-            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          elif [ -n "${{ inputs.version }}" ]; then
-            echo "tag=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "No tag provided" >&2
-            exit 1
-          fi
       - name: Checkout (tag)
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
-          ref: ${{ steps.compute.outputs.tag }}
+          ref: ${{ github.ref }}
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - name: Build cross-platform binaries
-        run: |
-          set -euo pipefail
-          make build-linux-amd64
-          make build-linux-arm64
-          make build-darwin-amd64
-          make build-darwin-arm64
-      - name: Prepare release assets
+      - name: Build all platforms
+        run: make build-linux-amd64 build-linux-arm64 build-darwin-amd64 build-darwin-arm64
+      - name: Stage artifacts
         run: |
           set -euo pipefail
           cp dist/linux_amd64/urnet-client  dist/urnet-client_linux_amd64
           cp dist/linux_arm64/urnet-client  dist/urnet-client_linux_arm64
           cp dist/darwin_amd64/urnet-client dist/urnet-client_darwin_amd64
           cp dist/darwin_arm64/urnet-client dist/urnet-client_darwin_arm64
+      - name: Upload CLI artifact (linux/amd64)
+        uses: actions/upload-artifact@v7
+        with:
+          name: tag-cli-linux-amd64
+          path: dist/urnet-client_linux_amd64
+      - name: Upload CLI artifact (linux/arm64)
+        uses: actions/upload-artifact@v7
+        with:
+          name: tag-cli-linux-arm64
+          path: dist/urnet-client_linux_arm64
+      - name: Upload CLI artifact (darwin/amd64)
+        uses: actions/upload-artifact@v7
+        with:
+          name: tag-cli-darwin-amd64
+          path: dist/urnet-client_darwin_amd64
+      - name: Upload CLI artifact (darwin/arm64)
+        uses: actions/upload-artifact@v7
+        with:
+          name: tag-cli-darwin-arm64
+          path: dist/urnet-client_darwin_arm64
+
+  release-on-tag:
+    runs-on: ubuntu-latest
+    needs: build-binaries-for-tag
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write  # needed to create/update releases
+    steps:
+      - name: Compute tag name
+        id: compute
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+      - name: Download CLI artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: tag-cli-*
+          path: dist
+          merge-multiple: true
       - name: Publish GitHub Release with assets
         uses: softprops/action-gh-release@v3
         with:
