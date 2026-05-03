@@ -1,3 +1,9 @@
+## [1.13.3](https://github.com/devrandom0/urnetwork-client/compare/v1.13.2...v1.13.3) (2026-05-03)
+
+### Bug Fixes
+
+* update dns binding issue when dnServers is non-empty ([a52c954](https://github.com/devrandom0/urnetwork-client/commit/a52c9549663b7cbd8c1c8a9ef5235f9166cd7cb9))
+
 ## [1.13.2](https://github.com/devrandom0/urnetwork-client/compare/v1.13.1...v1.13.2) (2026-04-22)
 
 ## [1.13.1](https://github.com/devrandom0/urnetwork-client/compare/v1.13.0...v1.13.1) (2026-04-18)
