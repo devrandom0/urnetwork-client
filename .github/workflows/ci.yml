@@ -410,12 +410,41 @@ jobs:
         id: skip_check
         run: |
           git fetch --tags
-          latest_tag=$(git tag --merged HEAD --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
-          if [ -n "$latest_tag" ] && [ "$(git rev-list -n 1 "$latest_tag")" = "$(git rev-parse HEAD)" ]; then
-            echo "HEAD is already tagged as $latest_tag — skipping release"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
+          head_sha=$(git rev-parse HEAD)
+          head_msg=$(git log -1 --format='%s')
+
+          # Recovery: if HEAD is a semantic-release docs commit and the matching tag is
+          # orphaned (exists but not in HEAD's ancestry), move the tag here and skip.
+          # This handles partial releases where semantic-release wrote the changelog
+          # commit but then failed to create the git tag (e.g. tag existed on a diverged
+          # commit from a prior history rewrite or branch release).
+          if echo "$head_msg" | grep -qE '^docs\(release\): [0-9]+\.[0-9]+\.[0-9]+ \[skip ci\]$'; then
+            sr_ver=$(echo "$head_msg" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+            sr_tag="v${sr_ver}"
+            sr_tag_sha=$(git rev-list -n 1 "$sr_tag" 2>/dev/null || true)
+
+            if [ "$sr_tag_sha" = "$head_sha" ]; then
+              echo "HEAD already tagged as $sr_tag — skipping release"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            elif [ -n "$sr_tag_sha" ]; then
+              echo "Recovering orphaned $sr_tag ($sr_tag_sha) → HEAD ($head_sha)"
+              git push origin ":refs/tags/$sr_tag"
+              git tag "$sr_tag" HEAD
+              git push origin "refs/tags/$sr_tag"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            else
+              # Tag doesn't exist yet — let semantic-release create it
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            fi
           else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+            # Standard check: is HEAD already tagged?
+            latest_tag=$(git tag --merged HEAD --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+            if [ -n "$latest_tag" ] && [ "$(git rev-list -n 1 "$latest_tag")" = "$(git rev-parse HEAD)" ]; then
+              echo "HEAD is already tagged as $latest_tag — skipping release"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            fi
           fi
       - name: Download CLI artifacts
         if: steps.skip_check.outputs.skip != 'true'
