@@ -1,3 +1,9 @@
+## [1.13.6](https://github.com/devrandom0/urnetwork-client/compare/v1.13.5...v1.13.6) (2026-06-20)
+
+### Bug Fixes
+
+* **ci:** recover from orphaned release tag on diverged commit ([#77](https://github.com/devrandom0/urnetwork-client/issues/77)) ([ce54122](https://github.com/devrandom0/urnetwork-client/commit/ce5412283ef1e11d1a3b3eea8533a28ffda69d60))
+
 ## [1.13.5](https://github.com/devrandom0/urnetwork-client/compare/v1.13.4...v1.13.5) (2026-06-20)
 
 ## [1.13.5](https://github.com/devrandom0/urnetwork-client/compare/v1.13.4...v1.13.5) (2026-06-08)
