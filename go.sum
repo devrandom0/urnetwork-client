@@ -64,8 +64,8 @@ github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8 h1:TG/diQgUe0pntT/2D
 github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8/go.mod h1:P5HUIBuIWKbyjl083/loAegFkfbFNx5i2qEP4CNbm7E=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-github.com/urnetwork/connect v0.0.0-20260829040616-709f6c076fc9 h1:F6QlsdeP3M3WKFI+WLRSYls38qnmwwvjseqV2zsEE8c=
-github.com/urnetwork/connect v0.0.0-20260829040616-709f6c076fc9/go.mod h1:mX0CxovqvKFld1UM53AfjymfnbvFiiLMQEvRD+X71ko=
+github.com/urnetwork/connect v0.0.0-20260905040720-1b81da6668e6 h1:oNeLoHiJZcewPrq7DGzXYtNampM9w4DCG7WvGgB/T+I=
+github.com/urnetwork/connect v0.0.0-20260905040720-1b81da6668e6/go.mod h1:/kwdo9NTDJ+huE+I5kGF5ReCpMWZdpKNXH8sAD35QDI=
 github.com/urnetwork/glog v1.2.9 h1:T1GwVZ91FyZvfGPCIAG3KkeVNJViS/oJhi1aCCxPPY8=
 github.com/urnetwork/glog v1.2.9/go.mod h1:MijG6ltedvutOUlWzst3mYwyRnrct9dqoThPOoN0qp0=
 github.com/wlynxg/anet v0.0.5 h1:J3VJGi1gvo0JwZ/P1/Yc/8p63SoW98B5dHkYDmpgvvU=
