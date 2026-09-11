@@ -1,0 +1,183 @@
+name: Docker Hub cleanup
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'List tags that would be deleted without deleting them'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: dockerhub-cleanup
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  DOCKERHUB_REPO: urnetwork-client
+  RETENTION_DAYS: 30
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - name: Check credentials gate
+        id: gate
+        run: |
+          if [ -z "${DOCKERHUB_USERNAME:-}" ] || [ -z "${DOCKERHUB_TOKEN:-}" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No DOCKERHUB_USERNAME/DOCKERHUB_TOKEN; skipping Docker Hub cleanup"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Clean up stale tags
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          shopt -s inherit_errexit
+          repo="${DOCKERHUB_USERNAME}/${DOCKERHUB_REPO}"
+          cutoff=$(date -u -d "-${RETENTION_DAYS} days" +%s)
+
+          # Always emit a summary, even on a mid-run abort, so a partial
+          # cleanup is visible instead of leaving a blank job summary.
+          kept=0
+          would_delete=0
+          deleted=0
+          failed=0
+          write_summary() {
+            {
+              echo "### Docker Hub cleanup"
+              echo "- retention: ${RETENTION_DAYS} days"
+              echo "- dry run: ${DRY_RUN:-false}"
+              echo "- kept: $kept"
+              echo "- would delete (dry run): $would_delete"
+              echo "- deleted: $deleted"
+              echo "- failed: $failed"
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+          trap write_summary EXIT
+
+          get_token() {
+            local token
+            token=$(curl -fsS --retry 5 --retry-delay 5 --retry-max-time 60 \
+              https://hub.docker.com/v2/auth/token \
+              -H 'Content-Type: application/json' \
+              -d "{\"identifier\":\"${DOCKERHUB_USERNAME}\",\"secret\":\"${DOCKERHUB_TOKEN}\"}" \
+              | jq -r '.access_token')
+            if [ -z "$token" ] || [ "$token" = "null" ]; then
+              echo "Failed to authenticate with Docker Hub" >&2
+              return 1
+            fi
+            echo "::add-mask::$token" >&2
+            printf '%s' "$token"
+          }
+
+          token=$(get_token)
+          last_refresh=$SECONDS
+
+          # Collect every page up front. Deleting while paginating shifts later
+          # pages backwards and silently skips tags, so nothing is deleted
+          # until the full list has been read.
+          all_tags=""
+          expected_count=""
+          url="https://hub.docker.com/v2/repositories/${repo}/tags/?page_size=100"
+          while [ -n "$url" ] && [ "$url" != "null" ]; do
+            resp=$(curl -fsS --retry 5 --retry-delay 5 --retry-max-time 60 \
+              -H "Authorization: Bearer ${token}" "$url")
+            if [ "$(echo "$resp" | jq 'has("results") and (.results | type == "array")')" != "true" ]; then
+              echo "Unexpected response from Docker Hub tags API:" >&2
+              echo "$resp" >&2
+              exit 1
+            fi
+            if [ -z "$expected_count" ]; then
+              expected_count=$(echo "$resp" | jq -r '.count // ""')
+            fi
+            rows=$(echo "$resp" | jq -r '.results[] | "\(.name)\t\(.tag_last_pushed // .last_updated // "")"')
+            all_tags="${all_tags}${rows}"$'\n'
+            url=$(echo "$resp" | jq -r '.next')
+          done
+
+          collected_count=$(printf '%s' "$all_tags" | grep -c . || true)
+          if [ -n "$expected_count" ] && [ "$expected_count" != "null" ] && [ "$collected_count" -ne "$expected_count" ]; then
+            echo "Docker Hub reported $expected_count tags but pagination only yielded $collected_count; aborting rather than cleaning up a partial list" >&2
+            exit 1
+          fi
+
+          # Listing can itself take a while on a large tag set; get a fresh
+          # token before starting the delete phase rather than trusting
+          # whatever is left of the one from before listing.
+          token=$(get_token)
+          last_refresh=$SECONDS
+
+          while IFS=$'\t' read -r name pushed; do
+            [ -z "$name" ] && continue
+
+            if [[ "$name" =~ ^(latest|main)$ ]] || [[ "$name" =~ ^v?[0-9]+(\.[0-9]+){0,2}$ ]]; then
+              echo "keep (protected): $name"
+              kept=$((kept + 1))
+              continue
+            fi
+
+            if [ -z "$pushed" ] || [ "$pushed" = "null" ]; then
+              echo "keep (no timestamp): $name"
+              kept=$((kept + 1))
+              continue
+            fi
+
+            if ! pushed_ts=$(date -u -d "$pushed" +%s 2>/dev/null); then
+              echo "keep (unparseable timestamp '$pushed'): $name"
+              kept=$((kept + 1))
+              continue
+            fi
+            if [ "$pushed_ts" -ge "$cutoff" ]; then
+              echo "keep (fresh, pushed $pushed): $name"
+              kept=$((kept + 1))
+              continue
+            fi
+
+            if [ "${DRY_RUN:-false}" = "true" ]; then
+              echo "would delete (pushed $pushed): $name"
+              would_delete=$((would_delete + 1))
+              continue
+            fi
+
+            # The access token expires after 10 minutes; refresh it whenever
+            # 5 minutes have passed so a large backlog of deletes can't
+            # outlast it.
+            if [ $((SECONDS - last_refresh)) -ge 300 ]; then
+              token=$(get_token)
+              last_refresh=$SECONDS
+            fi
+
+            echo "deleting (pushed $pushed): $name"
+            status=$(curl -sS --retry 5 --retry-delay 5 --retry-max-time 60 \
+              -o /dev/null -w '%{http_code}' -X DELETE \
+              -H "Authorization: Bearer ${token}" \
+              "https://hub.docker.com/v2/repositories/${repo}/tags/${name}/") || status=""
+            case "$status" in
+              2??|404)
+                # 404 means the tag is already gone (e.g. a concurrent manual
+                # delete), which is the outcome we wanted anyway.
+                deleted=$((deleted + 1))
+                ;;
+              *)
+                echo "failed to delete: $name (http ${status:-none})" >&2
+                failed=$((failed + 1))
+                ;;
+            esac
+          done <<< "$all_tags"
+
+          echo "kept=$kept would_delete=$would_delete deleted=$deleted failed=$failed"
+
+          if [ "$failed" -gt 0 ]; then
+            exit 1
+          fi
