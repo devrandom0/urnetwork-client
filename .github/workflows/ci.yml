@@ -469,7 +469,7 @@ jobs:
             @semantic-release/changelog
             @semantic-release/git
             @semantic-release/github
-            conventional-changelog-conventionalcommits
+            conventional-changelog-conventionalcommits@^8.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
