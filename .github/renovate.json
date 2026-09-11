@@ -16,7 +16,7 @@
   "prHourlyLimit": 1,
   "prConcurrentLimit": 10,
   "dependencyDashboard": true,
-  "enabledManagers": ["gomod", "dockerfile", "github-actions"],
+  "enabledManagers": ["gomod", "dockerfile", "github-actions", "asdf"],
   "packageRules": [
     {
       "matchManagers": ["gomod"],
