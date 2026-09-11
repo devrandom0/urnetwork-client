@@ -264,6 +264,7 @@ jobs:
     if: github.event_name != 'pull_request'
     name: Docker build (${{ matrix.arch }})
     permissions:
+      contents: read
       packages: write
     env:
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
@@ -282,6 +283,16 @@ jobs:
           images: |
             ghcr.io/${{ github.repository_owner }}/urnetwork-client
             ${{ secrets.DOCKERHUB_USERNAME }}/urnetwork-client
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            # Add semantic version tags when pushing a tag like v1.2.3
+            # Produces: 1.2.3, 1.2, 1
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
       - name: Log in to GHCR (PAT)
         if: (startsWith(github.ref, 'refs/heads/') || startsWith(github.ref, 'refs/tags/')) && env.GHCR_TOKEN != ''
         uses: docker/login-action@v4
@@ -314,11 +325,11 @@ jobs:
           build-args: |
             BUILDKIT_INLINE_CACHE=1
           cache-from: |
-            type=gha,scope=${{ matrix.arch }}
-            type=registry,ref=ghcr.io/${{ github.repository_owner }}/urnetwork-client:buildcache-${{ matrix.arch }}
+            type=gha,scope=docker-${{ matrix.arch }}
+            type=registry,ref=ghcr.io/${{ github.repository_owner }}/urnetwork-client:buildcache-docker-${{ matrix.arch }}
           cache-to: |
-            type=gha,mode=max,scope=${{ matrix.arch }}
-            type=registry,ref=ghcr.io/${{ github.repository_owner }}/urnetwork-client:buildcache-${{ matrix.arch }},mode=max
+            type=gha,mode=max,scope=docker-${{ matrix.arch }}
+            type=registry,ref=ghcr.io/${{ github.repository_owner }}/urnetwork-client:buildcache-docker-${{ matrix.arch }},mode=max
       - name: Export digest
         run: |
           set -euo pipefail
@@ -397,6 +408,12 @@ jobs:
         working-directory: /tmp/digests
         run: |
           set -euo pipefail
+          digest_count=$(find . -maxdepth 1 -type f | wc -l)
+          if [ "$digest_count" -ne 2 ]; then
+            echo "Expected 2 per-arch digests, found $digest_count" >&2
+            exit 1
+          fi
+
           ghcr_tags=()
           dockerhub_tags=()
           while IFS= read -r tag; do
@@ -411,7 +428,7 @@ jobs:
           for f in *; do ghcr_refs+=("ghcr.io/${{ github.repository_owner }}/urnetwork-client@sha256:$f"); done
           docker buildx imagetools create "${ghcr_tags[@]}" "${ghcr_refs[@]}"
 
-          if [ "${#dockerhub_tags[@]}" -gt 0 ]; then
+          if [ -n "${DOCKERHUB_USERNAME:-}" ]; then
             dockerhub_refs=()
             for f in *; do dockerhub_refs+=("${DOCKERHUB_USERNAME}/urnetwork-client@sha256:$f"); done
             docker buildx imagetools create "${dockerhub_tags[@]}" "${dockerhub_refs[@]}"
@@ -421,7 +438,7 @@ jobs:
         run: |
           set -euo pipefail
           primary_tag=$(printf '%s\n' "${{ steps.meta.outputs.tags }}" | grep '^ghcr\.io/' | head -1)
-          digest=$(docker buildx imagetools inspect "$primary_tag" | awk '/^Digest:/ {print $2}')
+          digest=$(docker buildx imagetools inspect "$primary_tag" --format '{{.Manifest.Digest}}')
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
   publish-images-on-release:
@@ -643,6 +660,7 @@ jobs:
     needs: force-tag-create
     name: Forced tag Docker build (${{ matrix.arch }})
     permissions:
+      contents: read
       packages: write
     env:
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
@@ -687,11 +705,11 @@ jobs:
           build-args: |
             BUILDKIT_INLINE_CACHE=1
           cache-from: |
-            type=gha,scope=${{ matrix.arch }}
-            type=registry,ref=ghcr.io/${{ github.repository_owner }}/urnetwork-client:buildcache-${{ matrix.arch }}
+            type=gha,scope=forcetag-${{ matrix.arch }}
+            type=registry,ref=ghcr.io/${{ github.repository_owner }}/urnetwork-client:buildcache-forcetag-${{ matrix.arch }}
           cache-to: |
-            type=gha,mode=max,scope=${{ matrix.arch }}
-            type=registry,ref=ghcr.io/${{ github.repository_owner }}/urnetwork-client:buildcache-${{ matrix.arch }},mode=max
+            type=gha,mode=max,scope=forcetag-${{ matrix.arch }}
+            type=registry,ref=ghcr.io/${{ github.repository_owner }}/urnetwork-client:buildcache-forcetag-${{ matrix.arch }},mode=max
       - name: Export digest
         run: |
           set -euo pipefail
@@ -717,6 +735,7 @@ jobs:
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      VERSION: ${{ inputs.version }}
     steps:
       - name: Download digests
         uses: actions/download-artifact@v8
@@ -750,19 +769,25 @@ jobs:
         working-directory: /tmp/digests
         run: |
           set -euo pipefail
+          digest_count=$(find . -maxdepth 1 -type f | wc -l)
+          if [ "$digest_count" -ne 2 ]; then
+            echo "Expected 2 per-arch digests, found $digest_count" >&2
+            exit 1
+          fi
+
           ghcr_refs=()
           for f in *; do ghcr_refs+=("ghcr.io/${{ github.repository_owner }}/urnetwork-client@sha256:$f"); done
           docker buildx imagetools create \
-            -t "ghcr.io/${{ github.repository_owner }}/urnetwork-client:${{ inputs.version }}" \
-            -t "ghcr.io/${{ github.repository_owner }}/urnetwork-client:v${{ inputs.version }}" \
+            -t "ghcr.io/${{ github.repository_owner }}/urnetwork-client:${VERSION}" \
+            -t "ghcr.io/${{ github.repository_owner }}/urnetwork-client:v${VERSION}" \
             "${ghcr_refs[@]}"
 
           if [ -n "${DOCKERHUB_USERNAME:-}" ]; then
             dockerhub_refs=()
             for f in *; do dockerhub_refs+=("${DOCKERHUB_USERNAME}/urnetwork-client@sha256:$f"); done
             docker buildx imagetools create \
-              -t "${DOCKERHUB_USERNAME}/urnetwork-client:${{ inputs.version }}" \
-              -t "${DOCKERHUB_USERNAME}/urnetwork-client:v${{ inputs.version }}" \
+              -t "${DOCKERHUB_USERNAME}/urnetwork-client:${VERSION}" \
+              -t "${DOCKERHUB_USERNAME}/urnetwork-client:v${VERSION}" \
               "${dockerhub_refs[@]}"
           fi
 
