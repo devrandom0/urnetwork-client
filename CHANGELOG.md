@@ -1,3 +1,5 @@
+## [1.13.16](https://github.com/devrandom0/urnetwork-client/compare/v1.13.15...v1.13.16) (2026-09-11)
+
 ## [1.13.15](https://github.com/devrandom0/urnetwork-client/compare/v1.13.14...v1.13.15) (2026-09-11)
 
 ### Bug Fixes
