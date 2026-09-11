@@ -42,7 +42,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.12.2
+          version: v2.13.2
       - name: Commit message lint (Conventional Commits)
         run: |
           chmod +x scripts/commit-msg-lint.sh
@@ -469,7 +469,7 @@ jobs:
             @semantic-release/changelog
             @semantic-release/git
             @semantic-release/github
-            conventional-changelog-conventionalcommits
+            conventional-changelog-conventionalcommits@^8.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
