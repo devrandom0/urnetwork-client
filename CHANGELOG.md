@@ -1,3 +1,9 @@
+## [1.13.15](https://github.com/devrandom0/urnetwork-client/compare/v1.13.14...v1.13.15) (2026-09-11)
+
+### Bug Fixes
+
+* **ci:** pin conventional-changelog-conventionalcommits to v8 ([8ab380b](https://github.com/devrandom0/urnetwork-client/commit/8ab380bd0921c45e455e6cbb44114fac6dbd8a40))
+
 ## [1.13.14](https://github.com/devrandom0/urnetwork-client/compare/v1.13.13...v1.13.14) (2026-08-14)
 
 ## [1.13.13](https://github.com/devrandom0/urnetwork-client/compare/v1.13.12...v1.13.13) (2026-08-10)
