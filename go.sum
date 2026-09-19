@@ -1,5 +1,9 @@
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/decred/dcrd/crypto/blake256 v1.1.0 h1:zPMNGQCm0g4QTY27fOCorQW7EryeQ/U0x++OzVrdms8=
+github.com/decred/dcrd/crypto/blake256 v1.1.0/go.mod h1:2OfgNZ5wDpcsFmHmCK5gZTPcCXqlm2ArzUIkw9czNJo=
+github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 h1:5RVFMOWjMyRy8cARdy79nAmgYw3hK/4HUq48LQ6Wwqo=
+github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1/go.mod h1:ZXNYxsqcloTdSy/rNShjYzMhyjf0LaoftYK0p+A3h40=
 github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815 h1:bWDMxwH3px2JBh6AyO7hdCn/PkvCZXii8TGj7sbtEbQ=
 github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815/go.mod h1:WwZ+bS3ebgob9U8Nd0kOddGdZWjyMGR8Wziv+TBNwSE=
 github.com/golang-jwt/jwt/v5 v5.3.1 h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63YCY=
@@ -66,8 +70,8 @@ github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8 h1:TG/diQgUe0pntT/2D
 github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8/go.mod h1:P5HUIBuIWKbyjl083/loAegFkfbFNx5i2qEP4CNbm7E=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-github.com/urnetwork/connect v0.0.0-20260915115125-d159f4656270 h1:UWorRIV+m0O94ilccAeW5E2CEA6Dt5/sCadIuRpmX7c=
-github.com/urnetwork/connect v0.0.0-20260915115125-d159f4656270/go.mod h1:nkEcDncwe8/xWub31yclX/8wCB/d6F286z+yqeQ9++I=
+github.com/urnetwork/connect v0.0.0-20260919160341-dec3a6f993c9 h1:QNKI6WqmtOaG+A0L94TwQrxPOwrjxb3VVS/Jv93JDU0=
+github.com/urnetwork/connect v0.0.0-20260919160341-dec3a6f993c9/go.mod h1:t5SmxHs5n7XGZco9KAcKCWbCszg5AYdtFxJo6EfAfpA=
 github.com/urnetwork/glog v1.2.9 h1:T1GwVZ91FyZvfGPCIAG3KkeVNJViS/oJhi1aCCxPPY8=
 github.com/urnetwork/glog v1.2.9/go.mod h1:MijG6ltedvutOUlWzst3mYwyRnrct9dqoThPOoN0qp0=
 github.com/wlynxg/anet v0.0.5 h1:J3VJGi1gvo0JwZ/P1/Yc/8p63SoW98B5dHkYDmpgvvU=
