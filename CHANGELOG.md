@@ -1,3 +1,52 @@
+## [2.0.0](https://github.com/devrandom0/urnetwork-client/compare/v1.13.26...v2.0.0) (2026-09-28)
+
+### ⚠ BREAKING CHANGES
+
+* SOCKS requests are refused when the proxy cannot bind
+to the VPN interface, instead of silently leaving through the physical
+interface. With --tun, SOCKS hostname lookups also go through the tunnel,
+so a LAN or Docker resolver needs --dns=<public resolver>.
+--api_url and --connect_url (flags or config file) must use https/wss;
+http/ws is only accepted for localhost. Kill switch and split default
+route failures now abort VPN startup instead of warning.
+
+### Features
+
+* add --socks_user/--socks_pass flags with env fallback ([2f02d5f](https://github.com/devrandom0/urnetwork-client/commit/2f02d5ff5c806ae587b01eeff63f32f6a424873d))
+* add SOCKS5 username/password auth and method negotiation ([204e1d8](https://github.com/devrandom0/urnetwork-client/commit/204e1d84159f60b986a10a1412e04d0f8ee49ad7))
+* fail closed on SOCKS bind and reject cleartext endpoints ([5e165fd](https://github.com/devrandom0/urnetwork-client/commit/5e165fd804fd1ffd8dce53f4698e57f5d87084b5))
+
+### Bug Fixes
+
+* abort startup when kill switch or split routes fail ([c2a0ca2](https://github.com/devrandom0/urnetwork-client/commit/c2a0ca2ffc72f82a47489d4e0b1154de4f52d54f))
+* abort VPN startup when TUN configuration fails ([d1f40f2](https://github.com/devrandom0/urnetwork-client/commit/d1f40f2536939524c8dc6f84f02e0ae5c37afe07))
+* allow setting Version with -ldflags and in Docker builds ([59da544](https://github.com/devrandom0/urnetwork-client/commit/59da5445ad15477ad615f3fcb111beca5e65694b))
+* apply config file log_level and accept socks_listen key ([75185a7](https://github.com/devrandom0/urnetwork-client/commit/75185a75f6fc2cee574ab1ceed3976226e2a1e69))
+* bound API HTTP time and body size during startup lookups ([9725f09](https://github.com/devrandom0/urnetwork-client/commit/9725f09a50a985f794668a28ea02c3912448d5aa))
+* cap SOCKS connections, idle UDP and failed auth ([3531306](https://github.com/devrandom0/urnetwork-client/commit/35313062c1ebed87ae89f3188a44c2894e6c3c88))
+* fail VPN startup on half-configured SOCKS auth ([8b0f29f](https://github.com/devrandom0/urnetwork-client/commit/8b0f29f76c41b94876c77d194ec2f7147f51ea98))
+* fail vpn with a clear error when no JWT is available ([73a0edb](https://github.com/devrandom0/urnetwork-client/commit/73a0edb0ad764005a464cc567886bc20e10a8d08))
+* fail vpn without TUN or SOCKS and add SocksOptions ([3ef9536](https://github.com/devrandom0/urnetwork-client/commit/3ef95366a298778df5c74e8921c7dcc76d6d9bd6))
+* harden --background handoff of args, config and secrets ([3ebb454](https://github.com/devrandom0/urnetwork-client/commit/3ebb4540ef6c8491a04bd37ec53ab4420fdb6082))
+* honor --config in quick-connect and bound login retry wait ([4da6951](https://github.com/devrandom0/urnetwork-client/commit/4da69514a5960fe6b4c2132b91de18c378c997d0))
+* honor explicit --jwt in quick-connect and start VPN with it ([a42488c](https://github.com/devrandom0/urnetwork-client/commit/a42488cab7f092c2e3970f628b4a11f9324dcd00))
+* keep SOCKS accept loop alive on transient errors ([bbd9417](https://github.com/devrandom0/urnetwork-client/commit/bbd9417e009a8bf10c1d63d385a50c4656a26e2b))
+* keep SOCKS UDP associations alive and close them with control ([958694e](https://github.com/devrandom0/urnetwork-client/commit/958694e285c8b0245c8abc2e5ea740b1c849edd0))
+* only clean up Linux routes this session added ([5a47ad7](https://github.com/devrandom0/urnetwork-client/commit/5a47ad78b80fec18a2938b87ea060c2170549fa5))
+* parse SOCKS request address for all commands and encode BND ([929700d](https://github.com/devrandom0/urnetwork-client/commit/929700d5b46a07da715460bb46aa406c3fd2ddda))
+* pass secret flags to the background child via environment ([f2c83ff](https://github.com/devrandom0/urnetwork-client/commit/f2c83ff865bc35ae30904130890001d8a20d7d51))
+* pin SOCKS UDP client and accept replies only from peers ([45f089e](https://github.com/devrandom0/urnetwork-client/commit/45f089efca6e22ea477cbccf5e4d18cf1d0260b0))
+* preserve docopt flag pairing when scrubbing secrets ([0702710](https://github.com/devrandom0/urnetwork-client/commit/07027109b1306c607c2fd11fc2363e417b864418))
+* refuse API redirects to cleartext non-loopback URLs ([c9460b3](https://github.com/devrandom0/urnetwork-client/commit/c9460b35eaccad9d555365ca028b6d79c3a80767))
+* refuse SOCKS requests when the VPN interface cannot be bound ([228ea81](https://github.com/devrandom0/urnetwork-client/commit/228ea81c545277a76d4d7e068f9b11a419bd64d7))
+* reject cleartext API and connect URLs except on localhost ([5f8a95d](https://github.com/devrandom0/urnetwork-client/commit/5f8a95d77ac0cf57f06cbdc2359307d5769e6e15))
+* reject cleartext endpoint URLs from the config file ([b85a364](https://github.com/devrandom0/urnetwork-client/commit/b85a3642bfb77327952f276baf9b23cab7c1aee8))
+* resolve SOCKS hostnames through the tunnel, fail closed ([984b6a2](https://github.com/devrandom0/urnetwork-client/commit/984b6a2f6d54e2e17f48ef46f236f276064fc350))
+* restore logError used by macOS kill switch restore ([17e0ad0](https://github.com/devrandom0/urnetwork-client/commit/17e0ad0ee64490e10aeb2ae4cabf3d37abfa4392))
+* restore macOS default route when kill switch setup fails ([228875f](https://github.com/devrandom0/urnetwork-client/commit/228875ff4725e964dda41d0fc4dbb63afbb53a4f))
+* serialize macOS DNS bypass removal with route cleanup ([0ac7372](https://github.com/devrandom0/urnetwork-client/commit/0ac7372ff992c78367ebc02d14aa8482ca8c8e8b))
+* warn on open SOCKS binds and publish compose on loopback ([4e1bdac](https://github.com/devrandom0/urnetwork-client/commit/4e1bdac99b53e3b139fd566e2ff0ff7ee9845fb5))
+
 ## [1.13.26](https://github.com/devrandom0/urnetwork-client/compare/v1.13.25...v1.13.26) (2026-09-28)
 
 ## [1.13.25](https://github.com/devrandom0/urnetwork-client/compare/v1.13.24...v1.13.25) (2026-09-28)
