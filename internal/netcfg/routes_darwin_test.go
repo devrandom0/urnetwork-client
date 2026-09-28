@@ -1,6 +1,6 @@
 //go:build darwin
 
-package main
+package netcfg
 
 import (
 	"strings"
@@ -11,7 +11,7 @@ import (
 func TestDarwinKillSwitch_RestoresDefaultWhenBlackholeFails(t *testing.T) {
 	f := useFakeRunner(t)
 	f.failOn("route -n add -blackhole default", "route: writing to routing socket: Invalid argument")
-	m := newDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
+	m := NewDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
 
 	_ = m.AddKillSwitchRoute()
 
@@ -25,7 +25,7 @@ func TestDarwinKillSwitch_RestoresDefaultWhenBlackholeFails(t *testing.T) {
 
 func TestDarwinKillSwitch_NoRestoreWhenBlackholeInstalled(t *testing.T) {
 	f := useFakeRunner(t)
-	m := newDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
+	m := NewDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
 
 	_ = m.AddKillSwitchRoute()
 
@@ -39,7 +39,7 @@ func TestDarwinKillSwitch_NoRestoreWhenBlackholeInstalled(t *testing.T) {
 
 func TestDarwinDNSBypass_RemoveAndCleanupDoNotRace(t *testing.T) {
 	f := useFakeRunner(t)
-	m := newDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
+	m := NewDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
 	m.AddDNSServerRoutes([]string{"1.1.1.1", "8.8.8.8"}, true)
 
 	var wg sync.WaitGroup
@@ -58,7 +58,7 @@ func TestDarwinDNSBypass_RemoveAndCleanupDoNotRace(t *testing.T) {
 func TestDarwinKillSwitch_BlackholeFailureReturnsError(t *testing.T) {
 	f := useFakeRunner(t)
 	f.failOn("route -n add -blackhole default", "route: writing to routing socket: Invalid argument")
-	m := newDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
+	m := NewDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
 
 	if err := m.AddKillSwitchRoute(); err == nil {
 		t.Fatal("AddKillSwitchRoute = nil; want an error so startup aborts without leak protection")
@@ -69,7 +69,7 @@ func TestDarwinKillSwitch_RestoreFailureNamesManualCommand(t *testing.T) {
 	f := useFakeRunner(t)
 	f.failOn("route -n add -blackhole default", "route: writing to routing socket: Invalid argument")
 	f.failOn("route -n add default 192.168.1.1", "route: writing to routing socket: Network is unreachable")
-	m := newDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
+	m := NewDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
 
 	err := m.AddKillSwitchRoute()
 	if err == nil || !strings.Contains(err.Error(), "sudo route add default 192.168.1.1") {
@@ -87,7 +87,7 @@ func TestDarwinSplitDefault_ErrorsWhenAHalfFails(t *testing.T) {
 	} {
 		f.failOn(line, "route: writing to routing socket: Invalid argument")
 	}
-	m := newDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
+	m := NewDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
 
 	if err := m.AddSplitDefault(); err == nil {
 		t.Fatal("AddSplitDefault = nil with 128.0.0.0/1 failing; want an error")

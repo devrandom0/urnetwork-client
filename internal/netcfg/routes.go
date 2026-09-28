@@ -1,4 +1,4 @@
-package main
+package netcfg
 
 // RouteManager handles OS-level route mutations for a VPN session.
 // All Add* and SetDNS methods record what they changed; Cleanup undoes all of it.

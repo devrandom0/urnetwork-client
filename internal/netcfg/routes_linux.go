@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package netcfg
 
 import (
 	"fmt"
@@ -10,9 +10,9 @@ import (
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
-// linuxRouteManager implements RouteManager for Linux using `ip route` commands.
+// LinuxRouteManager implements RouteManager for Linux using `ip route` commands.
 // All additions are tracked so Cleanup can remove them precisely.
-type linuxRouteManager struct {
+type LinuxRouteManager struct {
 	tunName string
 	origGw  string // original default gateway IP
 	origDev string // original default gateway device
@@ -27,10 +27,10 @@ type linuxRouteManager struct {
 	killSwitchAdded bool // whether the blackhole default was successfully installed
 }
 
-// newLinuxRouteManager creates a route manager for the named TUN interface.
+// NewLinuxRouteManager creates a route manager for the named TUN interface.
 // origGw and origDev are the pre-VPN default gateway IP and device (may be empty).
-func newLinuxRouteManager(tunName, origGw, origDev string) *linuxRouteManager {
-	return &linuxRouteManager{
+func NewLinuxRouteManager(tunName, origGw, origDev string) *LinuxRouteManager {
+	return &LinuxRouteManager{
 		tunName: tunName,
 		origGw:  origGw,
 		origDev: origDev,
@@ -39,7 +39,7 @@ func newLinuxRouteManager(tunName, origGw, origDev string) *linuxRouteManager {
 
 // addRoute reports whether this session now owns the route. Any failure, including
 // "File exists", means the route is not ours and must stay out of Cleanup.
-func (m *linuxRouteManager) addRoute(args ...string) bool {
+func (m *LinuxRouteManager) addRoute(args ...string) bool {
 	if err := run("ip", append([]string{"route", "add"}, args...)...); err != nil {
 		logx.Warn("ip route add %s failed: %v\n", strings.Join(args, " "), err)
 		return false
@@ -47,7 +47,7 @@ func (m *linuxRouteManager) addRoute(args ...string) bool {
 	return true
 }
 
-func (m *linuxRouteManager) AddBypassEndpoint(rawURL string) {
+func (m *LinuxRouteManager) AddBypassEndpoint(rawURL string) {
 	host := extractHost(rawURL)
 	if host == "" || m.origDev == "" {
 		return
@@ -71,7 +71,7 @@ func (m *linuxRouteManager) AddBypassEndpoint(rawURL string) {
 	}
 }
 
-func (m *linuxRouteManager) AddSplitDefault() error {
+func (m *LinuxRouteManager) AddSplitDefault() error {
 	var failed []string
 	for _, dst := range []string{"0.0.0.0/1", "128.0.0.0/1"} {
 		if m.addRoute(dst, "dev", m.tunName) {
@@ -96,7 +96,7 @@ func (m *linuxRouteManager) AddSplitDefault() error {
 // default gateway. Call this before AddSplitDefault so the /1 routes take priority.
 // The route is left in place on Cleanup when kill-switch mode is active.
 // On failure the original default is restored and an error is returned so startup aborts.
-func (m *linuxRouteManager) AddKillSwitchRoute() error {
+func (m *LinuxRouteManager) AddKillSwitchRoute() error {
 	m.killSwitch = true
 	var restore []string
 	switch {
@@ -128,7 +128,7 @@ func (m *linuxRouteManager) AddKillSwitchRoute() error {
 	return fmt.Errorf("kill switch: install blackhole default route: %w; original default route restored", err)
 }
 
-func (m *linuxRouteManager) AddExclude(dest string) {
+func (m *LinuxRouteManager) AddExclude(dest string) {
 	dest = strings.TrimSpace(dest)
 	if dest == "" {
 		return
@@ -147,7 +147,7 @@ func (m *linuxRouteManager) AddExclude(dest string) {
 	}
 }
 
-func (m *linuxRouteManager) AddExtraRoute(dest string) {
+func (m *LinuxRouteManager) AddExtraRoute(dest string) {
 	dest = strings.TrimSpace(dest)
 	if dest == "" {
 		return
@@ -157,7 +157,7 @@ func (m *linuxRouteManager) AddExtraRoute(dest string) {
 	}
 }
 
-func (m *linuxRouteManager) AddDNSServerRoutes(ips []string, bypass bool) {
+func (m *LinuxRouteManager) AddDNSServerRoutes(ips []string, bypass bool) {
 	for _, ip := range ips {
 		ip = strings.TrimSpace(ip)
 		if ip == "" {
@@ -185,10 +185,10 @@ func (m *linuxRouteManager) AddDNSServerRoutes(ips []string, bypass bool) {
 }
 
 // SetDNS is a no-op on Linux. DNS management on Linux is left to the caller.
-func (m *linuxRouteManager) SetDNS(_ []string, _ string) error { return nil }
+func (m *LinuxRouteManager) SetDNS(_ []string, _ string) error { return nil }
 
 // Cleanup removes all routes added during this session and brings the TUN interface down.
-func (m *linuxRouteManager) Cleanup() {
+func (m *LinuxRouteManager) Cleanup() {
 	for _, dst := range m.addedSplits {
 		_ = run("ip", "route", "del", dst)
 	}

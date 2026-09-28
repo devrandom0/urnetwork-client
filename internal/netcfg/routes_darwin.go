@@ -1,6 +1,6 @@
 //go:build darwin
 
-package main
+package netcfg
 
 import (
 	"fmt"
@@ -25,9 +25,9 @@ type darwinSplitRoute struct {
 	usedCIDR bool   // true = added with CIDR form; false = -net/-netmask form
 }
 
-// darwinRouteManager implements RouteManager for macOS using `route` and `networksetup`.
+// DarwinRouteManager implements RouteManager for macOS using `route` and `networksetup`.
 // All route additions are recorded so Cleanup can reverse them precisely.
-type darwinRouteManager struct {
+type DarwinRouteManager struct {
 	tunName string // TUN interface name (e.g. utun3)
 	peerIP  string // peer/gateway IP for the utun (derived from --ip_cidr)
 	defGw   string // original default gateway before VPN changes
@@ -48,11 +48,11 @@ type darwinRouteManager struct {
 	dnsService    string // network service name passed to networksetup
 }
 
-// newDarwinRouteManager creates a route manager for the given TUN interface.
+// NewDarwinRouteManager creates a route manager for the given TUN interface.
 // peerIP is the peer/gateway address for the utun (derived from --ip_cidr).
 // defGw is the pre-VPN default gateway (empty string is tolerated).
-func newDarwinRouteManager(tunName, peerIP, defGw string) *darwinRouteManager {
-	return &darwinRouteManager{
+func NewDarwinRouteManager(tunName, peerIP, defGw string) *DarwinRouteManager {
+	return &DarwinRouteManager{
 		tunName: tunName,
 		peerIP:  peerIP,
 		defGw:   defGw,
@@ -61,7 +61,7 @@ func newDarwinRouteManager(tunName, peerIP, defGw string) *darwinRouteManager {
 
 // AddBypassEndpoint resolves the hostname in rawURL and installs bypass host routes
 // for each resolved IPv4 address via the original default gateway.
-func (m *darwinRouteManager) AddBypassEndpoint(rawURL string) {
+func (m *DarwinRouteManager) AddBypassEndpoint(rawURL string) {
 	if m.defGw == "" {
 		return
 	}
@@ -86,7 +86,7 @@ func (m *darwinRouteManager) AddBypassEndpoint(rawURL string) {
 
 // AddSplitDefault installs 0.0.0.0/1 and 128.0.0.0/1 through the TUN.
 // Multiple route command variants are tried to handle different macOS versions.
-func (m *darwinRouteManager) AddSplitDefault() error {
+func (m *DarwinRouteManager) AddSplitDefault() error {
 	var failed []string
 	for _, dest := range []string{"0.0.0.0", "128.0.0.0"} {
 		if !m.addVariant(dest, "128.0.0.0") {
@@ -101,13 +101,13 @@ func (m *darwinRouteManager) AddSplitDefault() error {
 
 // AddScopedDefault installs split-default routes scoped to the TUN (SOCKS-only mode).
 // Only SOCKS-bound sockets will use the TUN; system traffic keeps its normal path.
-func (m *darwinRouteManager) AddScopedDefault() {
+func (m *DarwinRouteManager) AddScopedDefault() {
 	m.addScoped("0.0.0.0", "128.0.0.0")
 	m.addScoped("128.0.0.0", "128.0.0.0")
 }
 
 // AddScopedExclude installs a scoped reject route for dest (SOCKS-only mode).
-func (m *darwinRouteManager) AddScopedExclude(dest string) {
+func (m *DarwinRouteManager) AddScopedExclude(dest string) {
 	dest = strings.TrimSpace(dest)
 	if dest == "" {
 		return
@@ -126,7 +126,7 @@ func (m *darwinRouteManager) AddScopedExclude(dest string) {
 
 // AddExclude installs a route for dest that bypasses the TUN.
 // Prefers routing via the original default gateway; falls back to a reject route.
-func (m *darwinRouteManager) AddExclude(dest string) {
+func (m *DarwinRouteManager) AddExclude(dest string) {
 	dest = strings.TrimSpace(dest)
 	if dest == "" {
 		return
@@ -165,7 +165,7 @@ func (m *darwinRouteManager) AddExclude(dest string) {
 }
 
 // AddExtraRoute installs an explicit route for dest through the TUN.
-func (m *darwinRouteManager) AddExtraRoute(dest string) {
+func (m *DarwinRouteManager) AddExtraRoute(dest string) {
 	dest = strings.TrimSpace(dest)
 	if dest == "" {
 		return
@@ -194,7 +194,7 @@ func (m *darwinRouteManager) AddExtraRoute(dest string) {
 
 // AddDNSServerRoutes installs routes for the given DNS server IPs.
 // bypass=true routes them via the original gateway; bypass=false routes through the TUN.
-func (m *darwinRouteManager) AddDNSServerRoutes(ips []string, bypass bool) {
+func (m *DarwinRouteManager) AddDNSServerRoutes(ips []string, bypass bool) {
 	for _, ip := range ips {
 		ip = strings.TrimSpace(ip)
 		if ip == "" || strings.Contains(ip, "/") {
@@ -220,7 +220,7 @@ func (m *darwinRouteManager) AddDNSServerRoutes(ips []string, bypass bool) {
 }
 
 // SetDNS configures system-wide DNS resolvers via networksetup.
-func (m *darwinRouteManager) SetDNS(servers []string, service string) error {
+func (m *DarwinRouteManager) SetDNS(servers []string, service string) error {
 	if service == "" || len(servers) == 0 {
 		return nil
 	}
@@ -237,7 +237,7 @@ func (m *darwinRouteManager) SetDNS(servers []string, service string) error {
 // RemoveDNSBypass removes all DNS server bypass routes immediately.
 // Called from the dns_bootstrap=cache goroutine and from Cleanup; the mutex makes
 // the two safe to run concurrently and ensures each route is deleted exactly once.
-func (m *darwinRouteManager) RemoveDNSBypass() {
+func (m *DarwinRouteManager) RemoveDNSBypass() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, ip := range m.addedDNSBypass {
@@ -250,7 +250,7 @@ func (m *darwinRouteManager) RemoveDNSBypass() {
 // routes are removed, all traffic is blocked rather than leaking via the real
 // default gateway. Call this before AddSplitDefault so the /1 routes take priority.
 // The route is left in place on Cleanup when kill-switch mode is active.
-func (m *darwinRouteManager) AddKillSwitchRoute() error {
+func (m *DarwinRouteManager) AddKillSwitchRoute() error {
 	m.killSwitch = true
 	// Replace the existing default with a blackhole so traffic is blocked
 	// when the VPN split routes are absent. The /1 split routes are more
@@ -277,7 +277,7 @@ func (m *darwinRouteManager) AddKillSwitchRoute() error {
 
 // Cleanup removes all routes and DNS configuration applied by this manager
 // and brings the TUN interface down.
-func (m *darwinRouteManager) Cleanup() {
+func (m *DarwinRouteManager) Cleanup() {
 	// Split-default routes
 	if len(m.addedSplits) > 0 {
 		for _, s := range m.addedSplits {
@@ -350,7 +350,7 @@ func (m *darwinRouteManager) Cleanup() {
 
 // addVariant tries multiple route command variants to install a split-default entry.
 // The first variant that succeeds is recorded in addedSplits for cleanup.
-func (m *darwinRouteManager) addVariant(dest, mask string) bool {
+func (m *DarwinRouteManager) addVariant(dest, mask string) bool {
 	cidr := dest + "/1"
 
 	// Variant 1: -net/-netmask via -interface
@@ -407,7 +407,7 @@ func (m *darwinRouteManager) addVariant(dest, mask string) bool {
 }
 
 // addScoped installs a split-default route scoped to the TUN interface (SOCKS-only mode).
-func (m *darwinRouteManager) addScoped(dest, mask string) {
+func (m *DarwinRouteManager) addScoped(dest, mask string) {
 	if m.peerIP != "" {
 		out, err := runCapture("route", "-n", "add", "-net", dest, "-netmask", mask, m.peerIP, "-ifscope", m.tunName)
 		if err == nil || strings.Contains(out, "File exists") {
