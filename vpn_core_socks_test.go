@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -79,4 +81,25 @@ func TestWarnIfSocksDNSUnset_SilentWhenNotBoundToVPNInterface(t *testing.T) {
 	if logged != "" {
 		t.Fatalf("stderr = %q; want no warning when not bound to a VPN interface", logged)
 	}
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	out := make(chan string)
+	go func() {
+		b, _ := io.ReadAll(r)
+		out <- string(b)
+	}()
+	fn()
+	os.Stderr = orig
+	_ = w.Close()
+	s := <-out
+	_ = r.Close()
+	return s
 }

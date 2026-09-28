@@ -8,6 +8,7 @@ import (
 	"github.com/docopt/docopt-go"
 
 	"github.com/devrandom0/urnetwork-client/internal/logx"
+	"github.com/devrandom0/urnetwork-client/internal/socks"
 )
 
 // vpnTestOpts mimics what docopt returns for vpn/quick-connect, including its defaults.
@@ -172,5 +173,20 @@ func TestResolveVPNConfig_IgnoresSocksAuthWithoutSocks(t *testing.T) {
 	t.Setenv("URNETWORK_SOCKS_PASS", "")
 	if _, err := resolveVPNConfig(vpnTestOpts(map[string]interface{}{"--tun": "urnet0"})); err != nil {
 		t.Fatalf("resolveVPNConfig = %v; SOCKS auth only matters when --socks is set", err)
+	}
+}
+
+func TestParseConfigs_SocksAuthFromFlagsAndEnv(t *testing.T) {
+	t.Setenv("URNETWORK_SOCKS_USER", "")
+	t.Setenv("URNETWORK_SOCKS_PASS", "from-env")
+	opts := docopt.Opts{"--socks_user": "alice"}
+	if got := parseVPNConfig(opts, "").SOCKSAuth; got != (socks.SocksAuth{User: "alice", Pass: "from-env"}) {
+		t.Fatalf("vpn SOCKSAuth = %+v", got)
+	}
+	if got := parseSOCKSConfig(opts).Auth; got != (socks.SocksAuth{User: "alice", Pass: "from-env"}) {
+		t.Fatalf("socks Auth = %+v", got)
+	}
+	if got := socksOptionsFromVPN(VPNConfig{SOCKSAuth: socks.SocksAuth{User: "a", Pass: "b"}}, "").Auth; got.User != "a" {
+		t.Fatalf("socksOptionsFromVPN dropped auth: %+v", got)
 	}
 }

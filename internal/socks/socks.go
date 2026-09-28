@@ -1,4 +1,5 @@
-package main
+// Package socks implements a SOCKS5 proxy server with optional user/pass auth.
+package socks
 
 import (
 	"bytes"
@@ -63,7 +64,7 @@ type SocksOptions struct {
 
 // StartSocks5 starts a SOCKS5 proxy and returns a stop function.
 func StartSocks5(ctx context.Context, opts SocksOptions) (func() error, error) {
-	if err := opts.Auth.validate(); err != nil {
+	if err := opts.Auth.Validate(); err != nil {
 		return nil, err
 	}
 	if opts.HandshakeTimeout <= 0 {

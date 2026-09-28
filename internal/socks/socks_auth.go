@@ -1,4 +1,4 @@
-package main
+package socks
 
 import (
 	"crypto/sha256"
@@ -18,7 +18,7 @@ type SocksAuth struct {
 
 func (a SocksAuth) Enabled() bool { return a.User != "" || a.Pass != "" }
 
-func (a SocksAuth) validate() error {
+func (a SocksAuth) Validate() error {
 	if !a.Enabled() {
 		return nil
 	}
@@ -95,9 +95,9 @@ const (
 	envSocksPass = "URNETWORK_SOCKS_PASS"
 )
 
-// resolveSocksAuth prefers flags and falls back to the environment so the password can
+// ResolveSocksAuth prefers flags and falls back to the environment so the password can
 // stay off the command line, where every local user can read it.
-func resolveSocksAuth(flagUser, flagPass string, getenv func(string) string) SocksAuth {
+func ResolveSocksAuth(flagUser, flagPass string, getenv func(string) string) SocksAuth {
 	a := SocksAuth{User: strings.TrimSpace(flagUser), Pass: flagPass}
 	if a.User == "" {
 		a.User = strings.TrimSpace(getenv(envSocksUser))
