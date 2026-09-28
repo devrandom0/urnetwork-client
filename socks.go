@@ -35,19 +35,44 @@ func StartSocks5(ctx context.Context, opts SocksOptions) (func() error, error) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				if ne, ok := err.(net.Error); ok && ne.Timeout() {
-					continue
-				}
-				return
-			}
+		acceptLoop(ctx, ln, time.Second, func(conn net.Conn) {
 			go handleSocksConn(ctx, conn, opts.BindIf, opts.Debug, opts.AllowDomains, opts.ExcludeDomains, resolver)
-		}
+		})
 	}()
 	stop := func() error { _ = ln.Close(); <-done; return nil }
 	return stop, nil
+}
+
+// acceptLoop keeps serving through transient Accept errors such as EMFILE and only
+// stops when the listener is closed or ctx ends.
+func acceptLoop(ctx context.Context, ln net.Listener, maxBackoff time.Duration, handle func(net.Conn)) {
+	const minBackoff = 5 * time.Millisecond
+	var backoff time.Duration
+	for {
+		conn, err := ln.Accept()
+		if err == nil {
+			backoff = 0
+			handle(conn)
+			continue
+		}
+		if errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
+			return
+		}
+		switch {
+		case backoff == 0:
+			backoff = minBackoff
+		case backoff < maxBackoff:
+			backoff = min(backoff*2, maxBackoff)
+		}
+		logWarn("socks accept failed: %v; retrying in %s\n", err, backoff)
+		timer := time.NewTimer(backoff)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		}
+	}
 }
 
 func newSocksResolver(dnsServers []string) *net.Resolver {
