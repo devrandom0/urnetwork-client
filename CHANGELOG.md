@@ -1,3 +1,22 @@
+## [3.0.0](https://github.com/devrandom0/urnetwork-client/compare/v2.0.0...v3.0.0) (2026-09-28)
+
+### ⚠ BREAKING CHANGES
+
+* file writes now refuse group- or world-writable directories, untrusted symlinks in the target directory path, and oversized JWT/config files; privileged system tools must be owned by root and not group/world-writable, or the command fails instead of falling back to PATH. See docs/configuration.md and docs/platform-notes.md.
+
+### Features
+
+* split into internal packages and harden root file and tool use ([ed28b6f](https://github.com/devrandom0/urnetwork-client/commit/ed28b6fbf7e57b99fc7ec07943b44120aa968b9a))
+
+### Bug Fixes
+
+* accept only root-owned, non-writable privileged tools ([c7704c0](https://github.com/devrandom0/urnetwork-client/commit/c7704c0e18931e0285177f92c7c9836da80ab194))
+* add safefile helpers that refuse symlinked targets ([fd706d7](https://github.com/devrandom0/urnetwork-client/commit/fd706d7573c4c75fbccb835604b314a66fd1ee49))
+* pin safefile dirs with os.Root and check parent dirs ([782de2b](https://github.com/devrandom0/urnetwork-client/commit/782de2b161a231b8b9c1f0e0c9c6661ad8f7eafa))
+* relax safefile rules that only matter as root ([9a1e908](https://github.com/devrandom0/urnetwork-client/commit/9a1e908eb303af4ea0a89e434d55176e5876e940))
+* run privileged tools from fixed system paths ([c2ea5a1](https://github.com/devrandom0/urnetwork-client/commit/c2ea5a1145b2babbf807f4a7ac55bdc666a3dfad))
+* write jwt and log file without following symlinks ([b5a660b](https://github.com/devrandom0/urnetwork-client/commit/b5a660bae53ab81aec04b50487f52f5111a5ed7a))
+
 ## [2.0.0](https://github.com/devrandom0/urnetwork-client/compare/v1.13.26...v2.0.0) (2026-09-28)
 
 ### ⚠ BREAKING CHANGES
