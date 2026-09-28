@@ -14,7 +14,7 @@ import (
 const DefaultAPIURL = "https://api.bringyour.com"
 const DefaultConnectURL = "wss://connect.bringyour.com"
 
-const Version = "0.1.0"
+var Version = "dev"
 
 func main() {
 	usage := fmt.Sprintf(`urnet-client (experimental)
