@@ -1,4 +1,5 @@
-package main
+// Package netcfg manages OS-level routes, TUN interfaces and gateway/DNS discovery for the VPN.
+package netcfg
 
 import (
 	"os"
@@ -27,3 +28,8 @@ func (execRunner) Capture(name string, args ...string) (string, error) {
 }
 
 var cmdRunner commandRunner = execRunner{}
+
+// runCapture executes a command and returns its combined stdout+stderr output and any error.
+func runCapture(name string, args ...string) (string, error) {
+	return cmdRunner.Capture(name, args...)
+}

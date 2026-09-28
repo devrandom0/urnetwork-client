@@ -5,14 +5,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/songgao/water"
 
 	"github.com/devrandom0/urnetwork-client/internal/logx"
+	"github.com/devrandom0/urnetwork-client/internal/netcfg"
 )
 
 // cmdVpn (macOS): create a utun device and bridge packets with RemoteUserNatMultiClient.
@@ -59,7 +58,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	}
 	logx.Info("TUN %s created\n", actualName)
 
-	peerIP, err := configureDarwinTUN(actualName, cfg.IPCIDR, cfg.MTU, cfg.EnableIPv6)
+	peerIP, err := netcfg.ConfigureDarwinTUN(actualName, cfg.IPCIDR, cfg.MTU, cfg.EnableIPv6)
 	if err != nil {
 		return err
 	}
@@ -72,13 +71,13 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	var pktsIn, bytesIn, pktsOut, bytesOut uint64
 
 	// Detect original default gateway before altering routes.
-	defGw, _, gwErr := getDefaultGateway()
+	defGw, _, gwErr := netcfg.DefaultGateway()
 	if gwErr != nil && (cfg.DefaultRoute || strings.TrimSpace(cfg.ExcludeRoutes) != "") {
 		logx.Warn("failed to detect default gateway: %v\n", gwErr)
 	}
 
 	// Set up route manager; Cleanup runs on exit via defer.
-	rm := newDarwinRouteManager(actualName, peerIP, defGw)
+	rm := netcfg.NewDarwinRouteManager(actualName, peerIP, defGw)
 	defer rm.Cleanup()
 
 	// Install routes based on mode.
@@ -121,7 +120,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 		rm.AddDNSServerRoutes(splitCSV(cfg.DNSList), bypass)
 	} else if cfg.DefaultRoute && defGw != "" && (cfg.DNSBootstrap == "bypass" || cfg.DNSBootstrap == "cache") {
 		// No --dns: bypass current system resolvers so DNS works during default-route switch.
-		if resolvers, err := getSystemDNSResolvers(); err == nil {
+		if resolvers, err := netcfg.SystemDNSResolvers(); err == nil {
 			rm.AddDNSServerRoutes(resolvers, true)
 			if len(resolvers) > 0 {
 				logx.Info("Kept existing DNS resolvers via %s: %v\n", defGw, resolvers)
@@ -136,93 +135,10 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 
 	// DNS cache bootstrap: remove DNS bypass once the tunnel has traffic.
 	if cfg.DefaultRoute && cfg.DNSBootstrap == "cache" {
-		go removeDNSBypassWhenWarm(ctx, rm, &pktsIn, &pktsOut, 3*time.Second, 200*time.Millisecond)
+		go netcfg.RemoveDNSBypassWhenWarm(ctx, rm, &pktsIn, &pktsOut, 3*time.Second, 200*time.Millisecond)
 	}
 
 	// Run shared dataplane + SOCKS + stats.
 	vpnRunCore(ctx, dev, actualName, cfg, &pktsIn, &pktsOut, &bytesIn, &bytesOut, func() {})
 	return nil
-}
-
-// tunCIDRParts extracts the host IP and derives a peer/gateway IP from an ip/prefix CIDR.
-// For "10.255.0.2/24" it returns ("10.255.0.2", "10.255.0.1").
-func tunCIDRParts(ipCIDR string) (ip, peer string) {
-	ip = ipCIDR
-	peer = "10.255.0.1"
-	if idx := strings.Index(ipCIDR, "/"); idx >= 0 {
-		ip = ipCIDR[:idx]
-	}
-	if i := strings.LastIndex(ip, "."); i > 0 {
-		peer = ip[:i] + ".1"
-	}
-	return
-}
-
-func runSudo(name string, args ...string) error {
-	return cmdRunner.Run(name, args...)
-}
-
-// configureDarwinTUN must succeed before any route points at the utun; a half-configured
-// device would blackhole all routed traffic.
-func configureDarwinTUN(name, ipCIDR string, mtu int, enableIPv6 bool) (string, error) {
-	tunIP, peerIP := tunCIDRParts(ipCIDR)
-	if err := runSudo("ifconfig", name, "inet", tunIP, peerIP, "mtu", strconv.Itoa(mtu), "up"); err != nil {
-		return "", fmt.Errorf("configure TUN %s: %w", name, err)
-	}
-	if err := runSudo("ifconfig", name, "inet6", "fd00::2/120"); err != nil {
-		if enableIPv6 {
-			return "", fmt.Errorf("configure TUN %s IPv6 address: %w", name, err)
-		}
-		logx.Debug("IPv6 address on %s not set (%v); continuing because --enable_ipv6 is off\n", name, err)
-	}
-	return peerIP, nil
-}
-
-// getDefaultGateway returns the IPv4 default gateway and interface (e.g., 192.168.1.1, en0) on macOS.
-func getDefaultGateway() (string, string, error) {
-	cmd := exec.Command("route", "-n", "get", "default")
-	// Don't attach Stdout/Stderr to avoid noisy output; capture instead
-	out, err := cmd.Output()
-	if err != nil {
-		return "", "", fmt.Errorf("route get default failed: %w", err)
-	}
-	var gw, iface string
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "gateway:") {
-			gw = strings.TrimSpace(strings.TrimPrefix(line, "gateway:"))
-		} else if strings.HasPrefix(line, "interface:") {
-			iface = strings.TrimSpace(strings.TrimPrefix(line, "interface:"))
-		}
-	}
-	if gw == "" {
-		return "", "", fmt.Errorf("no default gateway found")
-	}
-	return gw, iface, nil
-}
-
-// getSystemDNSResolvers parses `scutil --dns` and returns unique IPv4 resolver IPs.
-func getSystemDNSResolvers() ([]string, error) {
-	out, err := runCapture("scutil", "--dns")
-	if err != nil {
-		return nil, err
-	}
-	lines := strings.Split(out, "\n")
-	seen := map[string]bool{}
-	var res []string
-	for _, ln := range lines {
-		ln = strings.TrimSpace(ln)
-		// Lines look like: 'nameserver[0] : 192.168.1.1'
-		if strings.HasPrefix(ln, "nameserver[") {
-			parts := strings.Split(ln, ":")
-			if len(parts) >= 2 {
-				ip := strings.TrimSpace(parts[1])
-				if ip != "" && strings.Count(ip, ".") == 3 && !seen[ip] {
-					seen[ip] = true
-					res = append(res, ip)
-				}
-			}
-		}
-	}
-	return res, nil
 }

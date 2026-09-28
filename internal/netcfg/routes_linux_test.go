@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package netcfg
 
 import (
 	"strings"
@@ -14,7 +14,7 @@ func TestLinuxRoutes_RecordOnlyOnSuccess(t *testing.T) {
 	f.failOn("ip route add 172.16.0.0/12 dev tun0", "RTNETLINK answers: File exists")
 	f.failOn("ip route add 1.1.1.1 dev tun0", "RTNETLINK answers: File exists")
 
-	m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
 	_ = m.AddSplitDefault()
 	m.AddExclude("10.0.0.0/8")
 	m.AddExclude("10.1.0.0/16")
@@ -38,7 +38,7 @@ func TestLinuxRoutes_RecordOnlyOnSuccess(t *testing.T) {
 
 func TestLinuxRoutes_CleanupDeletesEveryAddedRoute(t *testing.T) {
 	f := useFakeRunner(t)
-	m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
 	_ = m.AddSplitDefault()
 	m.AddExclude("10.1.0.0/16")
 	m.AddExtraRoute("172.20.0.0/16")
@@ -59,7 +59,7 @@ func TestLinuxRoutes_CleanupDeletesEveryAddedRoute(t *testing.T) {
 
 func TestLinuxRoutes_ExcludeWithoutGatewayUsesUnreachableType(t *testing.T) {
 	f := useFakeRunner(t)
-	m := newLinuxRouteManager("tun0", "", "")
+	m := NewLinuxRouteManager("tun0", "", "")
 	m.AddExclude("10.9.0.0/16")
 	if f.count("ip route add unreachable 10.9.0.0/16") != 1 {
 		t.Fatalf("calls = %v; want `ip route add unreachable 10.9.0.0/16`", f.Calls())
@@ -68,7 +68,7 @@ func TestLinuxRoutes_ExcludeWithoutGatewayUsesUnreachableType(t *testing.T) {
 
 func TestLinuxKillSwitch_InstalledReturnsNil(t *testing.T) {
 	f := useFakeRunner(t)
-	m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
 
 	if err := m.AddKillSwitchRoute(); err != nil {
 		t.Fatalf("AddKillSwitchRoute = %v; want nil when the blackhole is installed", err)
@@ -84,7 +84,7 @@ func TestLinuxKillSwitch_InstalledReturnsNil(t *testing.T) {
 func TestLinuxKillSwitch_BlackholeFailureRestoresDefaultAndErrors(t *testing.T) {
 	f := useFakeRunner(t)
 	f.failOn("ip route add blackhole default", "RTNETLINK answers: Operation not permitted")
-	m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
 
 	if err := m.AddKillSwitchRoute(); err == nil {
 		t.Fatal("AddKillSwitchRoute = nil; want an error so startup aborts without leak protection")
@@ -101,7 +101,7 @@ func TestLinuxKillSwitch_RestoreFailureNamesManualCommand(t *testing.T) {
 	f := useFakeRunner(t)
 	f.failOn("ip route add blackhole default", "RTNETLINK answers: Operation not permitted")
 	f.failOn("ip route add default via 192.168.1.1 dev eth0", "RTNETLINK answers: Network is unreachable")
-	m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
 
 	err := m.AddKillSwitchRoute()
 	if err == nil || !strings.Contains(err.Error(), "ip route add default via 192.168.1.1 dev eth0") {
@@ -113,7 +113,7 @@ func TestLinuxKillSwitch_NoRestoreWhenDeleteFailed(t *testing.T) {
 	f := useFakeRunner(t)
 	f.failOn("ip route del default via 192.168.1.1 dev eth0", "RTNETLINK answers: No such process")
 	f.failOn("ip route add blackhole default", "RTNETLINK answers: File exists")
-	m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
 
 	if err := m.AddKillSwitchRoute(); err == nil {
 		t.Fatal("AddKillSwitchRoute = nil; want an error")
@@ -128,7 +128,7 @@ func TestLinuxSplitDefault_ErrorsWhenEitherHalfFails(t *testing.T) {
 		t.Run(failing, func(t *testing.T) {
 			f := useFakeRunner(t)
 			f.failOn("ip route add "+failing+" dev tun0", "RTNETLINK answers: File exists")
-			m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+			m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
 
 			if err := m.AddSplitDefault(); err == nil {
 				t.Fatalf("AddSplitDefault = nil with %s failing; want an error so startup aborts", failing)
@@ -140,7 +140,7 @@ func TestLinuxSplitDefault_ErrorsWhenEitherHalfFails(t *testing.T) {
 func TestLinuxSplitDefault_ErrorNamesManualDeleteHint(t *testing.T) {
 	f := useFakeRunner(t)
 	f.failOn("ip route add 0.0.0.0/1 dev tun0", "RTNETLINK answers: File exists")
-	m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
 
 	err := m.AddSplitDefault()
 	if err == nil || !strings.Contains(err.Error(), "sudo ip route del 0.0.0.0/1") {
@@ -150,7 +150,7 @@ func TestLinuxSplitDefault_ErrorNamesManualDeleteHint(t *testing.T) {
 
 func TestLinuxSplitDefault_NilWhenBothHalvesAdded(t *testing.T) {
 	useFakeRunner(t)
-	m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
 	if err := m.AddSplitDefault(); err != nil {
 		t.Fatalf("AddSplitDefault = %v; want nil", err)
 	}

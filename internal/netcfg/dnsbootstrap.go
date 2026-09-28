@@ -1,6 +1,6 @@
 //go:build darwin
 
-package main
+package netcfg
 
 import (
 	"context"
@@ -12,9 +12,9 @@ import (
 
 type dnsBypassRemover interface{ RemoveDNSBypass() }
 
-// removeDNSBypassWhenWarm drops the DNS bypass routes once the tunnel carries traffic
+// RemoveDNSBypassWhenWarm drops the DNS bypass routes once the tunnel carries traffic
 // in both directions, or at maxWait. It returns without touching routes if ctx ends first.
-func removeDNSBypassWhenWarm(ctx context.Context, rm dnsBypassRemover, pktsIn, pktsOut *uint64, maxWait, tick time.Duration) {
+func RemoveDNSBypassWhenWarm(ctx context.Context, rm dnsBypassRemover, pktsIn, pktsOut *uint64, maxWait, tick time.Duration) {
 	deadline := time.NewTimer(maxWait)
 	defer deadline.Stop()
 	ticker := time.NewTicker(tick)
