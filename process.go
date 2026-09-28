@@ -34,16 +34,21 @@ func backgroundSecrets(opts docopt.Opts) []secretArg {
 }
 
 // applySecretEnvFallbacks lets a background child (and any caller) supply secret flags
-// through the environment. Explicit flags always win.
-func applySecretEnvFallbacks(opts docopt.Opts, getenv func(string) string) {
+// through the environment. Explicit flags always win. It reports the flags whose value
+// came from the environment alone; a redacted "--flag=" left on argv by scrubSecretArgs
+// counts as set on the CLI, because the parent got it from its own command line.
+func applySecretEnvFallbacks(opts docopt.Opts, getenv func(string) string) (fromEnv map[string]bool) {
+	fromEnv = map[string]bool{}
 	for _, s := range secretFlags {
 		if getStringOr(opts, s.Flag, "") != "" {
 			continue
 		}
 		if v := getenv(s.Env); v != "" {
+			fromEnv[s.Flag] = opts[s.Flag] == nil
 			opts[s.Flag] = v
 		}
 	}
+	return fromEnv
 }
 
 // scrubSecretArgs drops the program name and --background from argv and redacts every

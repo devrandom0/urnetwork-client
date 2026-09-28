@@ -85,7 +85,7 @@ Options:
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2)
 	}
-	applySecretEnvFallbacks(opts, os.Getenv)
+	secretsFromEnv := applySecretEnvFallbacks(opts, os.Getenv)
 
 	if v, _ := opts.Bool("--version"); v {
 		fmt.Println(Version)
@@ -135,7 +135,7 @@ Options:
 	case mustBool(opts, "mint-client"):
 		runErr = cmdMintClient(ctx, opts)
 	case mustBool(opts, "quick-connect"):
-		runErr = cmdQuickConnect(ctx, opts)
+		runErr = cmdQuickConnect(ctx, opts, secretsFromEnv["--jwt"])
 	case mustBool(opts, "find-providers"):
 		runErr = cmdFindProviders(ctx, opts)
 	case mustBool(opts, "open"):
