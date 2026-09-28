@@ -17,7 +17,7 @@ import (
 	"github.com/devrandom0/urnetwork-client/internal/urapi"
 )
 
-// jwtLoadArgForStep2 decides what to pass to loadJWT when ensuring the client JWT after
+// jwtLoadArgForStep2 decides what to pass to auth.Load when ensuring the client JWT after
 // the optional login step. When login just ran and the JWT only came from URNETWORK_JWT,
 // it forces a fresh read from disk so a stale env token cannot shadow the JWT login
 // just saved. An explicit --jwt always wins.

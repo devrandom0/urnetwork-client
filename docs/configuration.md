@@ -52,19 +52,21 @@ These are planned to go away with a config rework:
 ## Environment variables
 
 - `URNETWORK_HOME`: directory containing `jwt` (default `~/.urnetwork`).
-
-### Files the client writes
-
-- The JWT file (`$URNETWORK_HOME/jwt`, default `~/.urnetwork/jwt`) is replaced atomically through a temp file and rename, with mode 0600. `--log_file` is opened for append with mode 0600.
-- Both refuse a target that is a symlink or not a regular file, and a directory that another user (other than root) owns or that is group/world-writable without the sticky bit. Symlinks in the directory path itself are resolved first, so paths such as `/tmp` on macOS work.
-- `--log_file` also refuses a file with more than one hard link or owned by a different user.
-- When run as root (sudo) against a directory owned by a normal user, for example your home, the write is allowed and new files are handed to that user so later non-sudo commands can read them.
-
 - `URNETWORK_USERNAME`: fallback for `--user_auth` in `quick-connect`.
 - `URNETWORK_PASSWORD`: fallback for `--password`.
 - `URNETWORK_JWT`: fallback for `--jwt`.
 - `URNETWORK_SOCKS_USER`: fallback for `--socks_user`.
 - `URNETWORK_SOCKS_PASS`: fallback for `--socks_pass`.
+
+### Files the client writes and reads
+
+- The JWT file (`$URNETWORK_HOME/jwt`, default `~/.urnetwork/jwt`) is replaced atomically through a temp file and rename, with mode 0600. `--log_file` is opened for append with mode 0600. A missing log directory is created with mode 0700.
+- Both refuse a target that is a symlink or not a regular file (a FIFO at the log path fails instead of blocking), a directory owned by another non-root user (when not run as root), and a directory that is group/world-writable unless it is root-owned with the sticky bit, like `/tmp`.
+- Every parent directory up to `/` must be owned by root or by you (under sudo, by the `SUDO_UID` user) and must not be group/world-writable unless it is root-owned with the sticky bit. A group-writable `~/.urnetwork`, `--log_file` directory or parent of either is now refused; run `chmod g-w,o-w <dir>` to fix it.
+- Symlinks in the directory path are resolved first, so paths such as `/tmp` on macOS work for normal runs. When run as root the directory path must not contain a symlink; use the resolved path instead (for example `/private/tmp` on macOS).
+- `--log_file` also refuses a file with more than one hard link or owned by a different user.
+- When run with sudo against a directory owned by the invoking user (`SUDO_UID`), for example your home, new files are handed to that user so later non-sudo commands can read them. In any other directory they stay owned by root.
+- The JWT file and `--config` file are read without following a symlink and must be regular files, at most 64 KiB and 1 MiB respectively.
 
 ## Security note
 
