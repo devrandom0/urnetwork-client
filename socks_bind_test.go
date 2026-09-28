@@ -68,7 +68,7 @@ func captureStderr(t *testing.T, fn func()) string {
 
 func TestSocksConnect_BindFailureWarnOmitsDestination(t *testing.T) {
 	setLogLevel("info", false)
-	s := &socksServer{opts: SocksOptions{BindIf: "urnet-nope0"}, resolver: net.DefaultResolver}
+	s := &socksServer{opts: SocksOptions{BindIf: "urnet-nope0"}}
 	client, proxySide := net.Pipe()
 	defer func() { _ = client.Close() }()
 	go func() { _, _ = io.Copy(io.Discard, client) }()
