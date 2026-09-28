@@ -137,6 +137,17 @@ func TestLinuxSplitDefault_ErrorsWhenEitherHalfFails(t *testing.T) {
 	}
 }
 
+func TestLinuxSplitDefault_ErrorNamesManualDeleteHint(t *testing.T) {
+	f := useFakeRunner(t)
+	f.failOn("ip route add 0.0.0.0/1 dev tun0", "RTNETLINK answers: File exists")
+	m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+
+	err := m.AddSplitDefault()
+	if err == nil || !strings.Contains(err.Error(), "sudo ip route del 0.0.0.0/1") {
+		t.Fatalf("AddSplitDefault = %v; want a hint naming the manual delete command", err)
+	}
+}
+
 func TestLinuxSplitDefault_NilWhenBothHalvesAdded(t *testing.T) {
 	useFakeRunner(t)
 	m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
