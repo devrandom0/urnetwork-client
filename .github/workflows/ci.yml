@@ -101,6 +101,8 @@ jobs:
         with:
           name: cli-darwin-arm64
           path: dist/urnet-client_darwin_arm64
+      - name: Release prepare command builds versioned assets
+        run: scripts/test-release-prepare.sh
 
   test:
     runs-on: ubuntu-latest
@@ -584,13 +586,12 @@ jobs:
               echo "skip=false" >> "$GITHUB_OUTPUT"
             fi
           fi
-      - name: Download CLI artifacts
+      - name: Set up Go
         if: steps.skip_check.outputs.skip != 'true'
-        uses: actions/download-artifact@v8
+        uses: actions/setup-go@v7
         with:
-          pattern: cli-*
-          path: dist
-          merge-multiple: true
+          go-version-file: go.mod
+          cache: true
       - name: Setup Node.js
         if: steps.skip_check.outputs.skip != 'true'
         uses: actions/setup-node@v7
@@ -602,6 +603,7 @@ jobs:
         uses: cycjimmy/semantic-release-action@v6
         with:
           extra_plugins: |
+            @semantic-release/exec
             @semantic-release/commit-analyzer
             @semantic-release/release-notes-generator
             @semantic-release/changelog
