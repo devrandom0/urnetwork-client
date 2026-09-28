@@ -84,9 +84,17 @@ func (m *darwinRouteManager) AddBypassEndpoint(rawURL string) {
 
 // AddSplitDefault installs 0.0.0.0/1 and 128.0.0.0/1 through the TUN.
 // Multiple route command variants are tried to handle different macOS versions.
-func (m *darwinRouteManager) AddSplitDefault() {
-	m.addVariant("0.0.0.0", "128.0.0.0")
-	m.addVariant("128.0.0.0", "128.0.0.0")
+func (m *darwinRouteManager) AddSplitDefault() error {
+	var failed []string
+	for _, dest := range []string{"0.0.0.0", "128.0.0.0"} {
+		if !m.addVariant(dest, "128.0.0.0") {
+			failed = append(failed, dest+"/1")
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("split default route %s via %s not installed; traffic would leak outside the tunnel", strings.Join(failed, ", "), m.tunName)
+	}
+	return nil
 }
 
 // AddScopedDefault installs split-default routes scoped to the TUN (SOCKS-only mode).
@@ -240,7 +248,7 @@ func (m *darwinRouteManager) RemoveDNSBypass() {
 // routes are removed, all traffic is blocked rather than leaking via the real
 // default gateway. Call this before AddSplitDefault so the /1 routes take priority.
 // The route is left in place on Cleanup when kill-switch mode is active.
-func (m *darwinRouteManager) AddKillSwitchRoute() {
+func (m *darwinRouteManager) AddKillSwitchRoute() error {
 	m.killSwitch = true
 	// Replace the existing default with a blackhole so traffic is blocked
 	// when the VPN split routes are absent. The /1 split routes are more
@@ -249,18 +257,20 @@ func (m *darwinRouteManager) AddKillSwitchRoute() {
 	if m.defGw != "" {
 		deletedDefault = runSudo("route", "-n", "delete", "default") == nil
 	}
-	if _, err := runCapture("route", "-n", "add", "-blackhole", "default"); err == nil {
+	_, err := runCapture("route", "-n", "add", "-blackhole", "default")
+	if err == nil {
 		m.killSwitchAdded = true
 		logInfo("kill switch: blackhole default route installed\n")
-		return
+		return nil
 	}
-	logWarn("kill switch: failed to install blackhole default route; restoring original default and continuing without kill switch\n")
 	if !deletedDefault {
-		return
+		return fmt.Errorf("kill switch: install blackhole default route: %w", err)
 	}
-	if err := runSudo("route", "-n", "add", "default", m.defGw); err != nil {
-		logError("kill switch: could not restore default route via %s: %v; run: sudo route add default %s\n", m.defGw, err, m.defGw)
+	if rErr := runSudo("route", "-n", "add", "default", m.defGw); rErr != nil {
+		logError("kill switch: could not restore default route via %s: %v; run: sudo route add default %s\n", m.defGw, rErr, m.defGw)
+		return fmt.Errorf("kill switch: install blackhole default route: %w; restoring the default route also failed, run: sudo route add default %s", err, m.defGw)
 	}
+	return fmt.Errorf("kill switch: install blackhole default route: %w; original default route restored", err)
 }
 
 // Cleanup removes all routes and DNS configuration applied by this manager

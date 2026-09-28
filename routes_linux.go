@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"net"
 	"strings"
 )
@@ -68,38 +69,56 @@ func (m *linuxRouteManager) AddBypassEndpoint(rawURL string) {
 	}
 }
 
-func (m *linuxRouteManager) AddSplitDefault() {
+func (m *linuxRouteManager) AddSplitDefault() error {
+	var failed []string
 	for _, dst := range []string{"0.0.0.0/1", "128.0.0.0/1"} {
 		if m.addRoute(dst, "dev", m.tunName) {
 			m.addedSplits = append(m.addedSplits, dst)
+		} else {
+			failed = append(failed, dst)
 		}
 	}
+	if len(failed) > 0 {
+		return fmt.Errorf("split default route %s via %s not installed; traffic would leak outside the tunnel", strings.Join(failed, ", "), m.tunName)
+	}
+	return nil
 }
 
 // AddKillSwitchRoute installs a blackhole default route so that if the VPN split
 // routes are removed, all traffic is blocked rather than leaking via the real
 // default gateway. Call this before AddSplitDefault so the /1 routes take priority.
 // The route is left in place on Cleanup when kill-switch mode is active.
-func (m *linuxRouteManager) AddKillSwitchRoute() {
+// On failure the original default is restored and an error is returned so startup aborts.
+func (m *linuxRouteManager) AddKillSwitchRoute() error {
 	m.killSwitch = true
-	// Remove the original default route first so the blackhole can be installed.
-	if m.origGw != "" && m.origDev != "" {
-		_ = run("ip", "route", "del", "default", "via", m.origGw, "dev", m.origDev)
-	} else if m.origDev != "" {
-		_ = run("ip", "route", "del", "default", "dev", m.origDev)
-	} else {
+	var restore []string
+	switch {
+	case m.origGw != "" && m.origDev != "":
+		if run("ip", "route", "del", "default", "via", m.origGw, "dev", m.origDev) == nil {
+			restore = []string{"ip", "route", "add", "default", "via", m.origGw, "dev", m.origDev}
+		}
+	case m.origDev != "":
+		if run("ip", "route", "del", "default", "dev", m.origDev) == nil {
+			restore = []string{"ip", "route", "add", "default", "dev", m.origDev}
+		}
+	default:
 		_ = run("ip", "route", "del", "default")
 	}
-	if err := run("ip", "route", "add", "blackhole", "default"); err == nil {
+	err := run("ip", "route", "add", "blackhole", "default")
+	if err == nil {
 		m.killSwitchAdded = true
 		logInfo("kill switch: blackhole default route installed\n")
-	} else {
-		logWarn("kill switch: failed to install blackhole default route; restoring original and continuing without kill switch\n")
-		// Restore original default so connectivity isn't broken
-		if m.origGw != "" && m.origDev != "" {
-			_ = run("ip", "route", "add", "default", "via", m.origGw, "dev", m.origDev)
-		}
+		return nil
 	}
+	if restore == nil {
+		return fmt.Errorf("kill switch: install blackhole default route: %w", err)
+	}
+	manual := strings.Join(restore, " ")
+	if rErr := run(restore[0], restore[1:]...); rErr != nil {
+		logError("kill switch: could not restore default route: %v; run: %s\n", rErr, manual)
+		return fmt.Errorf("kill switch: install blackhole default route: %w; restoring the default route also failed, run: %s", err, manual)
+	}
+	return fmt.Errorf("kill switch: install blackhole default route: %w; original default route restored", err)
 }
 
 func (m *linuxRouteManager) AddExclude(dest string) {
