@@ -36,9 +36,25 @@ func TestConfigureDarwinTUN_ReturnsPeerAndToleratesIPv6WhenDisabled(t *testing.T
 
 func TestDefaultGateway_UsesCommandRunner(t *testing.T) {
 	f := useFakeRunner(t)
-	f.results["route -n get default"] = fakeResult{out: "   route to: default\ndestination: default\n    gateway: 192.168.1.1\n  interface: en0\n"}
+	f.results["route -n get default"] = fakeResult{stdout: "   route to: default\ndestination: default\n    gateway: 192.168.1.1\n  interface: en0\n"}
 	gw, iface, err := DefaultGateway()
 	if err != nil || gw != "192.168.1.1" || iface != "en0" {
 		t.Fatalf("DefaultGateway = %q, %q, %v; want the scripted gateway via the command runner", gw, iface, err)
+	}
+}
+
+func TestDefaultGateway_IgnoresStderrJunk(t *testing.T) {
+	f := useFakeRunner(t)
+	f.results["route -n get default"] = fakeResult{
+		stdout: "   route to: default\ndestination: default\n    gateway: 192.168.1.1\n  interface: en0\n",
+		// A real `route` invocation can write unrelated warnings to stderr; if DefaultGateway
+		// parsed CombinedOutput this decoy line (with its own "gateway:"/"interface:" prefixes)
+		// would win because the parser keeps the last match.
+		out: "   route to: default\ndestination: default\n    gateway: 192.168.1.1\n  interface: en0\n" +
+			"routing table warning: gateway: 6.6.6.6\n  interface: bogus0\n",
+	}
+	gw, iface, err := DefaultGateway()
+	if err != nil || gw != "192.168.1.1" || iface != "en0" {
+		t.Fatalf("DefaultGateway = %q, %q, %v; want the real gateway, not stderr junk", gw, iface, err)
 	}
 }

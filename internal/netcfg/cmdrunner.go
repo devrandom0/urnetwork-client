@@ -11,6 +11,7 @@ import (
 type commandRunner interface {
 	Run(name string, args ...string) error
 	Capture(name string, args ...string) (string, error)
+	CaptureStdout(name string, args ...string) (string, error)
 }
 
 type execRunner struct{}
@@ -35,9 +36,24 @@ func (execRunner) Capture(name string, args ...string) (string, error) {
 	return string(out), err
 }
 
+func (execRunner) CaptureStdout(name string, args ...string) (string, error) {
+	path, err := tools.resolve(name)
+	if err != nil {
+		return "", err
+	}
+	out, err := exec.Command(path, args...).Output()
+	return string(out), err
+}
+
 var cmdRunner commandRunner = execRunner{}
 
 // runCapture executes a command and returns its combined stdout+stderr output and any error.
 func runCapture(name string, args ...string) (string, error) {
 	return cmdRunner.Capture(name, args...)
+}
+
+// runCaptureStdout executes a command and returns its stdout only, so stray text a tool
+// writes to stderr (warnings, locale-dependent noise) cannot corrupt parsed output.
+func runCaptureStdout(name string, args ...string) (string, error) {
+	return cmdRunner.CaptureStdout(name, args...)
 }

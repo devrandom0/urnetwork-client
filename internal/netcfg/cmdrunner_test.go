@@ -8,8 +8,9 @@ import (
 )
 
 type fakeResult struct {
-	out string
-	err error
+	out    string // combined stdout+stderr, scripted for Capture
+	stdout string // stdout only, scripted for CaptureStdout
+	err    error
 }
 
 // fakeRunner records every command and returns scripted results; safe for concurrent use.
@@ -48,6 +49,15 @@ func (f *fakeRunner) Capture(name string, args ...string) (string, error) {
 	return r.out, r.err
 }
 
+func (f *fakeRunner) CaptureStdout(name string, args ...string) (string, error) {
+	line := strings.Join(append([]string{name}, args...), " ")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, line)
+	r := f.results[line]
+	return r.stdout, r.err
+}
+
 func (f *fakeRunner) Calls() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -73,5 +83,14 @@ func TestRunCaptureUsesCommandRunner(t *testing.T) {
 	}
 	if got := f.Calls(); len(got) != 1 || got[0] != "echo hi" {
 		t.Fatalf("calls = %v", got)
+	}
+}
+
+func TestRunCaptureStdoutIgnoresStderr(t *testing.T) {
+	f := useFakeRunner(t)
+	f.results["echo hi"] = fakeResult{stdout: "stdout-only", out: "stdout-only\nstderr junk"}
+	out, err := runCaptureStdout("echo", "hi")
+	if err != nil || out != "stdout-only" {
+		t.Fatalf("runCaptureStdout = %q, %v; want stdout only, not the combined output", out, err)
 	}
 }
