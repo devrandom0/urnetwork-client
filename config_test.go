@@ -123,6 +123,18 @@ func TestResolveLogLevel(t *testing.T) {
 	}
 }
 
+func TestResolveVPNConfig_RejectsCleartextURLFromFile(t *testing.T) {
+	t.Cleanup(func() { setLogLevel("info", false) })
+	path := writeTempConfig(t, "api_url: http://api.example.test\n")
+	if _, err := resolveVPNConfig(vpnTestOpts(map[string]interface{}{"--config": path})); err == nil {
+		t.Fatal("cleartext api_url from the config file must be rejected")
+	}
+	ok := writeTempConfig(t, "connect_url: ws://localhost:9000\n")
+	if _, err := resolveVPNConfig(vpnTestOpts(map[string]interface{}{"--config": ok})); err != nil {
+		t.Fatalf("ws://localhost must be allowed: %v", err)
+	}
+}
+
 func TestResolveVPNConfig_AppliesFileLogLevel(t *testing.T) {
 	t.Cleanup(func() { setLogLevel("info", false) })
 	path := writeTempConfig(t, "log_level: warn\n")

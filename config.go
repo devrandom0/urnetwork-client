@@ -286,6 +286,12 @@ func resolveVPNConfig(opts docopt.Opts) (VPNConfig, error) {
 		return VPNConfig{}, err
 	}
 	cfg = applyConfigFile(cfg, cf)
+	if err := validateEndpointURL("api_url", cfg.APIURL, "https", "http"); err != nil {
+		return VPNConfig{}, err
+	}
+	if err := validateEndpointURL("connect_url", cfg.ConnectURL, "wss", "ws"); err != nil {
+		return VPNConfig{}, err
+	}
 	setLogLevel(resolveLogLevel(getStringOr(opts, "--log_level", ""), mustBool(opts, "--debug"), cf.LogLevel, cf.Debug))
 	return cfg, nil
 }
