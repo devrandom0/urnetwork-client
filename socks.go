@@ -264,6 +264,9 @@ func (s *socksServer) handleConnect(ctx context.Context, c net.Conn, dst socksAd
 	rc, err := d.DialContext(ctx, "tcp", target)
 	if err != nil {
 		rep := dialErrorReply(err)
+		if errors.Is(err, errBindInterface) {
+			logWarn("socks: %v; refusing CONNECT to %s instead of sending it outside the VPN\n", err, dst)
+		}
 		if s.opts.Debug {
 			fmt.Printf("[socks] dial error to %s: %v (rep=%d)\n", target, err, rep)
 		}
@@ -290,9 +293,9 @@ func relayTCP(dst, src net.Conn, wg *sync.WaitGroup) {
 	}
 }
 
-func (s *socksServer) bindControl(_, _ string, rc syscall.RawConn) error {
+func (s *socksServer) bindControl(network, _ string, rc syscall.RawConn) error {
 	var bindErr error
-	if err := rc.Control(func(fd uintptr) { bindErr = bindFDToInterface(int(fd), s.opts.BindIf) }); err != nil {
+	if err := rc.Control(func(fd uintptr) { bindErr = bindFDToInterface(int(fd), network, s.opts.BindIf) }); err != nil {
 		return err
 	}
 	return bindErr
@@ -409,7 +412,7 @@ func (s *socksServer) runUDPAssociate(ctx context.Context, ctrl net.Conn) {
 		lc := net.ListenConfig{Control: func(network, address string, rc syscall.RawConn) error {
 			var retErr error
 			ctlErr := rc.Control(func(fd uintptr) {
-				retErr = bindFDToInterface(int(fd), bindIf)
+				retErr = bindFDToInterface(int(fd), network, bindIf)
 			})
 			if ctlErr != nil {
 				return ctlErr
@@ -586,33 +589,38 @@ func (s *socksServer) runUDPAssociate(ctx context.Context, ctrl net.Conn) {
 	_, _ = ctrl.Read(tmp)
 }
 
-// bindFDToInterface tries to bind a socket file descriptor to an interface by name.
-// On macOS, it prefers IP_BOUND_IF using the interface index; on Linux, it uses SO_BINDTODEVICE.
-// Returns nil if binding is best-effort and the option is unavailable, to avoid breaking connectivity.
-func bindFDToInterface(fd int, ifName string) error {
+var errBindInterface = errors.New("bind to VPN interface failed")
+
+const (
+	darwinIPBoundIF     = 25  // IP_BOUND_IF
+	darwinIPv6BoundIF   = 125 // IPV6_BOUND_IF
+	linuxSOBindToDevice = 25  // SO_BINDTODEVICE, needs CAP_NET_RAW
+)
+
+// bindFDToInterface pins a socket to ifName. Any failure is returned so the caller refuses
+// the request; silently continuing would send VPN traffic out the normal default route.
+func bindFDToInterface(fd int, network, ifName string) error {
 	if strings.TrimSpace(ifName) == "" {
 		return nil
 	}
-	// Try to find the interface index first (macOS & Linux helpful)
-	ifi, _ := net.InterfaceByName(ifName)
-	// Darwin: IP_BOUND_IF (25) for IPv4; IPv6 variant is 125
-	if runtime.GOOS == "darwin" {
-		if ifi != nil {
-			// Ignore errors to stay best-effort; some sockets may not accept this option
-			_ = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, 25, ifi.Index)
-			// Also bind IPv6 sockets to the interface
-			_ = syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, 125, ifi.Index)
-			return nil
+	ifi, err := net.InterfaceByName(ifName)
+	if err != nil {
+		return fmt.Errorf("%w: %s: %v", errBindInterface, ifName, err)
+	}
+	switch runtime.GOOS {
+	case "darwin":
+		level, opt := syscall.IPPROTO_IP, darwinIPBoundIF
+		if strings.HasSuffix(network, "6") {
+			level, opt = syscall.IPPROTO_IPV6, darwinIPv6BoundIF
 		}
-		// If interface not found, nothing to do
-		return nil
+		err = syscall.SetsockoptInt(fd, level, opt, ifi.Index)
+	case "linux":
+		err = syscall.SetsockoptString(fd, syscall.SOL_SOCKET, linuxSOBindToDevice, ifName)
+	default:
+		err = fmt.Errorf("not supported on %s", runtime.GOOS)
 	}
-	// Linux: SO_BINDTODEVICE is 25 on SOL_SOCKET; requires CAP_NET_RAW or root
-	if runtime.GOOS == "linux" {
-		// Use provided name directly; ignore error to be best-effort
-		_ = syscall.SetsockoptString(fd, syscall.SOL_SOCKET, 25, ifName)
-		return nil
+	if err != nil {
+		return fmt.Errorf("%w: %s: %v", errBindInterface, ifName, err)
 	}
-	// Other OS: no-op
 	return nil
 }
