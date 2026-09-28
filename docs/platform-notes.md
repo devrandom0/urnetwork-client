@@ -75,3 +75,7 @@ When IPv6 is disabled (default):
 When IPv6 is enabled:
 - Both IPv4 and IPv6 traffic route through the VPN
 - **Only works if your VPN provider supports IPv6**
+
+## Privileged tools
+
+`route`, `ifconfig`, `networksetup`, `scutil` (macOS) and `ip` (Linux) are run by absolute path. Each is looked up once, in this order, and `PATH` is never used: `/sbin`, `/usr/sbin`, `/bin`, `/usr/bin`, and on Linux also `/run/current-system/sw/bin` (NixOS). A candidate is used only if the file, its directory and, for a symlink, the target's directory are owned by root and not group/world-writable; otherwise the next directory is tried. If no directory has a usable tool the command fails with `<tool> not found in ...`.
