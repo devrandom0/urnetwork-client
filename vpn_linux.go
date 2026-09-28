@@ -4,13 +4,11 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"strings"
-
-	"github.com/songgao/water"
 
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 	"github.com/devrandom0/urnetwork-client/internal/netcfg"
+	"github.com/devrandom0/urnetwork-client/internal/tunnel"
 )
 
 func cmdVpn(ctx context.Context, cfg VPNConfig) error {
@@ -35,12 +33,9 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 		tunName = "urnet0"
 	}
 
-	// Create TUN device.
-	waterCfg := water.Config{DeviceType: water.TUN}
-	waterCfg.Name = tunName
-	dev, err := water.New(waterCfg)
+	dev, err := tunnel.Open(tunName)
 	if err != nil {
-		return fmt.Errorf("create TUN failed: %w", err)
+		return err
 	}
 	defer func() { _ = dev.Close() }()
 	logx.Info("TUN %s created\n", tunName)
@@ -91,7 +86,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	}
 
 	// Run shared dataplane + SOCKS + stats.
-	var pktsIn, bytesIn, pktsOut, bytesOut uint64
-	vpnRunCore(ctx, dev, tunName, cfg, &pktsIn, &pktsOut, &bytesIn, &bytesOut, func() {})
+	var counters tunnel.Counters
+	vpnRunCore(ctx, dev, tunName, cfg, &counters, func() {})
 	return nil
 }
