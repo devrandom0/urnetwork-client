@@ -16,6 +16,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 const (
@@ -88,7 +90,7 @@ func StartSocks5(ctx context.Context, opts SocksOptions) (func() error, error) {
 		return nil, err
 	}
 	if socksExposedWithoutAuth(ln.Addr(), opts.Auth) {
-		logWarn("SOCKS5 on %s accepts connections from other hosts WITHOUT authentication; anyone who can reach this port can use your VPN. Set --socks_user and URNETWORK_SOCKS_PASS, or bind 127.0.0.1\n", ln.Addr())
+		logx.Warn("SOCKS5 on %s accepts connections from other hosts WITHOUT authentication; anyone who can reach this port can use your VPN. Set --socks_user and URNETWORK_SOCKS_PASS, or bind 127.0.0.1\n", ln.Addr())
 	}
 	done := make(chan struct{})
 	go func() {
@@ -127,7 +129,7 @@ func (s *socksServer) admit(ctx context.Context, conn net.Conn) {
 	default:
 		_ = conn.Close()
 		if s.warns.allow("conn-cap", time.Now()) {
-			logWarn("socks: %d concurrent connections reached; dropping new connections\n", s.opts.MaxConns)
+			logx.Warn("socks: %d concurrent connections reached; dropping new connections\n", s.opts.MaxConns)
 		}
 	}
 }
@@ -153,7 +155,7 @@ func acceptLoop(ctx context.Context, ln net.Listener, maxBackoff time.Duration, 
 		case backoff < maxBackoff:
 			backoff = min(backoff*2, maxBackoff)
 		}
-		logWarn("socks accept failed: %v; retrying in %s\n", err, backoff)
+		logx.Warn("socks accept failed: %v; retrying in %s\n", err, backoff)
 		timer := time.NewTimer(backoff)
 		select {
 		case <-timer.C:
@@ -248,7 +250,7 @@ func (s *socksServer) negotiate(c net.Conn) error {
 	case socksMethodUserPass:
 		err := socksUserPassAuth(c, s.opts.Auth, socksAuthFailureDelay)
 		if errors.Is(err, errSocksAuthFailed) && s.warns.allow("auth:"+addrIP(c.RemoteAddr()).String(), time.Now()) {
-			logWarn("socks: rejected credentials from %s (further failures from this address are not logged for %s)\n", c.RemoteAddr(), socksWarnInterval)
+			logx.Warn("socks: rejected credentials from %s (further failures from this address are not logged for %s)\n", c.RemoteAddr(), socksWarnInterval)
 		}
 		return err
 	default:
@@ -326,8 +328,8 @@ func (s *socksServer) handleConnect(ctx context.Context, c net.Conn, dst socksAd
 	if err != nil {
 		rep := dialErrorReply(err)
 		if errors.Is(err, errBindInterface) {
-			logWarn("socks: %v; refusing CONNECT instead of sending it outside the VPN\n", withoutDialTarget(err))
-			logDebug("socks: refused CONNECT to %s\n", dst)
+			logx.Warn("socks: %v; refusing CONNECT instead of sending it outside the VPN\n", withoutDialTarget(err))
+			logx.Debug("socks: refused CONNECT to %s\n", dst)
 		}
 		if s.opts.Debug {
 			fmt.Printf("[socks] dial error to %s: %v (rep=%d)\n", target, err, rep)
@@ -548,7 +550,7 @@ func (s *socksServer) runUDPAssociate(ctx context.Context, ctrl net.Conn, req so
 		wg.Wait()
 	}()
 	refuse := func(format string, args ...any) {
-		logWarn("socks udp: "+format, args...)
+		logx.Warn("socks udp: "+format, args...)
 		_ = writeSocksReply(ctrl, socksRepGeneralFailure, nil)
 	}
 

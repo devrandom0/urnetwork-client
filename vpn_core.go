@@ -12,6 +12,8 @@ import (
 
 	"github.com/songgao/water"
 
+	"github.com/devrandom0/urnetwork-client/internal/logx"
+
 	"github.com/urnetwork/connect"
 	"github.com/urnetwork/connect/protocol"
 )
@@ -150,27 +152,27 @@ func vpnRunCore(
 		}
 	}
 
-	if blockNewInbound && isInfoEnabled() {
-		logInfo("inbound-control: enabled (allowlist=%d entries); policy: drop new inbound SYN not in allowlist, and drop inbound TCP without ACK\n", len(allowInboundCIDRs))
+	if blockNewInbound && logx.IsInfoEnabled() {
+		logx.Info("inbound-control: enabled (allowlist=%d entries); policy: drop new inbound SYN not in allowlist, and drop inbound TCP without ACK\n", len(allowInboundCIDRs))
 	}
 
 	// Provider receive: optional userspace filtering, then write to TUN and update counters.
 	receive := func(source connect.TransferPath, provideMode protocol.ProvideMode, ipPath *connect.IpPath, packet []byte) {
-		logDebug("<- provider len=%d src=%v mode=%v ipPath=%v\n", len(packet), source, provideMode, ipPath)
+		logx.Debug("<- provider len=%d src=%v mode=%v ipPath=%v\n", len(packet), source, provideMode, ipPath)
 
 		// Drop IPv6 packets if IPv6 is not enabled.
 		if len(packet) > 0 {
 			version := packet[0] >> 4
 			if version == 6 && !cfg.EnableIPv6 {
-				if isDebugEnabled() {
-					logDebug("dropped IPv6 packet (--enable_ipv6 not set)\n")
+				if logx.IsDebugEnabled() {
+					logx.Debug("dropped IPv6 packet (--enable_ipv6 not set)\n")
 				}
 				return
 			}
 		}
 
 		if blockNewInbound && shouldDropInbound(packet, allowInboundCIDRs) {
-			if isDebugEnabled() {
+			if logx.IsDebugEnabled() {
 				version := byte(0)
 				if len(packet) > 0 {
 					version = packet[0] >> 4
@@ -183,7 +185,7 @@ func vpnRunCore(
 						srcPort := binary.BigEndian.Uint16(packet[ihl : ihl+2])
 						dstPort := binary.BigEndian.Uint16(packet[ihl+2 : ihl+4])
 						tcpFlags := packet[ihl+13]
-						logDebug("dropped inbound TCP %s:%d -> %s:%d (flags=0x%02x)\n", srcIP, srcPort, dstIP, dstPort, tcpFlags)
+						logx.Debug("dropped inbound TCP %s:%d -> %s:%d (flags=0x%02x)\n", srcIP, srcPort, dstIP, dstPort, tcpFlags)
 					}
 				} else if version == 6 && len(packet) >= 60 && packet[6] == 6 {
 					srcIP := net.IP(packet[8:24])
@@ -191,7 +193,7 @@ func vpnRunCore(
 					srcPort := binary.BigEndian.Uint16(packet[40:42])
 					dstPort := binary.BigEndian.Uint16(packet[42:44])
 					tcpFlags := packet[53]
-					logDebug("dropped inbound TCP6 %s:%d -> %s:%d (flags=0x%02x)\n", srcIP, srcPort, dstIP, dstPort, tcpFlags)
+					logx.Debug("dropped inbound TCP6 %s:%d -> %s:%d (flags=0x%02x)\n", srcIP, srcPort, dstIP, dstPort, tcpFlags)
 				}
 			}
 			return
@@ -221,7 +223,7 @@ func vpnRunCore(
 			}
 			pkt := make([]byte, n)
 			copy(pkt, buf[:n])
-			logDebug("-> provider len=%d\n", len(pkt))
+			logx.Debug("-> provider len=%d\n", len(pkt))
 			// No egress userspace filtering
 			mc.SendPacket(connect.TransferPath{}, protocol.ProvideMode_Network, pkt, -1)
 			if pktsOut != nil {
@@ -234,7 +236,7 @@ func vpnRunCore(
 	}()
 
 	// Periodic stats
-	if statsInt > 0 && isInfoEnabled() && pktsIn != nil && bytesIn != nil && pktsOut != nil && bytesOut != nil {
+	if statsInt > 0 && logx.IsInfoEnabled() && pktsIn != nil && bytesIn != nil && pktsOut != nil && bytesOut != nil {
 		go func() {
 			t := time.NewTicker(statsInt)
 			defer t.Stop()
@@ -247,7 +249,7 @@ func vpnRunCore(
 					inB := atomic.LoadUint64(bytesIn)
 					outP := atomic.LoadUint64(pktsOut)
 					outB := atomic.LoadUint64(bytesOut)
-					logInfo("[stats] in=%d pkts / %d bytes, out=%d pkts / %d bytes\n", inP, inB, outP, outB)
+					logx.Info("[stats] in=%d pkts / %d bytes, out=%d pkts / %d bytes\n", inP, inB, outP, outB)
 				}
 			}
 		}()
@@ -258,14 +260,14 @@ func vpnRunCore(
 	if cfg.SOCKSListen != "" {
 		warnIfSocksDNSUnset(tunIfName, cfg.DNSList)
 		if s, err := StartSocks5(ctx, socksOptionsFromVPN(cfg, tunIfName)); err != nil {
-			logWarn("failed to start socks at %s: %v\n", cfg.SOCKSListen, err)
+			logx.Warn("failed to start socks at %s: %v\n", cfg.SOCKSListen, err)
 		} else {
 			stopSocks = s
-			logInfo("SOCKS5 listening at %s (bound to %s)\n", cfg.SOCKSListen, tunIfName)
+			logx.Info("SOCKS5 listening at %s (bound to %s)\n", cfg.SOCKSListen, tunIfName)
 		}
 	}
 
-	if isInfoEnabled() {
+	if logx.IsInfoEnabled() {
 		fmt.Println("VPN dataplane running; press Ctrl-C to exit.")
 	}
 
@@ -288,7 +290,7 @@ func warnIfSocksDNSUnset(bindIf string, dnsList string) {
 	if bindIf == "" || strings.TrimSpace(dnsList) != "" {
 		return
 	}
-	logWarn("SOCKS hostname lookups go through the VPN interface and fail closed; if the system resolver is on the LAN or is Docker's 127.0.0.11, set --dns=<public resolver> (e.g. 1.1.1.1)\n")
+	logx.Warn("SOCKS hostname lookups go through the VPN interface and fail closed; if the system resolver is on the LAN or is Docker's 127.0.0.11, set --dns=<public resolver> (e.g. 1.1.1.1)\n")
 }
 
 func socksOptionsFromVPN(cfg VPNConfig, bindIf string) SocksOptions {
@@ -296,7 +298,7 @@ func socksOptionsFromVPN(cfg VPNConfig, bindIf string) SocksOptions {
 		ListenAddr:     cfg.SOCKSListen,
 		BindIf:         bindIf,
 		Auth:           cfg.SOCKSAuth,
-		Debug:          cfg.Debug || isDebugEnabled(),
+		Debug:          cfg.Debug || logx.IsDebugEnabled(),
 		AllowDomains:   cfg.AllowDomains,
 		ExcludeDomains: cfg.ExcludeDomains,
 		DNSServers:     splitCSV(cfg.DNSList),
@@ -313,7 +315,7 @@ func runSocksOnly(ctx context.Context, cfg VPNConfig) error {
 		return fmt.Errorf("start socks failed: %w", err)
 	}
 	defer func() { _ = stop() }()
-	logInfo("SOCKS started without TUN (system routes only). Press Ctrl+C to exit.\n")
+	logx.Info("SOCKS started without TUN (system routes only). Press Ctrl+C to exit.\n")
 	<-ctx.Done()
 	return nil
 }
@@ -399,7 +401,7 @@ func logStartupConfig(cfg VPNConfig) {
 	} else {
 		configItems = append(configItems, "jwt=missing")
 	}
-	logInfo("startup: %s\n", strings.Join(configItems, " "))
+	logx.Info("startup: %s\n", strings.Join(configItems, " "))
 }
 
 // (removed legacy userspace filtering helpers)

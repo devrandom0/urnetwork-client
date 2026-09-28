@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 func TestRunSocksOnly_NoListenIsError(t *testing.T) {
@@ -50,7 +52,7 @@ func TestSocksOptionsFromVPN(t *testing.T) {
 }
 
 func TestWarnIfSocksDNSUnset_WarnsWhenBoundWithoutDNS(t *testing.T) {
-	setLogLevel("info", false)
+	logx.SetLogLevel("info", false)
 	logged := captureStderr(t, func() {
 		warnIfSocksDNSUnset("utun9", "")
 	})
@@ -60,7 +62,7 @@ func TestWarnIfSocksDNSUnset_WarnsWhenBoundWithoutDNS(t *testing.T) {
 }
 
 func TestWarnIfSocksDNSUnset_SilentWithDNSConfigured(t *testing.T) {
-	setLogLevel("info", false)
+	logx.SetLogLevel("info", false)
 	logged := captureStderr(t, func() {
 		warnIfSocksDNSUnset("utun9", "1.1.1.1")
 	})
@@ -70,7 +72,7 @@ func TestWarnIfSocksDNSUnset_SilentWithDNSConfigured(t *testing.T) {
 }
 
 func TestWarnIfSocksDNSUnset_SilentWhenNotBoundToVPNInterface(t *testing.T) {
-	setLogLevel("info", false)
+	logx.SetLogLevel("info", false)
 	logged := captureStderr(t, func() {
 		warnIfSocksDNSUnset("", "")
 	})

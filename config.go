@@ -8,6 +8,8 @@ import (
 
 	"github.com/docopt/docopt-go"
 	"gopkg.in/yaml.v3"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 // LocationConfig holds provider location selection options.
@@ -297,6 +299,6 @@ func resolveVPNConfig(opts docopt.Opts) (VPNConfig, error) {
 			return VPNConfig{}, fmt.Errorf("socks: %w", err)
 		}
 	}
-	setLogLevel(resolveLogLevel(getStringOr(opts, "--log_level", ""), mustBool(opts, "--debug"), cf.LogLevel, cf.Debug))
+	logx.SetLogLevel(resolveLogLevel(getStringOr(opts, "--log_level", ""), mustBool(opts, "--debug"), cf.LogLevel, cf.Debug))
 	return cfg, nil
 }

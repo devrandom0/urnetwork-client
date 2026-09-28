@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/docopt/docopt-go"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 func testSecrets() []secretArg {
@@ -169,7 +171,7 @@ func TestLoadSecretEnv_UnsetsSecretVarsAfterReading(t *testing.T) {
 }
 
 func TestStartBackground_ValidatesConfigBeforeSpawning(t *testing.T) {
-	t.Cleanup(func() { setLogLevel("info", false) })
+	t.Cleanup(func() { logx.SetLogLevel("info", false) })
 	for name, body := range map[string]string{
 		"bad yaml":          "mtu: [not-an-int\n",
 		"cleartext api_url": "api_url: http://api.example.com\n",
@@ -189,7 +191,7 @@ func TestStartBackground_ValidatesConfigBeforeSpawning(t *testing.T) {
 }
 
 func TestStartBackground_SpawnsWhenConfigValid(t *testing.T) {
-	t.Cleanup(func() { setLogLevel("info", false) })
+	t.Cleanup(func() { logx.SetLogLevel("info", false) })
 	opts := vpnTestOpts(map[string]interface{}{"vpn": true, "--password": "pw"})
 	var gotSecrets []secretArg
 	pid, err := startBackground(opts, []string{"urnet-client", "vpn", "--background"}, func(_ []string, s []secretArg) (int, error) {

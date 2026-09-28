@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/docopt/docopt-go"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 // vpnTestOpts mimics what docopt returns for vpn/quick-connect, including its defaults.
@@ -39,7 +41,7 @@ func writeTempConfig(t *testing.T, body string) string {
 }
 
 func TestResolveVPNConfig(t *testing.T) {
-	t.Cleanup(func() { setLogLevel("info", false) })
+	t.Cleanup(func() { logx.SetLogLevel("info", false) })
 	cases := []struct {
 		name  string
 		file  string
@@ -124,7 +126,7 @@ func TestResolveLogLevel(t *testing.T) {
 }
 
 func TestResolveVPNConfig_RejectsCleartextURLFromFile(t *testing.T) {
-	t.Cleanup(func() { setLogLevel("info", false) })
+	t.Cleanup(func() { logx.SetLogLevel("info", false) })
 	path := writeTempConfig(t, "api_url: http://api.example.test\n")
 	if _, err := resolveVPNConfig(vpnTestOpts(map[string]interface{}{"--config": path})); err == nil {
 		t.Fatal("cleartext api_url from the config file must be rejected")
@@ -136,26 +138,26 @@ func TestResolveVPNConfig_RejectsCleartextURLFromFile(t *testing.T) {
 }
 
 func TestResolveVPNConfig_AppliesFileLogLevel(t *testing.T) {
-	t.Cleanup(func() { setLogLevel("info", false) })
+	t.Cleanup(func() { logx.SetLogLevel("info", false) })
 	path := writeTempConfig(t, "log_level: warn\n")
 
 	if _, err := resolveVPNConfig(vpnTestOpts(map[string]interface{}{"--config": path})); err != nil {
 		t.Fatal(err)
 	}
-	if isInfoEnabled() {
+	if logx.IsInfoEnabled() {
 		t.Fatal("log_level: warn from the file was not applied")
 	}
 
 	if _, err := resolveVPNConfig(vpnTestOpts(map[string]interface{}{"--config": path, "--log_level": "debug"})); err != nil {
 		t.Fatal(err)
 	}
-	if !isDebugEnabled() {
+	if !logx.IsDebugEnabled() {
 		t.Fatal("--log_level must beat the file")
 	}
 }
 
 func TestResolveVPNConfig_RejectsHalfConfiguredSocksAuth(t *testing.T) {
-	t.Cleanup(func() { setLogLevel("info", false) })
+	t.Cleanup(func() { logx.SetLogLevel("info", false) })
 	t.Setenv("URNETWORK_SOCKS_USER", "")
 	t.Setenv("URNETWORK_SOCKS_PASS", "")
 	opts := vpnTestOpts(map[string]interface{}{"--tun": "urnet0", "--socks": "127.0.0.1:1080", "--socks_user": "alice"})
@@ -165,7 +167,7 @@ func TestResolveVPNConfig_RejectsHalfConfiguredSocksAuth(t *testing.T) {
 }
 
 func TestResolveVPNConfig_IgnoresSocksAuthWithoutSocks(t *testing.T) {
-	t.Cleanup(func() { setLogLevel("info", false) })
+	t.Cleanup(func() { logx.SetLogLevel("info", false) })
 	t.Setenv("URNETWORK_SOCKS_USER", "alice")
 	t.Setenv("URNETWORK_SOCKS_PASS", "")
 	if _, err := resolveVPNConfig(vpnTestOpts(map[string]interface{}{"--tun": "urnet0"})); err != nil {

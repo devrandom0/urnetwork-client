@@ -9,6 +9,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 func TestBindFDToInterface_MissingInterfaceIsError(t *testing.T) {
@@ -67,7 +69,7 @@ func captureStderr(t *testing.T, fn func()) string {
 }
 
 func TestSocksConnect_BindFailureWarnOmitsDestination(t *testing.T) {
-	setLogLevel("info", false)
+	logx.SetLogLevel("info", false)
 	s := &socksServer{opts: SocksOptions{BindIf: "urnet-nope0"}}
 	client, proxySide := net.Pipe()
 	defer func() { _ = client.Close() }()
