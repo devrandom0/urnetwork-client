@@ -11,13 +11,19 @@
     "after 02:00 and before 03:00 every day"
   ],
   "semanticCommits": "enabled",
-  "commitMessagePrefix": "chore(deps): ",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
   "branchPrefix": "renovate/",
   "prHourlyLimit": 1,
   "prConcurrentLimit": 10,
   "dependencyDashboard": true,
   "enabledManagers": ["gomod", "dockerfile", "github-actions", "asdf"],
   "packageRules": [
+    {
+      "description": "Keep the previous chore(deps) prefix for everything unless a later rule says otherwise",
+      "matchPackageNames": ["*"],
+      "semanticCommitType": "chore"
+    },
     {
       "matchManagers": ["gomod"],
       "postUpdateOptions": ["gomodTidy"]
@@ -40,6 +46,22 @@
       "matchManagers": ["github-actions"],
       "groupName": "github-actions (minor+patch)",
       "matchUpdateTypes": ["minor", "patch"]
+    },
+    {
+      "description": "Tooling-only bumps use ci, which .releaserc.json does not release",
+      "matchManagers": ["github-actions", "asdf"],
+      "semanticCommitType": "ci"
+    },
+    {
+      "description": "One PR for golangci-lint in .tool-versions and ci.yml",
+      "matchDepNames": ["golangci-lint", "golangci/golangci-lint"],
+      "groupName": "golangci-lint"
+    },
+    {
+      "description": "Upstream protocol library changes are reviewed by a human",
+      "matchPackageNames": ["github.com/urnetwork/connect"],
+      "automerge": false,
+      "labels": ["dependencies", "connect"]
     }
   ]
 }

@@ -1,7 +1,5 @@
 # Cross-platform build Makefile for urnet-client
 
-MODULE_PATH := github.com/urnetwork/connect
-CMD_PATH := $(MODULE_PATH)/cmd/urnet-client
 BINARY := urnet-client
 DIST := dist
 
@@ -21,6 +19,7 @@ help:
 	@echo "  build                 Build for host platform -> $(DIST)/$(BINARY)"
 	@echo "  test                  Run Go tests"
 	@echo "  test-race             Run Go tests with -race"
+	@echo "  version-check         Verify -ldflags -X main.Version reaches the binary"
 	@echo "  lint                  Run formatting and vet checks"
 	@echo "  ci-docker-build       Build Docker image (amd64) for CI validation (no push)"
 	@echo "  test-integration      Run integration tests (requires URNETWORK_TEST_INTEGRATION=1 and JWT)"
@@ -48,6 +47,14 @@ $(DIST):
 build: $(DIST)
 	GOFLAGS=-trimpath go build -ldflags "$(LDFLAGS)" -o $(DIST)/$(BINARY) ./
 
+.PHONY: version-check
+version-check:
+	@tmp=$$(mktemp -d); \
+	go build -ldflags "-X main.Version=9.9.9" -o $$tmp/$(BINARY) . || { rm -rf $$tmp; exit 1; }; \
+	out=$$($$tmp/$(BINARY) --version); rm -rf $$tmp; \
+	if [ "$$out" != "9.9.9" ]; then echo "version-check: got '$$out', want 9.9.9"; exit 1; fi; \
+	echo "version-check: ok"
+
 .PHONY: test
 test:
 	go test ./...
@@ -64,6 +71,8 @@ lint:
 	  echo "gofmt found issues:" && echo "$$fmt_out" && exit 1; \
 	fi
 	go vet ./...
+	GOOS=linux go vet ./...
+	GOOS=darwin go vet ./...
 	golangci-lint run ./...
 
 .PHONY: hooks-install
@@ -105,12 +114,12 @@ build-all: build-linux-amd64 build-linux-arm64 build-darwin-amd64 build-darwin-a
 
 .PHONY: docker-build
 docker-build:
-	DOCKER_BUILDKIT=1 docker build -t $(IMAGE) .
+	DOCKER_BUILDKIT=1 docker build --build-arg VERSION=$(VERSION) -t $(IMAGE) .
 
 .PHONY: ci-docker-build
 ci-docker-build:
 	# Build only linux/amd64 for quick CI validation using repo root context
-	DOCKER_BUILDKIT=1 docker build -f Dockerfile -t test/urnetwork-client:ci .
+	DOCKER_BUILDKIT=1 docker build --build-arg VERSION=$(VERSION) -f Dockerfile -t test/urnetwork-client:ci .
 
 # --- Multi-arch (buildx) ---
 .PHONY: dockerx-setup
@@ -123,20 +132,22 @@ dockerx-setup:
 dockerx-build: dockerx-setup
 	DOCKER_BUILDKIT=1 docker buildx build \
 	  --platform linux/amd64,linux/arm64 \
+	  --build-arg VERSION=$(VERSION) \
 	  -f Dockerfile \
 	  -t $(IMAGE_BASENAME):$(VERSION) \
 	  -t $(IMAGE_BASENAME):latest \
-	  ../../.. \
+	  . \
 	  --load
 
 .PHONY: dockerx-push
 dockerx-push: dockerx-setup
 	DOCKER_BUILDKIT=1 docker buildx build \
 	  --platform linux/amd64,linux/arm64 \
+	  --build-arg VERSION=$(VERSION) \
 	  -f Dockerfile \
 	  -t $(IMAGE_BASENAME):$(VERSION) \
 	  -t $(IMAGE_BASENAME):latest \
-	  ../../.. \
+	  . \
 	  --push
 
 .PHONY: dockerx-release

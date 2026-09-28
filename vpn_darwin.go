@@ -5,10 +5,9 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
+	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/songgao/water"
@@ -29,18 +28,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 
 	// If TUN is disabled or not specified (and not a missing-arg case), run SOCKS-only.
 	if isTUNDisabled(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
-		if cfg.SOCKSListen == "" {
-			logError("--tun=none specified but no --socks provided; nothing to do\n")
-			return nil
-		}
-		stopSocks, err := StartSocks5(ctx, cfg.SOCKSListen, "", cfg.Debug, cfg.AllowDomains, cfg.ExcludeDomains, splitCSV(cfg.DNSList))
-		if err != nil {
-			return fmt.Errorf("start socks failed: %w", err)
-		}
-		defer func() { _ = stopSocks() }()
-		logInfo("SOCKS started without TUN (system routes only). Press Ctrl+C to exit.\n")
-		<-ctx.Done()
-		return nil
+		return runSocksOnly(ctx, cfg)
 	}
 
 	// Create TUN device.
@@ -69,13 +57,10 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	}
 	logInfo("TUN %s created\n", actualName)
 
-	// Derive TUN IP and peer; configure the interface.
-	tunIP, peerIP := tunCIDRParts(cfg.IPCIDR)
-	_ = runSudo("ifconfig", actualName, "inet", tunIP, peerIP, "mtu", fmt.Sprintf("%d", cfg.MTU), "up")
-
-	// Add IPv6 address to support IPv6 traffic through the VPN.
-	// Use a ULA (Unique Local Address) prefix with the same /120 subnet as IPv4.
-	_ = runSudo("ifconfig", actualName, "inet6", "fd00::2/120")
+	peerIP, err := configureDarwinTUN(actualName, cfg.IPCIDR, cfg.MTU, cfg.EnableIPv6)
+	if err != nil {
+		return err
+	}
 
 	if cfg.SOCKSListen != "" && !cfg.DefaultRoute && cfg.ExtraRoutes == "" && cfg.ExcludeRoutes == "" {
 		logInfo("SOCKS mode without route changes: only SOCKS traffic will use the VPN.\n")
@@ -97,11 +82,15 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	// Install routes based on mode.
 	if cfg.DefaultRoute {
 		if cfg.EnableKillSwitch {
-			rm.AddKillSwitchRoute()
+			if err := rm.AddKillSwitchRoute(); err != nil {
+				return err
+			}
 		}
 		rm.AddBypassEndpoint(cfg.APIURL)
 		rm.AddBypassEndpoint(cfg.ConnectURL)
-		rm.AddSplitDefault()
+		if err := rm.AddSplitDefault(); err != nil {
+			return err
+		}
 		for _, r := range splitCSV(cfg.ExcludeRoutes) {
 			rm.AddExclude(r)
 		}
@@ -145,24 +134,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 
 	// DNS cache bootstrap: remove DNS bypass once the tunnel has traffic.
 	if cfg.DefaultRoute && cfg.DNSBootstrap == "cache" {
-		go func() {
-			deadline := time.After(3 * time.Second)
-			ticker := time.NewTicker(200 * time.Millisecond)
-			defer ticker.Stop()
-		loop:
-			for {
-				select {
-				case <-deadline:
-					break loop
-				case <-ticker.C:
-					if atomic.LoadUint64(&pktsIn) > 0 && atomic.LoadUint64(&pktsOut) > 0 {
-						break loop
-					}
-				}
-			}
-			rm.RemoveDNSBypass()
-			logInfo("DNS bootstrap cache complete; DNS bypass removed\n")
-		}()
+		go removeDNSBypassWhenWarm(ctx, rm, &pktsIn, &pktsOut, 3*time.Second, 200*time.Millisecond)
 	}
 
 	// Run shared dataplane + SOCKS + stats.
@@ -185,10 +157,23 @@ func tunCIDRParts(ipCIDR string) (ip, peer string) {
 }
 
 func runSudo(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return cmdRunner.Run(name, args...)
+}
+
+// configureDarwinTUN must succeed before any route points at the utun; a half-configured
+// device would blackhole all routed traffic.
+func configureDarwinTUN(name, ipCIDR string, mtu int, enableIPv6 bool) (string, error) {
+	tunIP, peerIP := tunCIDRParts(ipCIDR)
+	if err := runSudo("ifconfig", name, "inet", tunIP, peerIP, "mtu", strconv.Itoa(mtu), "up"); err != nil {
+		return "", fmt.Errorf("configure TUN %s: %w", name, err)
+	}
+	if err := runSudo("ifconfig", name, "inet6", "fd00::2/120"); err != nil {
+		if enableIPv6 {
+			return "", fmt.Errorf("configure TUN %s IPv6 address: %w", name, err)
+		}
+		logDebug("IPv6 address on %s not set (%v); continuing because --enable_ipv6 is off\n", name, err)
+	}
+	return peerIP, nil
 }
 
 // getDefaultGateway returns the IPv4 default gateway and interface (e.g., 192.168.1.1, en0) on macOS.

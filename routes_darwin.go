@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 )
 
 // darwinAddedRoute records a route entry with type metadata for precise cleanup.
@@ -31,6 +32,7 @@ type darwinRouteManager struct {
 
 	addedCtrlBypass  []string           // IPs given bypass host routes for API/connect endpoints
 	addedDNSBypass   []string           // IPs given bypass host routes for DNS servers
+	mu               sync.Mutex         // guards addedDNSBypass; RemoveDNSBypass runs on the bootstrap goroutine
 	addedExcludes    []darwinAddedRoute // exclude routes via defGw or reject
 	addedScopedExcls []darwinAddedRoute // scoped reject excludes (SOCKS-only mode)
 	addedSplits      []darwinSplitRoute // split-default routes that were successfully added
@@ -82,9 +84,17 @@ func (m *darwinRouteManager) AddBypassEndpoint(rawURL string) {
 
 // AddSplitDefault installs 0.0.0.0/1 and 128.0.0.0/1 through the TUN.
 // Multiple route command variants are tried to handle different macOS versions.
-func (m *darwinRouteManager) AddSplitDefault() {
-	m.addVariant("0.0.0.0", "128.0.0.0")
-	m.addVariant("128.0.0.0", "128.0.0.0")
+func (m *darwinRouteManager) AddSplitDefault() error {
+	var failed []string
+	for _, dest := range []string{"0.0.0.0", "128.0.0.0"} {
+		if !m.addVariant(dest, "128.0.0.0") {
+			failed = append(failed, dest+"/1")
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("split default route %s via %s not installed; traffic would leak outside the tunnel", strings.Join(failed, ", "), m.tunName)
+	}
+	return nil
 }
 
 // AddScopedDefault installs split-default routes scoped to the TUN (SOCKS-only mode).
@@ -194,7 +204,9 @@ func (m *darwinRouteManager) AddDNSServerRoutes(ips []string, bypass bool) {
 			}
 			if out, err := runCapture("route", "-n", "add", "-host", ip, m.defGw); err == nil || strings.Contains(out, "File exists") {
 				if err == nil {
+					m.mu.Lock()
 					m.addedDNSBypass = append(m.addedDNSBypass, ip)
+					m.mu.Unlock()
 				}
 			}
 		} else {
@@ -221,8 +233,11 @@ func (m *darwinRouteManager) SetDNS(servers []string, service string) error {
 }
 
 // RemoveDNSBypass removes all DNS server bypass routes immediately.
-// Used by the dns_bootstrap=cache goroutine once the VPN tunnel has traffic.
+// Called from the dns_bootstrap=cache goroutine and from Cleanup; the mutex makes
+// the two safe to run concurrently and ensures each route is deleted exactly once.
 func (m *darwinRouteManager) RemoveDNSBypass() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, ip := range m.addedDNSBypass {
 		_ = runSudo("route", "-n", "delete", "-host", ip)
 	}
@@ -233,20 +248,29 @@ func (m *darwinRouteManager) RemoveDNSBypass() {
 // routes are removed, all traffic is blocked rather than leaking via the real
 // default gateway. Call this before AddSplitDefault so the /1 routes take priority.
 // The route is left in place on Cleanup when kill-switch mode is active.
-func (m *darwinRouteManager) AddKillSwitchRoute() {
+func (m *darwinRouteManager) AddKillSwitchRoute() error {
 	m.killSwitch = true
 	// Replace the existing default with a blackhole so traffic is blocked
 	// when the VPN split routes are absent. The /1 split routes are more
 	// specific and will supersede this while the VPN is running.
+	deletedDefault := false
 	if m.defGw != "" {
-		_ = runSudo("route", "-n", "delete", "default")
+		deletedDefault = runSudo("route", "-n", "delete", "default") == nil
 	}
-	if _, err := runCapture("route", "-n", "add", "-blackhole", "default"); err == nil {
+	_, err := runCapture("route", "-n", "add", "-blackhole", "default")
+	if err == nil {
 		m.killSwitchAdded = true
 		logInfo("kill switch: blackhole default route installed\n")
-	} else {
-		logWarn("kill switch: failed to install blackhole default route; leak protection may be incomplete\n")
+		return nil
 	}
+	if !deletedDefault {
+		return fmt.Errorf("kill switch: install blackhole default route: %w", err)
+	}
+	if rErr := runSudo("route", "-n", "add", "default", m.defGw); rErr != nil {
+		logError("kill switch: could not restore default route via %s: %v; run: sudo route add default %s\n", m.defGw, rErr, m.defGw)
+		return fmt.Errorf("kill switch: install blackhole default route: %w; restoring the default route also failed, run: sudo route add default %s", err, m.defGw)
+	}
+	return fmt.Errorf("kill switch: install blackhole default route: %w; original default route restored", err)
 }
 
 // Cleanup removes all routes and DNS configuration applied by this manager
@@ -283,9 +307,7 @@ func (m *darwinRouteManager) Cleanup() {
 		_ = runSudo("route", "-n", "delete", "-host", ip)
 	}
 	// DNS bypass routes (may already be nil if RemoveDNSBypass was called)
-	for _, ip := range m.addedDNSBypass {
-		_ = runSudo("route", "-n", "delete", "-host", ip)
-	}
+	m.RemoveDNSBypass()
 	// Extra TUN routes
 	for _, ar := range m.addedExtra {
 		if ar.isHost {

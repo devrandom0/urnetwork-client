@@ -14,22 +14,22 @@ import (
 const DefaultAPIURL = "https://api.bringyour.com"
 const DefaultConnectURL = "wss://connect.bringyour.com"
 
-const Version = "0.1.0"
+var Version = "dev"
 
-func main() {
-	usage := fmt.Sprintf(`urnet-client (experimental)
+func usageText() string {
+	return fmt.Sprintf(`urnet-client (experimental)
 
 Usage:
     urnet-client login --user_auth=<user_auth> --password=<password> [--api_url=<api_url>]
     urnet-client verify --user_auth=<user_auth> --code=<code> [--api_url=<api_url>]
     urnet-client save-jwt --jwt=<jwt>
     urnet-client mint-client [--api_url=<api_url>] [--jwt=<jwt>]
-	urnet-client quick-connect [--user_auth=<user_auth> --password=<password> [--code=<code>] | --jwt=<jwt>] [--api_url=<api_url>] [--connect_url=<connect_url>] [--tun=<name>] [--ip_cidr=<cidr>] [--mtu=<mtu>] [--default_route] [--route=<list>] [--exclude_route=<list>] [--domain=<list>] [--exclude_domain=<list>] [--dns=<list>] [--dns_service=<name>] [--dns_bootstrap=<mode>] [--location_query=<q>] [--location_id=<id>] [--location_group_id=<id>] [--socks=<addr>] [--socks_listen=<addr>] [--allow_inbound_src=<list>] [--allow_inbound_local] [--enable_ipv6] [--kill_switch] [--background] [--log_file=<path>] [--log_level=<level>] [--debug] [--stats_interval=<sec>] [--force_jwt] [--jwt_renew_interval=<dur>] [--config=<path>]
-    urnet-client socks --listen=<addr> --extender_ip=<ip> --extender_port=<port> --extender_sni=<sni> [--extender_secret=<secret>] [--domain=<list>] [--exclude_domain=<list>] [--debug]
+	urnet-client quick-connect [--user_auth=<user_auth> --password=<password> [--code=<code>] | --jwt=<jwt>] [--api_url=<api_url>] [--connect_url=<connect_url>] [--tun=<name>] [--ip_cidr=<cidr>] [--mtu=<mtu>] [--default_route] [--route=<list>] [--exclude_route=<list>] [--domain=<list>] [--exclude_domain=<list>] [--dns=<list>] [--dns_service=<name>] [--dns_bootstrap=<mode>] [--location_query=<q>] [--location_id=<id>] [--location_group_id=<id>] [--socks=<addr>] [--socks_listen=<addr>] [--socks_user=<user>] [--socks_pass=<pass>] [--allow_inbound_src=<list>] [--allow_inbound_local] [--enable_ipv6] [--kill_switch] [--background] [--log_file=<path>] [--log_level=<level>] [--debug] [--stats_interval=<sec>] [--force_jwt] [--jwt_renew_interval=<dur>] [--config=<path>]
+    urnet-client socks --listen=<addr> --extender_ip=<ip> --extender_port=<port> --extender_sni=<sni> [--extender_secret=<secret>] [--socks_user=<user>] [--socks_pass=<pass>] [--domain=<list>] [--exclude_domain=<list>] [--debug]
     urnet-client find-providers [--count=<count>] [--rank_mode=<rank_mode>] [--api_url=<api_url>] [--jwt=<jwt>]
     urnet-client open [--transports=<n>] [--connect_url=<connect_url>] [--api_url=<api_url>] [--jwt=<jwt>]
     urnet-client locations [--query=<q>] [--api_url=<api_url>] [--jwt=<jwt>]
-			urnet-client vpn [--tun=<name>] [--connect_url=<connect_url>] [--api_url=<api_url>] [--jwt=<jwt>] [--ip_cidr=<cidr>] [--mtu=<mtu>] [--default_route] [--route=<list>] [--exclude_route=<list>] [--domain=<list>] [--exclude_domain=<list>] [--dns=<list>] [--dns_service=<name>] [--dns_bootstrap=<mode>] [--location_query=<q>] [--location_id=<id>] [--location_group_id=<id>] [--socks=<addr>] [--socks_listen=<addr>] [--allow_inbound_src=<list>] [--allow_inbound_local] [--enable_ipv6] [--kill_switch] [--background] [--log_file=<path>] [--log_level=<level>] [--debug] [--stats_interval=<sec>] [--config=<path>]
+			urnet-client vpn [--tun=<name>] [--connect_url=<connect_url>] [--api_url=<api_url>] [--jwt=<jwt>] [--ip_cidr=<cidr>] [--mtu=<mtu>] [--default_route] [--route=<list>] [--exclude_route=<list>] [--domain=<list>] [--exclude_domain=<list>] [--dns=<list>] [--dns_service=<name>] [--dns_bootstrap=<mode>] [--location_query=<q>] [--location_id=<id>] [--location_group_id=<id>] [--socks=<addr>] [--socks_listen=<addr>] [--socks_user=<user>] [--socks_pass=<pass>] [--allow_inbound_src=<list>] [--allow_inbound_local] [--enable_ipv6] [--kill_switch] [--background] [--log_file=<path>] [--log_level=<level>] [--debug] [--stats_interval=<sec>] [--config=<path>]
 
 Options:
     --api_url=<api_url>          API base URL [default: %s]
@@ -59,6 +59,8 @@ Options:
     --extender_secret=<secret>   socks: optional pre-shared secret for extender auth
     --socks=<addr>               Start a SOCKS5 proxy (e.g., 127.0.0.1:1080) and bind traffic to the VPN
     --socks_listen=<addr>        Alias for --socks
+    --socks_user=<user>          SOCKS5 username (RFC 1929); env fallback URNETWORK_SOCKS_USER
+    --socks_pass=<pass>          SOCKS5 password; env fallback URNETWORK_SOCKS_PASS (prefer env, argv is visible in ps)
 	--allow_inbound_src=<list>   Comma-separated CIDRs to allow for new inbound connections (e.g., 10.0.0.0/8,192.168.0.0/16)
 	--allow_inbound_local        Also allow from local ranges (RFC1918, loopback, CGNAT, link-local) and the TUN subnet from --ip_cidr
 	--enable_ipv6                Allow IPv6 traffic; disabled by default. When disabled, IPv6 packets are dropped. Enable only if your VPN provider supports IPv6.
@@ -77,12 +79,17 @@ Options:
     --version                    Show version
     --config=<path>              Path to YAML config file; CLI flags take precedence
 `, DefaultAPIURL, DefaultConnectURL)
+}
+
+func main() {
+	usage := usageText()
 
 	opts, err := docopt.ParseArgs(usage, os.Args[1:], Version)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2)
 	}
+	secretsFromEnv := loadSecretEnv(opts)
 
 	if v, _ := opts.Bool("--version"); v {
 		fmt.Println(Version)
@@ -100,10 +107,15 @@ Options:
 	dbg, _ := opts.Bool("--debug")
 	setLogLevel(lvl, dbg)
 
+	if err := validateEndpointFlags(opts); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
+	}
+
 	// Handle --background for commands that support it before creating context.
 	if bg, _ := opts.Bool("--background"); bg {
 		if mustBool(opts, "quick-connect") || mustBool(opts, "vpn") {
-			pid, err := spawnBackground(os.Args)
+			pid, err := startBackground(opts, os.Args, spawnBackground)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "background start failed: %v\n", err)
 				os.Exit(1)
@@ -127,7 +139,7 @@ Options:
 	case mustBool(opts, "mint-client"):
 		runErr = cmdMintClient(ctx, opts)
 	case mustBool(opts, "quick-connect"):
-		runErr = cmdQuickConnect(ctx, opts)
+		runErr = cmdQuickConnect(ctx, opts, secretsFromEnv["--jwt"])
 	case mustBool(opts, "find-providers"):
 		runErr = cmdFindProviders(ctx, opts)
 	case mustBool(opts, "open"):
@@ -137,17 +149,7 @@ Options:
 	case mustBool(opts, "socks"):
 		runErr = cmdSocks(ctx, opts)
 	case mustBool(opts, "vpn"):
-		jwt, _ := loadJWT(getStringOr(opts, "--jwt", ""))
-		cfg := parseVPNConfig(opts, jwt)
-		if cfgPath := strings.TrimSpace(getStringOr(opts, "--config", "")); cfgPath != "" {
-			cf, err := loadConfigFile(cfgPath)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "error: %v\n", err)
-				os.Exit(1)
-			}
-			cfg = applyConfigFile(cfg, cf)
-		}
-		runErr = cmdVpn(ctx, cfg)
+		runErr = cmdVpnFromOpts(ctx, opts)
 	default:
 		fmt.Println(usage)
 	}
