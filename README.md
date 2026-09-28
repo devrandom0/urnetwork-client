@@ -98,7 +98,7 @@ Detailed documentation is in [docs/README.md](docs/README.md):
 
 ## Security note
 
-Prefer environment variables over secret flags: `URNETWORK_PASSWORD` instead of `--password`, `URNETWORK_JWT` instead of `--jwt`, `URNETWORK_SOCKS_PASS` instead of `--socks_pass`. Command-line arguments appear in shell history and in `ps` for every local user. With `--background`, these three flags are removed from the child's command line and handed over through its environment.
+Prefer environment variables over secret flags: `URNETWORK_PASSWORD` instead of `--password`, `URNETWORK_JWT` instead of `--jwt`, `URNETWORK_SOCKS_PASS` instead of `--socks_pass`. Command-line arguments appear in shell history and in `ps` for every local user. With `--background`, these three flags stay on the child's command line only as empty placeholders (`--password=`), and their values are handed over through its environment. Once read, the variables are removed from the process environment so the `route`, `ip`, `ifconfig` and `networksetup` commands it runs do not inherit them.
 
 ## Support
 
