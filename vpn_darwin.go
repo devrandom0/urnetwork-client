@@ -82,11 +82,15 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	// Install routes based on mode.
 	if cfg.DefaultRoute {
 		if cfg.EnableKillSwitch {
-			rm.AddKillSwitchRoute()
+			if err := rm.AddKillSwitchRoute(); err != nil {
+				return err
+			}
 		}
 		rm.AddBypassEndpoint(cfg.APIURL)
 		rm.AddBypassEndpoint(cfg.ConnectURL)
-		rm.AddSplitDefault()
+		if err := rm.AddSplitDefault(); err != nil {
+			return err
+		}
 		for _, r := range splitCSV(cfg.ExcludeRoutes) {
 			rm.AddExclude(r)
 		}

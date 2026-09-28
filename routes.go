@@ -11,7 +11,8 @@ type RouteManager interface {
 
 	// AddSplitDefault installs split-default routes (0.0.0.0/1 and 128.0.0.0/1)
 	// through the managed TUN, making it the effective default gateway.
-	AddSplitDefault()
+	// It returns an error if either half is missing so startup can abort before traffic leaks.
+	AddSplitDefault() error
 
 	// AddExclude installs a route for dest (host or CIDR) that bypasses the TUN.
 	// Routes it via the original gateway or a reject route when no gateway is available.

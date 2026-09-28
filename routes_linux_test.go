@@ -15,7 +15,7 @@ func TestLinuxRoutes_RecordOnlyOnSuccess(t *testing.T) {
 	f.failOn("ip route add 1.1.1.1 dev tun0", "RTNETLINK answers: File exists")
 
 	m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
-	m.AddSplitDefault()
+	_ = m.AddSplitDefault()
 	m.AddExclude("10.0.0.0/8")
 	m.AddExclude("10.1.0.0/16")
 	m.AddExtraRoute("172.16.0.0/12")
@@ -39,7 +39,7 @@ func TestLinuxRoutes_RecordOnlyOnSuccess(t *testing.T) {
 func TestLinuxRoutes_CleanupDeletesEveryAddedRoute(t *testing.T) {
 	f := useFakeRunner(t)
 	m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
-	m.AddSplitDefault()
+	_ = m.AddSplitDefault()
 	m.AddExclude("10.1.0.0/16")
 	m.AddExtraRoute("172.20.0.0/16")
 	m.AddDNSServerRoutes([]string{"9.9.9.9"}, true)
@@ -63,5 +63,84 @@ func TestLinuxRoutes_ExcludeWithoutGatewayUsesUnreachableType(t *testing.T) {
 	m.AddExclude("10.9.0.0/16")
 	if f.count("ip route add unreachable 10.9.0.0/16") != 1 {
 		t.Fatalf("calls = %v; want `ip route add unreachable 10.9.0.0/16`", f.Calls())
+	}
+}
+
+func TestLinuxKillSwitch_InstalledReturnsNil(t *testing.T) {
+	f := useFakeRunner(t)
+	m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+
+	if err := m.AddKillSwitchRoute(); err != nil {
+		t.Fatalf("AddKillSwitchRoute = %v; want nil when the blackhole is installed", err)
+	}
+	if !m.killSwitchAdded {
+		t.Fatal("killSwitchAdded should be true")
+	}
+	if f.count("ip route add default via 192.168.1.1 dev eth0") != 0 {
+		t.Fatalf("calls = %v; default must not be re-added while the kill switch is active", f.Calls())
+	}
+}
+
+func TestLinuxKillSwitch_BlackholeFailureRestoresDefaultAndErrors(t *testing.T) {
+	f := useFakeRunner(t)
+	f.failOn("ip route add blackhole default", "RTNETLINK answers: Operation not permitted")
+	m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+
+	if err := m.AddKillSwitchRoute(); err == nil {
+		t.Fatal("AddKillSwitchRoute = nil; want an error so startup aborts without leak protection")
+	}
+	if m.killSwitchAdded {
+		t.Fatal("killSwitchAdded must stay false when the blackhole route failed")
+	}
+	if f.count("ip route add default via 192.168.1.1 dev eth0") != 1 {
+		t.Fatalf("calls = %v; want the original default restored", f.Calls())
+	}
+}
+
+func TestLinuxKillSwitch_RestoreFailureNamesManualCommand(t *testing.T) {
+	f := useFakeRunner(t)
+	f.failOn("ip route add blackhole default", "RTNETLINK answers: Operation not permitted")
+	f.failOn("ip route add default via 192.168.1.1 dev eth0", "RTNETLINK answers: Network is unreachable")
+	m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+
+	err := m.AddKillSwitchRoute()
+	if err == nil || !strings.Contains(err.Error(), "ip route add default via 192.168.1.1 dev eth0") {
+		t.Fatalf("AddKillSwitchRoute = %v; want an error naming the manual restore command", err)
+	}
+}
+
+func TestLinuxKillSwitch_NoRestoreWhenDeleteFailed(t *testing.T) {
+	f := useFakeRunner(t)
+	f.failOn("ip route del default via 192.168.1.1 dev eth0", "RTNETLINK answers: No such process")
+	f.failOn("ip route add blackhole default", "RTNETLINK answers: File exists")
+	m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+
+	if err := m.AddKillSwitchRoute(); err == nil {
+		t.Fatal("AddKillSwitchRoute = nil; want an error")
+	}
+	if f.count("ip route add default via 192.168.1.1 dev eth0") != 0 {
+		t.Fatalf("calls = %v; nothing was deleted, so nothing should be re-added", f.Calls())
+	}
+}
+
+func TestLinuxSplitDefault_ErrorsWhenEitherHalfFails(t *testing.T) {
+	for _, failing := range []string{"0.0.0.0/1", "128.0.0.0/1"} {
+		t.Run(failing, func(t *testing.T) {
+			f := useFakeRunner(t)
+			f.failOn("ip route add "+failing+" dev tun0", "RTNETLINK answers: File exists")
+			m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+
+			if err := m.AddSplitDefault(); err == nil {
+				t.Fatalf("AddSplitDefault = nil with %s failing; want an error so startup aborts", failing)
+			}
+		})
+	}
+}
+
+func TestLinuxSplitDefault_NilWhenBothHalvesAdded(t *testing.T) {
+	useFakeRunner(t)
+	m := newLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+	if err := m.AddSplitDefault(); err != nil {
+		t.Fatalf("AddSplitDefault = %v; want nil", err)
 	}
 }
