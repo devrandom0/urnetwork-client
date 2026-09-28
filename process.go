@@ -6,25 +6,93 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	"github.com/docopt/docopt-go"
 )
 
+type secretArg struct {
+	Flag  string // canonical long option
+	Env   string
+	Value string
+}
+
+// secretFlags leave argv when re-executing with --background, because a long-lived
+// process's argv is readable by every local user via ps; the environment is not.
+var secretFlags = []secretArg{
+	{Flag: "--password", Env: "URNETWORK_PASSWORD"},
+	{Flag: "--jwt", Env: "URNETWORK_JWT"},
+	{Flag: "--socks_pass", Env: "URNETWORK_SOCKS_PASS"},
+}
+
+func backgroundSecrets(opts docopt.Opts) []secretArg {
+	out := make([]secretArg, 0, len(secretFlags))
+	for _, s := range secretFlags {
+		s.Value = getStringOr(opts, s.Flag, "")
+		out = append(out, s)
+	}
+	return out
+}
+
+// applySecretEnvFallbacks lets a background child (and any caller) supply secret flags
+// through the environment. Explicit flags always win.
+func applySecretEnvFallbacks(opts docopt.Opts, getenv func(string) string) {
+	for _, s := range secretFlags {
+		if getStringOr(opts, s.Flag, "") != "" {
+			continue
+		}
+		if v := getenv(s.Env); v != "" {
+			opts[s.Flag] = v
+		}
+	}
+}
+
+// scrubSecretArgs drops the program name, --background and every secret flag from argv,
+// and returns env entries that carry the secret values instead. Matching requires the
+// value too, because docopt accepts unambiguous prefixes (--pass) and --socks is itself
+// a prefix of --socks_pass.
+func scrubSecretArgs(argv []string, secrets []secretArg) (args, env []string) {
+	for _, s := range secrets {
+		if s.Value != "" {
+			env = append(env, s.Env+"="+s.Value)
+		}
+	}
+	for i := 1; i < len(argv); i++ {
+		a := argv[i]
+		if a == "--background" || strings.HasPrefix(a, "--background=") {
+			continue
+		}
+		name, val, hasEq := strings.Cut(a, "=")
+		dropped := false
+		for _, s := range secrets {
+			if s.Value == "" || len(name) <= 2 || !strings.HasPrefix(name, "--") || !strings.HasPrefix(s.Flag, name) {
+				continue
+			}
+			if hasEq && val == s.Value {
+				dropped = true
+				break
+			}
+			if !hasEq && i+1 < len(argv) && argv[i+1] == s.Value {
+				i++
+				dropped = true
+				break
+			}
+		}
+		if !dropped {
+			args = append(args, a)
+		}
+	}
+	return args, env
+}
+
 // spawnBackground detaches a child copy of this process (dropping --background) and returns its PID.
-func spawnBackground(argv []string) (int, error) {
+func spawnBackground(argv []string, secrets []secretArg) (int, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return 0, err
 	}
-	args := make([]string, 0, len(argv)-1)
-	for i, a := range argv {
-		if i == 0 {
-			continue // skip program name
-		}
-		if a == "--background" || strings.HasPrefix(a, "--background=") {
-			continue
-		}
-		args = append(args, a)
-	}
+	args, secretEnv := scrubSecretArgs(argv, secrets)
 	cmd := exec.Command(exe, args...)
+	cmd.Env = append(os.Environ(), secretEnv...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	devnull, _ := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	cmd.Stdin = devnull
