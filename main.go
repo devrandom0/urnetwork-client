@@ -16,8 +16,8 @@ const DefaultConnectURL = "wss://connect.bringyour.com"
 
 var Version = "dev"
 
-func main() {
-	usage := fmt.Sprintf(`urnet-client (experimental)
+func usageText() string {
+	return fmt.Sprintf(`urnet-client (experimental)
 
 Usage:
     urnet-client login --user_auth=<user_auth> --password=<password> [--api_url=<api_url>]
@@ -79,13 +79,17 @@ Options:
     --version                    Show version
     --config=<path>              Path to YAML config file; CLI flags take precedence
 `, DefaultAPIURL, DefaultConnectURL)
+}
+
+func main() {
+	usage := usageText()
 
 	opts, err := docopt.ParseArgs(usage, os.Args[1:], Version)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2)
 	}
-	secretsFromEnv := applySecretEnvFallbacks(opts, os.Getenv)
+	secretsFromEnv := loadSecretEnv(opts)
 
 	if v, _ := opts.Bool("--version"); v {
 		fmt.Println(Version)
@@ -111,7 +115,7 @@ Options:
 	// Handle --background for commands that support it before creating context.
 	if bg, _ := opts.Bool("--background"); bg {
 		if mustBool(opts, "quick-connect") || mustBool(opts, "vpn") {
-			pid, err := spawnBackground(os.Args, backgroundSecrets(opts))
+			pid, err := startBackground(opts, os.Args, spawnBackground)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "background start failed: %v\n", err)
 				os.Exit(1)

@@ -66,7 +66,7 @@ func scrubSecretArgs(argv []string, secrets []secretArg) (args, env []string) {
 	}
 	for i := 1; i < len(argv); i++ {
 		a := argv[i]
-		if a == "--background" || strings.HasPrefix(a, "--background=") {
+		if isBackgroundFlag(a) {
 			continue
 		}
 		name, val, hasEq := strings.Cut(a, "=")
@@ -92,6 +92,32 @@ func scrubSecretArgs(argv []string, secrets []secretArg) (args, env []string) {
 		}
 	}
 	return args, env
+}
+
+// isBackgroundFlag also matches the abbreviations docopt accepts (--back); leaving one in
+// the child's argv would make every child spawn another child.
+func isBackgroundFlag(arg string) bool {
+	name, _, _ := strings.Cut(arg, "=")
+	return len(name) > 2 && strings.HasPrefix("--background", name)
+}
+
+// loadSecretEnv applies the secret env fallbacks, then removes those variables from this
+// process's environment so route, ip, ifconfig and networksetup children do not inherit them.
+func loadSecretEnv(opts docopt.Opts) map[string]bool {
+	fromEnv := applySecretEnvFallbacks(opts, os.Getenv)
+	for _, s := range secretFlags {
+		_ = os.Unsetenv(s.Env)
+	}
+	return fromEnv
+}
+
+// startBackground resolves the VPN config first because the child's stderr is /dev/null:
+// a config error found only there would leave the user with a "started" message and no VPN.
+func startBackground(opts docopt.Opts, argv []string, spawn func([]string, []secretArg) (int, error)) (int, error) {
+	if _, err := resolveVPNConfig(opts); err != nil {
+		return 0, err
+	}
+	return spawn(argv, backgroundSecrets(opts))
 }
 
 // spawnBackground detaches a child copy of this process (dropping --background) and returns its PID.
