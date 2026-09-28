@@ -2,7 +2,6 @@ package main
 
 import (
 	neturl "net/url"
-	"os/exec"
 	"strings"
 
 	"github.com/docopt/docopt-go"
@@ -27,9 +26,7 @@ func splitCSV(s string) []string {
 
 // runCapture executes a command and returns its combined stdout+stderr output and any error.
 func runCapture(name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
-	out, err := cmd.CombinedOutput()
-	return string(out), err
+	return cmdRunner.Capture(name, args...)
 }
 
 // getStringOr returns the string value for key from opts, or def if missing/empty.
