@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	gojwt "github.com/golang-jwt/jwt/v5"
+
+	"github.com/devrandom0/urnetwork-client/internal/safefile"
 )
 
 func Path() string {
@@ -35,7 +37,7 @@ func Save(jwt string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(strings.TrimSpace(jwt)+"\n"), 0o600)
+	return safefile.WriteFile(path, []byte(strings.TrimSpace(jwt)+"\n"))
 }
 
 // ParseClientID extracts the client_id claim from a JWT without verifying its signature.

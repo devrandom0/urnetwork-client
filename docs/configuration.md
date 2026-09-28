@@ -52,6 +52,14 @@ These are planned to go away with a config rework:
 ## Environment variables
 
 - `URNETWORK_HOME`: directory containing `jwt` (default `~/.urnetwork`).
+
+### Files the client writes
+
+- The JWT file (`$URNETWORK_HOME/jwt`, default `~/.urnetwork/jwt`) is replaced atomically through a temp file and rename, with mode 0600. `--log_file` is opened for append with mode 0600.
+- Both refuse a target that is a symlink or not a regular file, and a directory that another user (other than root) owns or that is group/world-writable without the sticky bit. Symlinks in the directory path itself are resolved first, so paths such as `/tmp` on macOS work.
+- `--log_file` also refuses a file with more than one hard link or owned by a different user.
+- When run as root (sudo) against a directory owned by a normal user, for example your home, the write is allowed and new files are handed to that user so later non-sudo commands can read them.
+
 - `URNETWORK_USERNAME`: fallback for `--user_auth` in `quick-connect`.
 - `URNETWORK_PASSWORD`: fallback for `--password`.
 - `URNETWORK_JWT`: fallback for `--jwt`.
