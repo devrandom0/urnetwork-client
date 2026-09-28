@@ -22,10 +22,10 @@ func TestScrubSecretArgs(t *testing.T) {
 		argv []string
 		want []string
 	}{
-		{"equals form and background", []string{"urnet-client", "quick-connect", "--user_auth=me@x", "--password=hunter2", "--background"}, []string{"quick-connect", "--user_auth=me@x"}},
-		{"separate value", []string{"urnet-client", "vpn", "--jwt", "eyJ.x.y", "--tun=urnet0"}, []string{"vpn", "--tun=urnet0"}},
-		{"docopt prefix abbreviation", []string{"urnet-client", "quick-connect", "--pass=hunter2"}, []string{"quick-connect"}},
-		{"--socks is not mistaken for --socks_pass", []string{"urnet-client", "vpn", "--socks=0.0.0.0:1080", "--socks_pass=sockspw", "--socks", "127.0.0.1:1081"}, []string{"vpn", "--socks=0.0.0.0:1080", "--socks", "127.0.0.1:1081"}},
+		{"equals form and background", []string{"urnet-client", "quick-connect", "--user_auth=me@x", "--password=hunter2", "--background"}, []string{"quick-connect", "--user_auth=me@x", "--password="}},
+		{"separate value", []string{"urnet-client", "vpn", "--jwt", "eyJ.x.y", "--tun=urnet0"}, []string{"vpn", "--jwt=", "--tun=urnet0"}},
+		{"docopt prefix abbreviation", []string{"urnet-client", "quick-connect", "--pass=hunter2"}, []string{"quick-connect", "--pass="}},
+		{"--socks is not mistaken for --socks_pass", []string{"urnet-client", "vpn", "--socks=0.0.0.0:1080", "--socks_pass=sockspw", "--socks", "127.0.0.1:1081"}, []string{"vpn", "--socks=0.0.0.0:1080", "--socks_pass=", "--socks", "127.0.0.1:1081"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
