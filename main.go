@@ -145,17 +145,7 @@ Options:
 	case mustBool(opts, "socks"):
 		runErr = cmdSocks(ctx, opts)
 	case mustBool(opts, "vpn"):
-		jwt, _ := loadJWT(getStringOr(opts, "--jwt", ""))
-		cfg := parseVPNConfig(opts, jwt)
-		if cfgPath := strings.TrimSpace(getStringOr(opts, "--config", "")); cfgPath != "" {
-			cf, err := loadConfigFile(cfgPath)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "error: %v\n", err)
-				os.Exit(1)
-			}
-			cfg = applyConfigFile(cfg, cf)
-		}
-		runErr = cmdVpn(ctx, cfg)
+		runErr = cmdVpnFromOpts(ctx, opts)
 	default:
 		fmt.Println(usage)
 	}
