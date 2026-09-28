@@ -16,6 +16,12 @@
 - `--exclude_route` uses original default path when known.
 - Some environments may need policy routing for strict interface binding.
 
+## Windows
+
+Not a supported runtime target: there is no VPN, route or privileged-tool support. The module
+does build with `GOOS=windows` (CI checks this), so the codebase stays portable, but the binary
+has no working commands beyond argument parsing.
+
 ## Current limitations
 
 - UDP over SOCKS is available, but app support varies.

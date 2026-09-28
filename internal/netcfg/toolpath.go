@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 )
 
 // systemToolDirs (per OS) are searched in order; $PATH is never consulted, so the caller's
@@ -68,9 +67,4 @@ func (l *toolLookup) usable(dir, path string) bool {
 		}
 	}
 	return true
-}
-
-func rootOnly(fi fs.FileInfo) bool {
-	st, ok := fi.Sys().(*syscall.Stat_t)
-	return ok && st.Uid == 0 && fi.Mode().Perm()&0o022 == 0
 }

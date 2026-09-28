@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 )
 
 var (
@@ -21,14 +20,6 @@ var (
 	fileOwner = statOwner
 	fchown    = func(f *os.File, uid, gid int) error { return f.Chown(uid, gid) }
 )
-
-func statOwner(fi fs.FileInfo) (uid, gid uint32, ok bool) {
-	st, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok {
-		return 0, 0, false
-	}
-	return st.Uid, st.Gid, true
-}
 
 // parseSudoUID returns -1 when SUDO_UID is unset or not a uid.
 func parseSudoUID(s string) int {
@@ -274,7 +265,7 @@ func WriteFile(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	f, err := d.root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	f, err := d.root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|noFollowFlag, 0o600)
 	if err != nil {
 		return err
 	}
@@ -319,7 +310,7 @@ func OpenAppend(path string) (*os.File, error) {
 	name := filepath.Base(path)
 	// O_NONBLOCK keeps a FIFO planted at path from blocking the open; it is cleared once the
 	// descriptor is known to be a regular file.
-	const flags = os.O_WRONLY | os.O_APPEND | syscall.O_NOFOLLOW | syscall.O_NONBLOCK
+	const flags = os.O_WRONLY | os.O_APPEND | noFollowFlag | nonblockFlag
 	created := true
 	f, err := d.root.OpenFile(name, flags|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, fs.ErrExist) {
@@ -346,8 +337,8 @@ func checkOpened(f *os.File, path, name string, d *dir, created bool) error {
 	if entry, err := d.root.Lstat(name); err != nil || !os.SameFile(fi, entry) {
 		return fmt.Errorf("%s is a symlink or was replaced while opening; refusing to append to it", path)
 	}
-	if st, ok := fi.Sys().(*syscall.Stat_t); ok && st.Nlink > 1 {
-		return fmt.Errorf("%s has %d hard links; refusing to append to it", path, st.Nlink)
+	if nlink, ok := nlinkOf(fi); ok && nlink > 1 {
+		return fmt.Errorf("%s has %d hard links; refusing to append to it", path, nlink)
 	}
 	uid, _, err := ownerOf(fi, path)
 	if err != nil {
@@ -356,7 +347,7 @@ func checkOpened(f *os.File, path, name string, d *dir, created bool) error {
 	if err := appendOwnerErr(path, uid, d.uid, geteuid(), parseSudoUID(os.Getenv("SUDO_UID"))); err != nil {
 		return err
 	}
-	if err := syscall.SetNonblock(int(f.Fd()), false); err != nil {
+	if err := clearNonblock(f); err != nil {
 		return err
 	}
 	if created {
@@ -394,7 +385,7 @@ func checkRegular(f *os.File, path string) (fs.FileInfo, error) {
 // ReadFile reads path, refusing special files and files larger than limit bytes. As root it
 // also refuses a symlink at path; other users may point their config at a dotfile manager's link.
 func ReadFile(path string, limit int64) ([]byte, error) {
-	flags := os.O_RDONLY | syscall.O_NONBLOCK
+	flags := os.O_RDONLY | nonblockFlag
 	root := geteuid() == 0
 	if root {
 		cleaned, err := filepath.Abs(path)
@@ -404,10 +395,10 @@ func ReadFile(path string, limit int64) ([]byte, error) {
 		if err := rootSymlinkErr(filepath.Dir(cleaned), os.Lstat, os.Readlink); err != nil {
 			return nil, err
 		}
-		flags |= syscall.O_NOFOLLOW
+		flags |= noFollowFlag
 	}
 	f, err := os.OpenFile(path, flags, 0)
-	if root && errors.Is(err, syscall.ELOOP) {
+	if root && errors.Is(err, errSymlinkLoop) {
 		return nil, fmt.Errorf("%s is a symlink; refusing to follow it as root", path)
 	}
 	if err != nil {
