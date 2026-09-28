@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"net"
 	"testing"
@@ -16,10 +17,10 @@ func TestSocks_ConnCapClosesConnectionsOverTheLimit(t *testing.T) {
 
 	extra := dialSocks(t, proxy)
 	_ = extra.SetReadDeadline(time.Now().Add(2 * time.Second))
-	if _, err := extra.Write([]byte{5, 1, socksMethodNoAuth}); err == nil {
-		if _, err := extra.Read(make([]byte, 2)); err != io.EOF {
-			t.Fatalf("read over the cap = %v; want the connection closed without a handshake", err)
-		}
+	_, _ = extra.Write([]byte{5, 1, socksMethodNoAuth})
+	var ne net.Error
+	if n, err := io.ReadFull(extra, make([]byte, 2)); err == nil || (errors.As(err, &ne) && ne.Timeout()) {
+		t.Fatalf("read over the cap = %d bytes, %v; want the connection closed (EOF or reset) without a handshake", n, err)
 	}
 
 	_ = held[0].Close()
