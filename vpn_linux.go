@@ -5,8 +5,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 
@@ -109,10 +107,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 }
 
 func run(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return cmdRunner.Run(name, args...)
 }
 
 // linuxListDefaultRoutes parses all current default routes via `ip -o route show default`.
