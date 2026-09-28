@@ -25,7 +25,7 @@ func cmdVpnFromOpts(ctx context.Context, opts docopt.Opts) error {
 	return session.Run(ctx, cfg, Version)
 }
 
-// vpnUsesTUN mirrors the SOCKS-only detection in cmdVpn; SOCKS-only mode never calls the API.
+// vpnUsesTUN mirrors the SOCKS-only detection in session.Run; SOCKS-only mode never calls the API.
 func vpnUsesTUN(cfg config.VPNConfig) bool {
 	tun := strings.TrimSpace(cfg.TunName)
 	return tun != "" && !session.IsTUNDisabled(tun)

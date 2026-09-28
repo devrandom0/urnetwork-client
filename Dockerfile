@@ -22,22 +22,21 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go mod download
 
-# Copy only Go source at repo root to avoid cache busts from docs/CI edits.
-# If you later add subpackages or assets, adjust this list or use a more
-# selective .dockerignore include strategy.
-COPY *.go ./
+# Copy only Go source to avoid cache busts from docs/CI edits.
+COPY cmd ./cmd
+COPY internal ./internal
 
-# Build the CLI from repository root (main.go is at root)
+# Build the CLI (main package lives in cmd/urnet-client)
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -trimpath -buildvcs=false -ldflags="-s -w -X main.Version=${VERSION}" \
-    -o /out/urnet-client ./
+    -o /out/urnet-client ./cmd/urnet-client
 
 # Runtime image
 FROM alpine:3.24
 
-# Add CA certs, tzdata and networking tools needed by vpn_linux.go (iproute2 provides `ip`)
+# Add CA certs, tzdata and networking tools needed by internal/netcfg (iproute2 provides `ip`)
 RUN apk add --no-cache ca-certificates tzdata iproute2 && adduser -D -u 10001 appuser
 
 # Binary
