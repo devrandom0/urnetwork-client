@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -68,13 +69,10 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	}
 	logInfo("TUN %s created\n", actualName)
 
-	// Derive TUN IP and peer; configure the interface.
-	tunIP, peerIP := tunCIDRParts(cfg.IPCIDR)
-	_ = runSudo("ifconfig", actualName, "inet", tunIP, peerIP, "mtu", fmt.Sprintf("%d", cfg.MTU), "up")
-
-	// Add IPv6 address to support IPv6 traffic through the VPN.
-	// Use a ULA (Unique Local Address) prefix with the same /120 subnet as IPv4.
-	_ = runSudo("ifconfig", actualName, "inet6", "fd00::2/120")
+	peerIP, err := configureDarwinTUN(actualName, cfg.IPCIDR, cfg.MTU, cfg.EnableIPv6)
+	if err != nil {
+		return err
+	}
 
 	if cfg.SOCKSListen != "" && !cfg.DefaultRoute && cfg.ExtraRoutes == "" && cfg.ExcludeRoutes == "" {
 		logInfo("SOCKS mode without route changes: only SOCKS traffic will use the VPN.\n")
@@ -185,6 +183,22 @@ func tunCIDRParts(ipCIDR string) (ip, peer string) {
 
 func runSudo(name string, args ...string) error {
 	return cmdRunner.Run(name, args...)
+}
+
+// configureDarwinTUN must succeed before any route points at the utun; a half-configured
+// device would blackhole all routed traffic.
+func configureDarwinTUN(name, ipCIDR string, mtu int, enableIPv6 bool) (string, error) {
+	tunIP, peerIP := tunCIDRParts(ipCIDR)
+	if err := runSudo("ifconfig", name, "inet", tunIP, peerIP, "mtu", strconv.Itoa(mtu), "up"); err != nil {
+		return "", fmt.Errorf("configure TUN %s: %w", name, err)
+	}
+	if err := runSudo("ifconfig", name, "inet6", "fd00::2/120"); err != nil {
+		if enableIPv6 {
+			return "", fmt.Errorf("configure TUN %s IPv6 address: %w", name, err)
+		}
+		logDebug("IPv6 address on %s not set (%v); continuing because --enable_ipv6 is off\n", name, err)
+	}
+	return peerIP, nil
 }
 
 // getDefaultGateway returns the IPv4 default gateway and interface (e.g., 192.168.1.1, en0) on macOS.
