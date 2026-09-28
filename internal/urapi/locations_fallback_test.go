@@ -43,7 +43,7 @@ func TestFilterLocationsFallback_CountryMatch(t *testing.T) {
 	}
 
 	// We cannot directly pass our res into filterLocationsFallback without modifying code, so
-	// we instead validate the helper behaviors used by the fallback and rely on api_http_test for HTTP paths.
+	// we instead validate the helper behaviors used by the fallback and rely on http_test.go for HTTP paths.
 	// This keeps the test small and portable.
 	_ = res
 	_ = context.Background()
