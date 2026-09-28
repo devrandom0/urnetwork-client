@@ -397,6 +397,13 @@ func ReadFile(path string, limit int64) ([]byte, error) {
 	flags := os.O_RDONLY | syscall.O_NONBLOCK
 	root := geteuid() == 0
 	if root {
+		cleaned, err := filepath.Abs(path)
+		if err != nil {
+			return nil, err
+		}
+		if err := rootSymlinkErr(filepath.Dir(cleaned), os.Lstat, os.Readlink); err != nil {
+			return nil, err
+		}
 		flags |= syscall.O_NOFOLLOW
 	}
 	f, err := os.OpenFile(path, flags, 0)

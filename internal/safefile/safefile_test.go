@@ -619,6 +619,60 @@ func TestReadFile_RefusesFIFOWithoutHanging(t *testing.T) {
 	})
 }
 
+func TestReadFile_RootAcceptsRootOwnedSymlinkedParentDir(t *testing.T) {
+	useEUID(t, 0)
+	useOwner(t, func(fs.FileInfo) (uint32, uint32, bool) { return 0, 0, true })
+	realDir := realTempDir(t)
+	if err := os.WriteFile(filepath.Join(realDir, "jwt"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(realTempDir(t), "home")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Fatal(err)
+	}
+	b, err := ReadFile(filepath.Join(linkDir, "jwt"), 16)
+	if err != nil || string(b) != "secret" {
+		t.Fatalf("root-owned symlinks such as macOS /tmp and /var must be followed as root: %q, %v", b, err)
+	}
+}
+
+func TestReadFile_RootRefusesSymlinkedParentDir(t *testing.T) {
+	useEUID(t, 0)
+	useOwner(t, func(fi fs.FileInfo) (uint32, uint32, bool) {
+		if fi.Mode()&fs.ModeSymlink != 0 {
+			return 4343, 4343, true
+		}
+		return 0, 0, true
+	})
+	realDir := realTempDir(t)
+	if err := os.WriteFile(filepath.Join(realDir, "jwt"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(realTempDir(t), "home")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadFile(filepath.Join(linkDir, "jwt"), 16); err == nil {
+		t.Fatal("a root run read through a symlinked parent directory")
+	}
+}
+
+func TestReadFile_FollowsSymlinkedParentDirWhenNotRoot(t *testing.T) {
+	useEUID(t, 4242)
+	realDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(realDir, "jwt"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(t.TempDir(), "home")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Fatal(err)
+	}
+	b, err := ReadFile(filepath.Join(linkDir, "jwt"), 16)
+	if err != nil || string(b) != "secret" {
+		t.Fatalf("a non-root read must follow a symlinked parent directory: %q, %v", b, err)
+	}
+}
+
 func nonblocking(t *testing.T, f *os.File) bool {
 	t.Helper()
 	rc, err := f.SyscallConn()
