@@ -6,9 +6,9 @@ import (
 	"fmt"
 
 	"github.com/docopt/docopt-go"
-	"github.com/urnetwork/connect"
 
 	"github.com/devrandom0/urnetwork-client/internal/config"
+	"github.com/devrandom0/urnetwork-client/internal/urapi"
 )
 
 func cmdOpen(ctx context.Context, opts docopt.Opts) error {
@@ -20,33 +20,15 @@ func cmdOpen(ctx context.Context, opts docopt.Opts) error {
 		return err
 	}
 
-	api := newByAPI(ctx, apiURL, jwt)
-	strat := connect.NewClientStrategyWithDefaults(ctx)
-
 	clientIDStr := parseClientID(jwt)
 	if clientIDStr == "" {
 		return errors.New("JWT missing client_id (run 'urnet-client mint-client' to mint a client-scoped JWT)")
 	}
-	clientID, err := connect.ParseId(clientIDStr)
+	closeAll, err := urapi.OpenTransports(ctx, apiURL, connectURL, jwt, clientIDStr, config.IntOr(opts, "--transports", 4), Version)
 	if err != nil {
 		return err
 	}
-
-	oob := connect.NewApiOutOfBandControlWithApi(api)
-	client := connect.NewClientWithDefaults(ctx, clientID, oob)
-	defer client.Close()
-
-	auth := &connect.ClientAuth{
-		ByJwt:      jwt,
-		InstanceId: connect.NewId(),
-		AppVersion: fmt.Sprintf("urnet-client %s", Version),
-	}
-
-	n := config.IntOr(opts, "--transports", 4)
-	for i := 0; i < n; i++ {
-		pt := connect.NewPlatformTransportWithDefaults(ctx, strat, client.RouteManager(), fmt.Sprintf("%s/", connectURL), auth)
-		defer pt.Close()
-	}
+	defer closeAll()
 
 	fmt.Println("transports opened; press Ctrl-C to exit")
 	<-ctx.Done()

@@ -10,9 +10,7 @@ import (
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 	"github.com/devrandom0/urnetwork-client/internal/socks"
 	"github.com/devrandom0/urnetwork-client/internal/tunnel"
-
-	"github.com/urnetwork/connect"
-	"github.com/urnetwork/connect/protocol"
+	"github.com/devrandom0/urnetwork-client/internal/urapi"
 )
 
 // vpnRunCore selects providers, runs the dataplane between dev and the provider, prints stats
@@ -25,22 +23,17 @@ func vpnRunCore(
 	counters *tunnel.Counters,
 	onBeforeExit func(),
 ) {
-	strat, specs := buildProviderSpecs(ctx, cfg.APIURL, cfg.JWT, cfg.Location)
-	appVer := fmt.Sprintf("urnet-client %s", Version)
-	gen := connect.NewApiMultiClientGeneratorWithDefaults(
-		ctx, specs, strat, nil, cfg.APIURL, cfg.JWT, fmt.Sprintf("%s/", cfg.ConnectURL), "", "", appVer, nil,
-	)
-
+	gen := urapi.NewGenerator(ctx, urapi.GeneratorConfig{
+		APIURL:     cfg.APIURL,
+		ConnectURL: cfg.ConnectURL,
+		JWT:        cfg.JWT,
+		AppVersion: Version,
+		Location:   cfg.Location,
+	})
 	policy := tunnel.NewInboundPolicy(cfg.AllowInboundSrcList, cfg.AllowInboundLocal, cfg.IPCIDR)
 	dp := tunnel.NewDataplane(dev, policy, cfg.EnableIPv6, counters)
-	receive := func(source connect.TransferPath, provideMode protocol.ProvideMode, ipPath *connect.IpPath, packet []byte) {
-		logx.Debug("<- provider len=%d src=%v mode=%v ipPath=%v\n", len(packet), source, provideMode, ipPath)
-		dp.Receive(packet)
-	}
-	mc := connect.NewRemoteUserNatMultiClientWithDefaults(ctx, gen, receive, protocol.ProvideMode_Network)
-	go dp.PumpOutbound(func(pkt []byte) {
-		mc.SendPacket(connect.TransferPath{}, protocol.ProvideMode_Network, pkt, -1)
-	})
+	mc := urapi.NewMultiClient(ctx, gen, dp.Receive)
+	go dp.PumpOutbound(mc.SendPacket)
 
 	if cfg.StatsInterval > 0 && logx.IsInfoEnabled() {
 		go tunnel.LogStats(ctx, cfg.StatsInterval, counters)

@@ -1,4 +1,5 @@
-package main
+// Package urapi wraps the connect SDK behind a Go-native API for locations, auth and the VPN client.
+package urapi
 
 import (
 	"context"
@@ -21,34 +22,6 @@ func newByAPI(ctx context.Context, apiURL, jwt string) *connect.BringYourApi {
 	return api
 }
 
-// Authenticator abstracts network authentication operations.
-// The default implementation (DefaultAuthenticator) calls the BringYour API.
-// Tests can provide a fake implementation to avoid network calls.
-type Authenticator interface {
-	LoginWithPassword(ctx context.Context, apiURL, userAuth, password string) (*LoginResult, error)
-	VerifyCode(ctx context.Context, apiURL, userAuth, code string) (string, error)
-	MintClientJWT(ctx context.Context, apiURL, byJwt string) (string, error)
-}
-
-// apiAuthenticator is the production Authenticator backed by the BringYour connect library.
-type apiAuthenticator struct{}
-
-func (a *apiAuthenticator) LoginWithPassword(ctx context.Context, apiURL, userAuth, password string) (*LoginResult, error) {
-	return loginWithPassword(ctx, apiURL, userAuth, password)
-}
-
-func (a *apiAuthenticator) VerifyCode(ctx context.Context, apiURL, userAuth, code string) (string, error) {
-	return verifyCode(ctx, apiURL, userAuth, code)
-}
-
-func (a *apiAuthenticator) MintClientJWT(ctx context.Context, apiURL, byJwt string) (string, error) {
-	return mintClientJWT(ctx, apiURL, byJwt)
-}
-
-// DefaultAuthenticator is the Authenticator used by all production code paths.
-// Replace in tests to avoid real network calls.
-var DefaultAuthenticator Authenticator = &apiAuthenticator{}
-
 // LoginResult holds the outcome of a successful login attempt.
 type LoginResult struct {
 	ByJwt                string
@@ -56,9 +29,9 @@ type LoginResult struct {
 	VerificationRequired bool
 }
 
-// loginWithPassword calls AuthLoginWithPassword synchronously and returns a LoginResult.
+// LoginWithPassword calls AuthLoginWithPassword synchronously and returns a LoginResult.
 // If verification is required before a JWT can be issued, VerificationRequired is set and ByJwt is empty.
-func loginWithPassword(ctx context.Context, apiURL, userAuth, password string) (*LoginResult, error) {
+func LoginWithPassword(ctx context.Context, apiURL, userAuth, password string) (*LoginResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	api := newByAPI(ctx, apiURL, "")
@@ -94,8 +67,8 @@ func loginWithPassword(ctx context.Context, apiURL, userAuth, password string) (
 	return r.lr, r.err
 }
 
-// verifyCode calls AuthVerify synchronously and returns the network-scoped BY JWT.
-func verifyCode(ctx context.Context, apiURL, userAuth, code string) (string, error) {
+// VerifyCode calls AuthVerify synchronously and returns the network-scoped BY JWT.
+func VerifyCode(ctx context.Context, apiURL, userAuth, code string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	api := newByAPI(ctx, apiURL, "")
@@ -127,8 +100,8 @@ func verifyCode(ctx context.Context, apiURL, userAuth, code string) (string, err
 	return r.byJwt, r.err
 }
 
-// mintClientJWT exchanges any BY JWT (network- or client-scoped) for a fresh client-scoped JWT.
-func mintClientJWT(ctx context.Context, apiURL, byJwt string) (string, error) {
+// MintClientJWT exchanges any BY JWT (network- or client-scoped) for a fresh client-scoped JWT.
+func MintClientJWT(ctx context.Context, apiURL, byJwt string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	api := newByAPI(ctx, apiURL, byJwt)
@@ -143,4 +116,15 @@ func mintClientJWT(ctx context.Context, apiURL, byJwt string) (string, error) {
 		return "", errors.New("auth-client succeeded but no by_client_jwt returned")
 	}
 	return res.ByClientJwt, nil
+}
+
+// ValidateClientJWT performs a lightweight authenticated API call to confirm the JWT is
+// accepted by the backend. Returns true if the call succeeds.
+func ValidateClientJWT(ctx context.Context, apiURL, clientJwt string) bool {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	api := newByAPI(ctx, apiURL, clientJwt)
+	specs := []*connect.ProviderSpec{{BestAvailable: true}}
+	_, err := api.FindProviders2Sync(&connect.FindProviders2Args{Specs: specs, Count: 1, RankMode: "quality"})
+	return err == nil
 }

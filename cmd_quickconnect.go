@@ -12,6 +12,7 @@ import (
 
 	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/logx"
+	"github.com/devrandom0/urnetwork-client/internal/urapi"
 )
 
 // jwtLoadArgForStep2 decides what to pass to loadJWT when ensuring the client JWT after
@@ -59,7 +60,7 @@ func cmdQuickConnect(ctx context.Context, opts docopt.Opts, jwtFromEnv bool) err
 		if userAuth == "" || password == "" {
 			return errors.New("--user_auth and --password must be provided together")
 		}
-		loginRes, loginErr := loginWithPassword(ctx, apiURL, userAuth, password)
+		loginRes, loginErr := urapi.LoginWithPassword(ctx, apiURL, userAuth, password)
 		if loginErr != nil {
 			return fmt.Errorf("login error: %w", loginErr)
 		}
@@ -79,7 +80,7 @@ func cmdQuickConnect(ctx context.Context, opts docopt.Opts, jwtFromEnv bool) err
 		}
 
 		if codeOpt != "" {
-			byJwt2, verifyErr := verifyCode(ctx, apiURL, userAuth, codeOpt)
+			byJwt2, verifyErr := urapi.VerifyCode(ctx, apiURL, userAuth, codeOpt)
 			if verifyErr != nil {
 				return fmt.Errorf("verify error: %w", verifyErr)
 			}
@@ -114,7 +115,7 @@ func cmdQuickConnect(ctx context.Context, opts docopt.Opts, jwtFromEnv bool) err
 						logx.Warn("jwt renew: no jwt available: %v\n", err)
 						continue
 					}
-					clientJwt, mintErr := mintClientJWT(ctx, apiURL, currentJwt)
+					clientJwt, mintErr := urapi.MintClientJWT(ctx, apiURL, currentJwt)
 					if mintErr == nil {
 						if saveErr := saveJWT(clientJwt); saveErr != nil {
 							logx.Warn("jwt renew: save failed: %v\n", saveErr)
@@ -126,7 +127,7 @@ func cmdQuickConnect(ctx context.Context, opts docopt.Opts, jwtFromEnv bool) err
 						continue
 					}
 					if userAuth != "" && password != "" {
-						loginRes, loginErr := loginWithPassword(ctx, apiURL, userAuth, password)
+						loginRes, loginErr := urapi.LoginWithPassword(ctx, apiURL, userAuth, password)
 						if loginErr != nil {
 							logx.Warn("jwt renew: login failed: %v\n", loginErr)
 							continue
@@ -135,7 +136,7 @@ func cmdQuickConnect(ctx context.Context, opts docopt.Opts, jwtFromEnv bool) err
 							logx.Warn("jwt renew: login requires verification or returned no JWT\n")
 							continue
 						}
-						clientJwt2, mintErr2 := mintClientJWT(ctx, apiURL, loginRes.ByJwt)
+						clientJwt2, mintErr2 := urapi.MintClientJWT(ctx, apiURL, loginRes.ByJwt)
 						if mintErr2 != nil {
 							logx.Warn("jwt renew: mint failed: %v\n", mintErr2)
 							continue
@@ -183,7 +184,7 @@ func loginRetryBackoff(attempt int) time.Duration {
 func ensureClientJWT(ctx context.Context, apiURL, jwt string, forceJWT bool, userAuth, password string) (string, error) {
 	id := parseClientID(jwt)
 	if id == "" || forceJWT {
-		clientJwt, err := mintClientJWT(ctx, apiURL, jwt)
+		clientJwt, err := urapi.MintClientJWT(ctx, apiURL, jwt)
 		if err != nil {
 			return "", err
 		}
@@ -197,7 +198,7 @@ func ensureClientJWT(ctx context.Context, apiURL, jwt string, forceJWT bool, use
 		}
 		return clientJwt, nil
 	}
-	if validateClientJWT(ctx, apiURL, jwt) {
+	if urapi.ValidateClientJWT(ctx, apiURL, jwt) {
 		logx.Info("using existing client JWT (client_id=%s)\n", id)
 		return jwt, nil
 	}
@@ -205,16 +206,16 @@ func ensureClientJWT(ctx context.Context, apiURL, jwt string, forceJWT bool, use
 		if userAuth == "" || password == "" {
 			return "", errors.New("existing client JWT appears invalid; provide --user_auth and --password or a BY token via --jwt to refresh")
 		}
-		loginRes, loginErr := loginWithPassword(ctx, apiURL, userAuth, password)
+		loginRes, loginErr := urapi.LoginWithPassword(ctx, apiURL, userAuth, password)
 		if loginErr != nil {
 			logx.Warn("jwt refresh: login failed: %v\n", loginErr)
 		} else if !loginRes.VerificationRequired && loginRes.ByJwt != "" {
-			clientJwt, mintErr := mintClientJWT(ctx, apiURL, loginRes.ByJwt)
+			clientJwt, mintErr := urapi.MintClientJWT(ctx, apiURL, loginRes.ByJwt)
 			if mintErr != nil {
 				logx.Warn("jwt refresh: mint failed: %v\n", mintErr)
 			} else if saveErr := saveJWT(clientJwt); saveErr != nil {
 				logx.Warn("jwt refresh: save failed: %v\n", saveErr)
-			} else if validateClientJWT(ctx, apiURL, clientJwt) {
+			} else if urapi.ValidateClientJWT(ctx, apiURL, clientJwt) {
 				logx.Info("obtained new client JWT; proceeding\n")
 				return clientJwt, nil
 			}

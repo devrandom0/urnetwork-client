@@ -9,6 +9,7 @@ import (
 	"github.com/urnetwork/connect"
 
 	"github.com/devrandom0/urnetwork-client/internal/config"
+	"github.com/devrandom0/urnetwork-client/internal/urapi"
 )
 
 // Integration test (opt-in): requires URNETWORK_TEST_INTEGRATION=1 and a valid JWT in URNETWORK_JWT or ~/.urnetwork/jwt
@@ -25,7 +26,7 @@ func TestIntegration_FindLocations_And_FindProviders(t *testing.T) {
 	// locations via http helpers
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := httpFindLocations(ctx, apiURL, jwt, "country:*"); err != nil {
+	if _, err := urapi.FindLocations(ctx, apiURL, jwt, "country:*"); err != nil {
 		t.Fatalf("find-locations failed: %v", err)
 	}
 

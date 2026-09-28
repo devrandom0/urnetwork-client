@@ -1,4 +1,4 @@
-package main
+package urapi
 
 import (
 	"context"
@@ -20,11 +20,11 @@ func makeSpecServer(t *testing.T, specs []*connect.ProviderSpec) *httptest.Serve
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/network/find-locations" {
-			_ = json.NewEncoder(w).Encode(findLocationsHTTPResult{Specs: specs})
+			_ = json.NewEncoder(w).Encode(LocationsResult{Specs: specs})
 			return
 		}
 		if r.URL.Path == "/network/provider-locations" {
-			_ = json.NewEncoder(w).Encode(findLocationsHTTPResult{})
+			_ = json.NewEncoder(w).Encode(LocationsResult{})
 			return
 		}
 		http.NotFound(w, r)

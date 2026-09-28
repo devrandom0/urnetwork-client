@@ -1,4 +1,4 @@
-package main
+package urapi
 
 import (
 	"bytes"
@@ -22,7 +22,7 @@ func TestHttpFindLocationsAndProviderLocations(t *testing.T) {
 		if ah := r.Header.Get("Authorization"); !strings.HasPrefix(ah, "Bearer ") {
 			t.Fatalf("missing bearer header")
 		}
-		_ = json.NewEncoder(w).Encode(findLocationsHTTPResult{})
+		_ = json.NewEncoder(w).Encode(LocationsResult{})
 	})
 	mux.HandleFunc("/network/provider-locations", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -31,17 +31,17 @@ func TestHttpFindLocationsAndProviderLocations(t *testing.T) {
 		if ah := r.Header.Get("Authorization"); !strings.HasPrefix(ah, "Bearer ") {
 			t.Fatalf("missing bearer header")
 		}
-		_ = json.NewEncoder(w).Encode(findLocationsHTTPResult{})
+		_ = json.NewEncoder(w).Encode(LocationsResult{})
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	ctx := context.Background()
-	if _, err := httpFindLocations(ctx, srv.URL, "token", "country:Germany"); err != nil {
-		t.Fatalf("httpFindLocations error: %v", err)
+	if _, err := FindLocations(ctx, srv.URL, "token", "country:Germany"); err != nil {
+		t.Fatalf("FindLocations error: %v", err)
 	}
-	if _, err := httpProviderLocations(ctx, srv.URL, "token"); err != nil {
-		t.Fatalf("httpProviderLocations error: %v", err)
+	if _, err := ProviderLocations(ctx, srv.URL, "token"); err != nil {
+		t.Fatalf("ProviderLocations error: %v", err)
 	}
 }
 
@@ -71,7 +71,7 @@ func TestHttpFindLocations_RejectsOversizedBody(t *testing.T) {
 		_, _ = w.Write(bytes.Repeat([]byte("x"), maxAPIResponseBytes))
 		_, _ = io.WriteString(w, `"}`)
 	})
-	_, err := httpFindLocations(context.Background(), srv.URL, "", "x")
+	_, err := FindLocations(context.Background(), srv.URL, "", "x")
 	if err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("err = %v, want a size limit error", err)
 	}
@@ -82,7 +82,7 @@ func TestHttpProviderLocations_TruncatesErrorBody(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write(bytes.Repeat([]byte("e"), 1<<20))
 	})
-	_, err := httpProviderLocations(context.Background(), srv.URL, "")
+	_, err := ProviderLocations(context.Background(), srv.URL, "")
 	if err == nil || len(err.Error()) > 2048 {
 		t.Fatalf("error must exist and stay short, got %d bytes", len(err.Error()))
 	}
@@ -92,7 +92,7 @@ func TestHttpFindLocations_DecodesSmallBody(t *testing.T) {
 	srv := useTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"locations": []map[string]string{{"name": "Berlin"}}})
 	})
-	res, err := httpFindLocations(context.Background(), srv.URL, "", "x")
+	res, err := FindLocations(context.Background(), srv.URL, "", "x")
 	if err != nil || len(res.Locations) != 1 || res.Locations[0].Name != "Berlin" {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
@@ -102,7 +102,7 @@ func redirectingServer(t *testing.T, location string) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/final" {
-			_ = json.NewEncoder(w).Encode(findLocationsHTTPResult{})
+			_ = json.NewEncoder(w).Encode(LocationsResult{})
 			return
 		}
 		http.Redirect(w, r, location, http.StatusFound)
@@ -113,7 +113,7 @@ func redirectingServer(t *testing.T, location string) *httptest.Server {
 
 func TestDefaultHTTPClient_RejectsCleartextRedirect(t *testing.T) {
 	srv := redirectingServer(t, "http://api.example.com/network/provider-locations")
-	_, err := httpProviderLocations(context.Background(), srv.URL, "token")
+	_, err := ProviderLocations(context.Background(), srv.URL, "token")
 	if err == nil || !strings.Contains(err.Error(), "redirect") {
 		t.Fatalf("err = %v; want a refused redirect to a cleartext non-loopback URL", err)
 	}
@@ -121,7 +121,7 @@ func TestDefaultHTTPClient_RejectsCleartextRedirect(t *testing.T) {
 
 func TestDefaultHTTPClient_AllowsLoopbackAndHTTPSRedirects(t *testing.T) {
 	srv := redirectingServer(t, "/final")
-	if _, err := httpProviderLocations(context.Background(), srv.URL, "token"); err != nil {
+	if _, err := ProviderLocations(context.Background(), srv.URL, "token"); err != nil {
 		t.Fatalf("loopback redirect refused: %v", err)
 	}
 	req, _ := http.NewRequest(http.MethodGet, "https://api.example.com/x", nil)
