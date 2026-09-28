@@ -238,14 +238,21 @@ func (m *darwinRouteManager) AddKillSwitchRoute() {
 	// Replace the existing default with a blackhole so traffic is blocked
 	// when the VPN split routes are absent. The /1 split routes are more
 	// specific and will supersede this while the VPN is running.
+	deletedDefault := false
 	if m.defGw != "" {
-		_ = runSudo("route", "-n", "delete", "default")
+		deletedDefault = runSudo("route", "-n", "delete", "default") == nil
 	}
 	if _, err := runCapture("route", "-n", "add", "-blackhole", "default"); err == nil {
 		m.killSwitchAdded = true
 		logInfo("kill switch: blackhole default route installed\n")
-	} else {
-		logWarn("kill switch: failed to install blackhole default route; leak protection may be incomplete\n")
+		return
+	}
+	logWarn("kill switch: failed to install blackhole default route; restoring original default and continuing without kill switch\n")
+	if !deletedDefault {
+		return
+	}
+	if err := runSudo("route", "-n", "add", "default", m.defGw); err != nil {
+		logError("kill switch: could not restore default route via %s: %v; run: sudo route add default %s\n", m.defGw, err, m.defGw)
 	}
 }
 

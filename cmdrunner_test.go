@@ -28,7 +28,6 @@ func useFakeRunner(t *testing.T) *fakeRunner {
 	return f
 }
 
-//nolint:unused // consumed by B-2..B-5, which land in later commits on this branch
 func (f *fakeRunner) failOn(line, out string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -55,7 +54,6 @@ func (f *fakeRunner) Calls() []string {
 	return append([]string(nil), f.calls...)
 }
 
-//nolint:unused // consumed by B-2..B-5, which land in later commits on this branch
 func (f *fakeRunner) count(line string) int {
 	n := 0
 	for _, c := range f.Calls() {
