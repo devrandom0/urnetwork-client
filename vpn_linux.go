@@ -5,8 +5,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 
@@ -56,14 +54,9 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	defer func() { _ = dev.Close() }()
 	logInfo("TUN %s created\n", tunName)
 
-	// Configure IP address and MTU.
-	_ = run("ip", "addr", "add", cfg.IPCIDR, "dev", tunName)
-	_ = run("ip", "link", "set", "dev", tunName, "mtu", strconv.Itoa(cfg.MTU))
-	_ = run("ip", "link", "set", tunName, "up")
-
-	// Add IPv6 address to support IPv6 traffic through the VPN.
-	// Use a ULA (Unique Local Address) prefix with /120 subnet.
-	_ = run("ip", "addr", "add", "fd00::2/120", "dev", tunName)
+	if err := configureLinuxTUN(tunName, cfg); err != nil {
+		return err
+	}
 
 	// Detect current default gateway for bypass and exclude routing.
 	origGw, origDev := "", ""
@@ -109,10 +102,29 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 }
 
 func run(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return cmdRunner.Run(name, args...)
+}
+
+// configureLinuxTUN must succeed before any route points at the TUN; a half-configured
+// device would blackhole all routed traffic.
+func configureLinuxTUN(name string, cfg VPNConfig) error {
+	steps := [][]string{
+		{"ip", "addr", "add", cfg.IPCIDR, "dev", name},
+		{"ip", "link", "set", "dev", name, "mtu", strconv.Itoa(cfg.MTU)},
+		{"ip", "link", "set", name, "up"},
+	}
+	for _, s := range steps {
+		if err := run(s[0], s[1:]...); err != nil {
+			return fmt.Errorf("configure TUN %s (%s): %w", name, strings.Join(s, " "), err)
+		}
+	}
+	if err := run("ip", "addr", "add", "fd00::2/120", "dev", name); err != nil {
+		if cfg.EnableIPv6 {
+			return fmt.Errorf("configure TUN %s IPv6 address: %w", name, err)
+		}
+		logDebug("IPv6 address on %s not set (%v); continuing because --enable_ipv6 is off\n", name, err)
+	}
+	return nil
 }
 
 // linuxListDefaultRoutes parses all current default routes via `ip -o route show default`.
