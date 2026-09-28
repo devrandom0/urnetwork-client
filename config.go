@@ -292,6 +292,11 @@ func resolveVPNConfig(opts docopt.Opts) (VPNConfig, error) {
 	if err := validateEndpointURL("connect_url", cfg.ConnectURL, "wss", "ws"); err != nil {
 		return VPNConfig{}, err
 	}
+	if cfg.SOCKSListen != "" {
+		if err := cfg.SOCKSAuth.validate(); err != nil {
+			return VPNConfig{}, fmt.Errorf("socks: %w", err)
+		}
+	}
 	setLogLevel(resolveLogLevel(getStringOr(opts, "--log_level", ""), mustBool(opts, "--debug"), cf.LogLevel, cf.Debug))
 	return cfg, nil
 }
