@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 )
 
 // SocksAuth holds RFC 1929 credentials. The zero value disables authentication.
@@ -58,7 +59,8 @@ const (
 
 var errSocksAuthFailed = errors.New("invalid SOCKS username or password")
 
-func socksUserPassAuth(rw io.ReadWriter, want SocksAuth) error {
+// socksUserPassAuth waits failureDelay before rejecting bad credentials to slow down guessing.
+func socksUserPassAuth(rw io.ReadWriter, want SocksAuth, failureDelay time.Duration) error {
 	head := make([]byte, 2)
 	if _, err := io.ReadFull(rw, head); err != nil {
 		return err
@@ -80,6 +82,7 @@ func socksUserPassAuth(rw io.ReadWriter, want SocksAuth) error {
 		return err
 	}
 	if !want.matches(user, pass) {
+		time.Sleep(failureDelay)
 		_, _ = rw.Write([]byte{socksUserPassVersion, socksUserPassFailed})
 		return errSocksAuthFailed
 	}

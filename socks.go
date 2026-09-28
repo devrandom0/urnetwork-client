@@ -55,6 +55,8 @@ type SocksOptions struct {
 	DNSServers       []string      // first entry replaces the system resolver for hostname lookups
 	HandshakeTimeout time.Duration // zero means defaultSocksHandshakeTimeout
 	Auth             SocksAuth
+	MaxConns         int           // concurrent client connections; zero means defaultSocksMaxConns
+	UDPIdleTimeout   time.Duration // zero means defaultSocksUDPIdleTimeout
 }
 
 // StartSocks5 starts a SOCKS5 proxy and returns a stop function.
@@ -65,7 +67,18 @@ func StartSocks5(ctx context.Context, opts SocksOptions) (func() error, error) {
 	if opts.HandshakeTimeout <= 0 {
 		opts.HandshakeTimeout = defaultSocksHandshakeTimeout
 	}
-	srv := &socksServer{opts: opts, resolver: newSocksResolver(opts.DNSServers)}
+	if opts.MaxConns <= 0 {
+		opts.MaxConns = defaultSocksMaxConns
+	}
+	if opts.UDPIdleTimeout <= 0 {
+		opts.UDPIdleTimeout = defaultSocksUDPIdleTimeout
+	}
+	srv := &socksServer{
+		opts:     opts,
+		resolver: newSocksResolver(opts.DNSServers),
+		slots:    make(chan struct{}, opts.MaxConns),
+		warns:    newLogRateLimiter(socksWarnInterval),
+	}
 	ln, err := net.Listen("tcp", opts.ListenAddr)
 	if err != nil {
 		return nil, err
@@ -76,7 +89,7 @@ func StartSocks5(ctx context.Context, opts SocksOptions) (func() error, error) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		acceptLoop(ctx, ln, time.Second, func(conn net.Conn) { go srv.handleConn(ctx, conn) })
+		acceptLoop(ctx, ln, time.Second, func(conn net.Conn) { srv.admit(ctx, conn) })
 	}()
 	stop := func() error { _ = ln.Close(); <-done; return nil }
 	return stop, nil
@@ -93,6 +106,25 @@ func socksExposedWithoutAuth(addr net.Addr, auth SocksAuth) bool {
 type socksServer struct {
 	opts     SocksOptions
 	resolver *net.Resolver
+	slots    chan struct{} // one token per live client connection
+	warns    *logRateLimiter
+}
+
+// admit serves conn only while under MaxConns; over the cap it is closed before any
+// handshake so a flood cannot exhaust goroutines and file descriptors.
+func (s *socksServer) admit(ctx context.Context, conn net.Conn) {
+	select {
+	case s.slots <- struct{}{}:
+		go func() {
+			defer func() { <-s.slots }()
+			s.handleConn(ctx, conn)
+		}()
+	default:
+		_ = conn.Close()
+		if s.warns.allow("conn-cap", time.Now()) {
+			logWarn("socks: %d concurrent connections reached; dropping new connections\n", s.opts.MaxConns)
+		}
+	}
 }
 
 // acceptLoop keeps serving through transient Accept errors such as EMFILE and only
@@ -200,9 +232,9 @@ func (s *socksServer) negotiate(c net.Conn) error {
 	case socksMethodNoAuth:
 		return nil
 	case socksMethodUserPass:
-		err := socksUserPassAuth(c, s.opts.Auth)
-		if errors.Is(err, errSocksAuthFailed) {
-			logWarn("socks: rejected credentials from %s\n", c.RemoteAddr())
+		err := socksUserPassAuth(c, s.opts.Auth, socksAuthFailureDelay)
+		if errors.Is(err, errSocksAuthFailed) && s.warns.allow("auth:"+addrIP(c.RemoteAddr()).String(), time.Now()) {
+			logWarn("socks: rejected credentials from %s (further failures from this address are not logged for %s)\n", c.RemoteAddr(), socksWarnInterval)
 		}
 		return err
 	default:
@@ -407,9 +439,30 @@ func domainMatches(host string, patterns []string) bool {
 
 // udpAssociation is the per-ASSOCIATE state shared by the relay goroutines.
 type udpAssociation struct {
-	clientIP net.IP
-	client   atomic.Pointer[net.UDPAddr] // set once, never replaced
-	peers    udpPeerSet
+	clientIP   net.IP
+	client     atomic.Pointer[net.UDPAddr] // set once, never replaced
+	peers      udpPeerSet
+	lastActive atomic.Int64 // unix nanos of the last relayed datagram in either direction
+}
+
+func (a *udpAssociation) touch() { a.lastActive.Store(time.Now().UnixNano()) }
+
+// closeWhenIdle closes ctrl, which tears the association down, once no datagram has been
+// relayed for timeout. It returns when done is closed.
+func (a *udpAssociation) closeWhenIdle(ctrl net.Conn, timeout time.Duration, done <-chan struct{}) {
+	check := time.NewTicker(max(timeout/4, 10*time.Millisecond))
+	defer check.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-check.C:
+			if time.Since(time.Unix(0, a.lastActive.Load())) >= timeout {
+				_ = ctrl.Close()
+				return
+			}
+		}
+	}
 }
 
 // maxUDPPeersPerAssociation bounds memory per association. Evicting an arbitrary entry when
@@ -513,9 +566,17 @@ func (s *socksServer) runUDPAssociate(ctx context.Context, ctrl net.Conn, req so
 	}
 
 	assoc := &udpAssociation{clientIP: addrIP(ctrl.RemoteAddr())}
+	assoc.touch()
 	if req.port != 0 {
 		assoc.client.Store(&net.UDPAddr{IP: assoc.clientIP, Port: req.port})
 	}
+	done := make(chan struct{})
+	defer close(done)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		assoc.closeWhenIdle(ctrl, s.opts.UDPIdleTimeout, done)
+	}()
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -575,6 +636,7 @@ func (s *socksServer) relayFromClient(ctx context.Context, pcClient, pcVPN, pcSy
 			fmt.Printf("[socks-udp] -> %s:%d via %s\n", ip, dst.port, pc.LocalAddr())
 		}
 		assoc.peers.add(ip, dst.port)
+		assoc.touch()
 		_, _ = pc.WriteTo(payload, &net.UDPAddr{IP: ip, Port: dst.port})
 	}
 }
@@ -594,6 +656,7 @@ func relayToClient(pc, pcClient net.PacketConn, assoc *udpAssociation) {
 		pkt := appendSocksIP([]byte{0, 0, 0}, src.IP)
 		pkt = binary.BigEndian.AppendUint16(pkt, uint16(src.Port))
 		pkt = append(pkt, buf[:n]...)
+		assoc.touch()
 		_, _ = pcClient.WriteTo(pkt, dst)
 	}
 }
