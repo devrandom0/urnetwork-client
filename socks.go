@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -383,210 +384,138 @@ func domainMatches(host string, patterns []string) bool {
 
 // runUDPAssociate implements SOCKS5 UDP ASSOCIATE for a single TCP control connection.
 func (s *socksServer) runUDPAssociate(ctx context.Context, ctrl net.Conn) {
-	bindIf, debug, allowDomains, excludeDomains, resolver := s.opts.BindIf, s.opts.Debug, s.opts.AllowDomains, s.opts.ExcludeDomains, s.resolver
-	// Allocate a UDP listener for the client on loopback (IPv4)
-	pcClient, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		_ = writeSocksReply(ctrl, 1, nil)
-		return
-	}
-	defer func() { _ = pcClient.Close() }()
-	la := pcClient.LocalAddr().(*net.UDPAddr)
-	// Reply success with our UDP bind address
-	if debug {
-		fmt.Printf("[socks] UDP ASSOCIATE listening at %s bindIf=%s\n", la.String(), bindIf)
-	}
-	// Build BND.ADDR/PORT reply
-	resp := []byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0}
-	copy(resp[4:8], la.IP.To4())
-	resp[8] = byte(la.Port >> 8)
-	resp[9] = byte(la.Port)
-	if _, err := ctrl.Write(resp); err != nil {
-		return
-	}
-
-	// Prepare outbound UDP packet conns: one bound to VPN interface, one system default
-	var pcVPN, pcSys net.PacketConn
-	// VPN-bound packet conn
-	if bindIf != "" {
-		lc := net.ListenConfig{Control: func(network, address string, rc syscall.RawConn) error {
-			var retErr error
-			ctlErr := rc.Control(func(fd uintptr) {
-				retErr = bindFDToInterface(int(fd), network, bindIf)
-			})
-			if ctlErr != nil {
-				return ctlErr
-			}
-			return retErr
-		}}
-		pcVPN, _ = lc.ListenPacket(ctx, "udp", ":0")
-	}
-	// System packet conn
-	var errSys error
-	pcSys, errSys = net.ListenPacket("udp", ":0")
-	if pcVPN == nil && errSys != nil {
-		// No viable UDP socket
-		return
-	}
-
-	// Read from remote sockets and forward to client
-	clientAddrCh := make(chan net.Addr, 1)
-	// track last client address observed — written from one goroutine, read from another.
-	var lastClientAddr atomic.Pointer[net.Addr]
-	go func() {
-		b := make([]byte, 65535)
-		for {
-			n, addr, err := pcClient.ReadFrom(b)
-			if err != nil {
-				return
-			}
-			lastClientAddr.Store(&addr)
-			select {
-			case clientAddrCh <- addr:
-			default:
-			}
-			// Parse SOCKS5 UDP request header
-			if n < 10 {
-				continue
-			}
-			p := b[:n]
-			// RSV(2)=0, FRAG(1)=0, ATYP(1)
-			if p[0] != 0 || p[1] != 0 || p[2] != 0 {
-				continue
-			}
-			atyp := p[3]
-			off := 4
-			var dstIP net.IP
-			var dstPort int
-			var reqDomain string
-			switch atyp {
-			case 1: // IPv4
-				if len(p) < off+4+2 {
-					continue
-				}
-				dstIP = net.IP(p[off : off+4])
-				off += 4
-			case 3: // Domain
-				if len(p) < off+1 {
-					continue
-				}
-				l := int(p[off])
-				off++
-				if len(p) < off+l+2 {
-					continue
-				}
-				reqDomain = strings.ToLower(string(p[off : off+l]))
-				off += l
-			case 4: // IPv6
-				if len(p) < off+16+2 {
-					continue
-				}
-				dstIP = net.IP(p[off : off+16])
-				off += 16
-			default:
-				continue
-			}
-			dstPort = int(p[off])<<8 | int(p[off+1])
-			off += 2
-			payload := p[off:]
-
-			// Resolve domain if needed
-			if dstIP == nil && reqDomain != "" {
-				addrs, _ := resolver.LookupIP(ctx, "ip", reqDomain)
-				for _, ip := range addrs {
-					if ip.To4() != nil {
-						dstIP = ip
-						break
-					}
-					if dstIP == nil {
-						dstIP = ip
-					}
-				}
-				if dstIP == nil {
-					continue
-				}
-			}
-
-			// Decide path
-			useVPN := true
-			if len(allowDomains) > 0 {
-				if reqDomain == "" || !domainMatches(reqDomain, allowDomains) {
-					useVPN = false
-				}
-			}
-			if reqDomain != "" && domainMatches(reqDomain, excludeDomains) {
-				useVPN = false
-			}
-			if debug {
-				fmt.Printf("[socks-udp] -> %s:%d via %s\n", dstIP, dstPort, map[bool]string{true: bindIf, false: "system"}[useVPN])
-			}
-
-			// Send out
-			dst := &net.UDPAddr{IP: dstIP, Port: dstPort}
-			var pc net.PacketConn
-			if useVPN && pcVPN != nil {
-				pc = pcVPN
-			} else {
-				pc = pcSys
-			}
-			if pc == nil {
-				continue
-			}
-			_, _ = pc.WriteTo(payload, dst)
+	var (
+		wg    sync.WaitGroup
+		conns []net.PacketConn
+	)
+	defer func() {
+		for _, pc := range conns {
+			_ = pc.Close()
 		}
+		wg.Wait()
 	}()
+	refuse := func(format string, args ...any) {
+		logWarn("socks udp: "+format, args...)
+		_ = writeSocksReply(ctrl, socksRepGeneralFailure, nil)
+	}
 
-	// Forward replies from VPN/system sockets back to client with SOCKS header
-	sendBack := func(pc net.PacketConn) {
-		if pc == nil {
+	// Listen where the client reached us, so LAN clients get a reachable relay address.
+	relayAddr := net.JoinHostPort(addrIP(ctrl.LocalAddr()).String(), "0")
+	pcClient, err := net.ListenPacket("udp", relayAddr)
+	if err != nil {
+		refuse("relay listen on %s: %v\n", relayAddr, err)
+		return
+	}
+	conns = append(conns, pcClient)
+
+	var pcVPN net.PacketConn
+	if s.opts.BindIf != "" {
+		lc := net.ListenConfig{Control: s.bindControl}
+		if pcVPN, err = lc.ListenPacket(ctx, "udp4", "0.0.0.0:0"); err != nil {
+			refuse("%v; refusing UDP ASSOCIATE instead of sending it outside the VPN\n", err)
 			return
 		}
-		buf := make([]byte, 65535)
-		for {
-			n, raddr, err := pc.ReadFrom(buf)
-			if err != nil {
-				return
-			}
-			// Build SOCKS UDP response header
-			addrPtr := lastClientAddr.Load()
-			if addrPtr == nil {
-				// Wait for at least one client packet to learn client addr
-				select {
-				case a := <-clientAddrCh:
-					lastClientAddr.Store(&a)
-					addrPtr = &a
-				default:
-				}
-				if addrPtr == nil {
-					continue
-				}
-			}
-			hdr := make([]byte, 0, 10)
-			hdr = append(hdr, 0, 0, 0) // RSV, RSV, FRAG
-			// raddr can be UDPAddr
-			if ua, ok := raddr.(*net.UDPAddr); ok {
-				ip := ua.IP
-				if v4 := ip.To4(); v4 != nil {
-					hdr = append(hdr, 1)
-					hdr = append(hdr, v4...)
-				} else {
-					hdr = append(hdr, 4)
-					hdr = append(hdr, ip.To16()...)
-				}
-				hdr = append(hdr, byte(ua.Port>>8), byte(ua.Port))
-			} else {
+		conns = append(conns, pcVPN)
+	}
+	pcSys, err := net.ListenPacket("udp", ":0")
+	if err != nil {
+		refuse("system socket: %v\n", err)
+		return
+	}
+	conns = append(conns, pcSys)
+
+	if err := writeSocksReply(ctrl, socksRepSucceeded, pcClient.LocalAddr()); err != nil {
+		return
+	}
+	_ = ctrl.SetDeadline(time.Time{})
+	if s.opts.Debug {
+		fmt.Printf("[socks] UDP ASSOCIATE relay %s bindIf=%s\n", pcClient.LocalAddr(), s.opts.BindIf)
+	}
+
+	var client atomic.Pointer[net.UDPAddr]
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.relayFromClient(ctx, pcClient, pcVPN, pcSys, addrIP(ctrl.RemoteAddr()), &client)
+	}()
+	for _, pc := range conns[1:] {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			relayToClient(pc, pcClient, &client)
+		}()
+	}
+	// RFC 1928: the association ends when the TCP control connection ends.
+	_, _ = io.Copy(io.Discard, ctrl)
+}
+
+func (s *socksServer) relayFromClient(ctx context.Context, pcClient, pcVPN, pcSys net.PacketConn, clientIP net.IP, client *atomic.Pointer[net.UDPAddr]) {
+	buf := make([]byte, 65535)
+	for {
+		n, from, err := pcClient.ReadFrom(buf)
+		if err != nil {
+			return
+		}
+		src, ok := from.(*net.UDPAddr)
+		if !ok || !src.IP.Equal(clientIP) {
+			continue
+		}
+		client.Store(src)
+		if n < 4 || buf[2] != 0 { // fragmented datagrams are not supported
+			continue
+		}
+		r := bytes.NewReader(buf[3:n])
+		dst, err := readSocksAddr(r)
+		if err != nil {
+			continue
+		}
+		payload := buf[n-r.Len() : n]
+		var domain string
+		ip := net.ParseIP(dst.host)
+		if dst.atyp == socksATYPDomain {
+			domain = strings.ToLower(dst.host)
+			if ip = s.resolve(ctx, dst.host); ip == nil {
 				continue
 			}
-			pkt := append(hdr, buf[:n]...)
-			_, _ = pcClient.WriteTo(pkt, *addrPtr)
 		}
+		pc := pcSys
+		if s.opts.BindIf != "" && s.routeViaVPN(domain) {
+			pc = pcVPN
+		}
+		if s.opts.Debug {
+			fmt.Printf("[socks-udp] -> %s:%d via %s\n", ip, dst.port, pc.LocalAddr())
+		}
+		_, _ = pc.WriteTo(payload, &net.UDPAddr{IP: ip, Port: dst.port})
 	}
-	go sendBack(pcVPN)
-	go sendBack(pcSys)
+}
 
-	// Keep TCP control channel open until client closes
-	tmp := make([]byte, 1)
-	_, _ = ctrl.Read(tmp)
+func relayToClient(pc, pcClient net.PacketConn, client *atomic.Pointer[net.UDPAddr]) {
+	buf := make([]byte, 65535)
+	for {
+		n, from, err := pc.ReadFrom(buf)
+		if err != nil {
+			return
+		}
+		src, ok := from.(*net.UDPAddr)
+		dst := client.Load()
+		if !ok || dst == nil {
+			continue
+		}
+		pkt := appendSocksIP([]byte{0, 0, 0}, src.IP)
+		pkt = binary.BigEndian.AppendUint16(pkt, uint16(src.Port))
+		pkt = append(pkt, buf[:n]...)
+		_, _ = pcClient.WriteTo(pkt, dst)
+	}
+}
+
+func addrIP(a net.Addr) net.IP {
+	switch v := a.(type) {
+	case *net.TCPAddr:
+		return v.IP
+	case *net.UDPAddr:
+		return v.IP
+	}
+	return nil
 }
 
 var errBindInterface = errors.New("bind to VPN interface failed")
