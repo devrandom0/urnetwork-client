@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -111,7 +112,6 @@ func vpnRunCore(
 ) {
 	apiURL := cfg.APIURL
 	connectURL := cfg.ConnectURL
-	debugOn := cfg.Debug
 	statsInt := cfg.StatsInterval
 
 	// Build provider specs from location flags.
@@ -254,16 +254,13 @@ func vpnRunCore(
 	}
 
 	// Optional SOCKS5 proxy bound to the VPN interface
-	socksListen := cfg.SOCKSListen
-	allowDomains := cfg.AllowDomains
-	excludeDomains := cfg.ExcludeDomains
 	var stopSocks func() error
-	if socksListen != "" {
-		if s, err := StartSocks5(ctx, socksListen, tunIfName, debugOn || isDebugEnabled(), allowDomains, excludeDomains, splitCSV(cfg.DNSList)); err != nil {
-			logWarn("failed to start socks at %s: %v\n", socksListen, err)
+	if cfg.SOCKSListen != "" {
+		if s, err := StartSocks5(ctx, socksOptionsFromVPN(cfg, tunIfName)); err != nil {
+			logWarn("failed to start socks at %s: %v\n", cfg.SOCKSListen, err)
 		} else {
 			stopSocks = s
-			logInfo("SOCKS5 listening at %s (bound to %s)\n", socksListen, tunIfName)
+			logInfo("SOCKS5 listening at %s (bound to %s)\n", cfg.SOCKSListen, tunIfName)
 		}
 	}
 
@@ -281,6 +278,33 @@ func vpnRunCore(
 	if onBeforeExit != nil {
 		onBeforeExit()
 	}
+}
+
+func socksOptionsFromVPN(cfg VPNConfig, bindIf string) SocksOptions {
+	return SocksOptions{
+		ListenAddr:     cfg.SOCKSListen,
+		BindIf:         bindIf,
+		Auth:           cfg.SOCKSAuth,
+		Debug:          cfg.Debug || isDebugEnabled(),
+		AllowDomains:   cfg.AllowDomains,
+		ExcludeDomains: cfg.ExcludeDomains,
+		DNSServers:     splitCSV(cfg.DNSList),
+	}
+}
+
+// runSocksOnly serves SOCKS with system routing when no TUN is configured.
+func runSocksOnly(ctx context.Context, cfg VPNConfig) error {
+	if cfg.SOCKSListen == "" {
+		return errors.New("no TUN and no --socks given; nothing to do (set --tun=<name> and/or --socks=<addr>)")
+	}
+	stop, err := StartSocks5(ctx, socksOptionsFromVPN(cfg, ""))
+	if err != nil {
+		return fmt.Errorf("start socks failed: %w", err)
+	}
+	defer func() { _ = stop() }()
+	logInfo("SOCKS started without TUN (system routes only). Press Ctrl+C to exit.\n")
+	<-ctx.Done()
+	return nil
 }
 
 // parseCIDRHost parses a CIDR or single host address (IPv4 or IPv6) into *net.IPNet.

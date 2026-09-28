@@ -74,12 +74,6 @@ func logWarn(format string, args ...any) {
 	}
 }
 
-func logError(format string, args ...any) {
-	if isErrorEnabled() {
-		logf(os.Stderr, "ERROR", format, args...)
-	}
-}
-
 func logDebug(format string, args ...any) {
 	if isDebugEnabled() {
 		logf(os.Stdout, "DEBUG", format, args...)
