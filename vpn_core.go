@@ -284,6 +284,7 @@ func socksOptionsFromVPN(cfg VPNConfig, bindIf string) SocksOptions {
 	return SocksOptions{
 		ListenAddr:     cfg.SOCKSListen,
 		BindIf:         bindIf,
+		Auth:           cfg.SOCKSAuth,
 		Debug:          cfg.Debug || isDebugEnabled(),
 		AllowDomains:   cfg.AllowDomains,
 		ExcludeDomains: cfg.ExcludeDomains,
