@@ -11,6 +11,17 @@ import (
 	"github.com/docopt/docopt-go"
 )
 
+// jwtLoadArgForStep2 decides what to pass to loadJWT when ensuring the client JWT after
+// the optional login step. When login just ran, it forces a fresh read from disk instead
+// of jwtOpt, because docopt's usage grouping makes --jwt mutually exclusive with
+// --user_auth/--password, so a stale --jwt env fallback would shadow the JWT login just saved.
+func jwtLoadArgForStep2(jwtOpt, userAuth, password string) string {
+	if userAuth != "" || password != "" {
+		return ""
+	}
+	return jwtOpt
+}
+
 // cmdQuickConnect performs: optional login+verify → ensure client JWT (with refresh) → start VPN.
 func cmdQuickConnect(ctx context.Context, opts docopt.Opts) error {
 	apiURL := getStringOr(opts, "--api_url", DefaultAPIURL)
@@ -74,7 +85,7 @@ func cmdQuickConnect(ctx context.Context, opts docopt.Opts) error {
 
 	// 2) Ensure we have a working client-scoped JWT
 	{
-		jwt, err := loadJWT(jwtOpt)
+		jwt, err := loadJWT(jwtLoadArgForStep2(jwtOpt, userAuth, password))
 		if err != nil {
 			return errors.New("no JWT available; provide --user_auth/--password to login or --jwt to use an existing token")
 		}
