@@ -94,7 +94,7 @@ func Debug(format string, args ...any) {
 // The file is created with 0o600 permissions to protect potentially sensitive log content.
 func SetupLogFile(path string) error {
 	if dir := filepath.Dir(path); dir != "." && dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return err
 		}
 	}

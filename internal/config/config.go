@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/devrandom0/urnetwork-client/internal/logx"
+	"github.com/devrandom0/urnetwork-client/internal/safefile"
 	"github.com/devrandom0/urnetwork-client/internal/socks"
 )
 
@@ -180,13 +181,15 @@ type ConfigFile struct {
 	Debug             bool     `yaml:"debug"`
 }
 
+const maxConfigFileSize = 1 << 20
+
 // loadConfigFile reads and parses a YAML config file from path.
 // Returns an empty ConfigFile (no error) when path is "".
 func loadConfigFile(path string) (ConfigFile, error) {
 	if strings.TrimSpace(path) == "" {
 		return ConfigFile{}, nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := safefile.ReadFile(path, maxConfigFileSize)
 	if err != nil {
 		return ConfigFile{}, fmt.Errorf("config file: %w", err)
 	}

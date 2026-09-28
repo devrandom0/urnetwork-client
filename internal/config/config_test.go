@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/docopt/docopt-go"
@@ -185,5 +186,29 @@ func TestParseConfigs_SocksAuthFromFlagsAndEnv(t *testing.T) {
 	}
 	if got := ParseSOCKSConfig(opts).Auth; got != (socks.SocksAuth{User: "alice", Pass: "from-env"}) {
 		t.Fatalf("socks Auth = %+v", got)
+	}
+}
+
+func TestLoadConfigFile_RefusesSymlink(t *testing.T) {
+	real := filepath.Join(t.TempDir(), "real.yaml")
+	if err := os.WriteFile(real, []byte("debug: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "urnet.yaml")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadConfigFile(link); err == nil {
+		t.Fatal("loadConfigFile followed a symlink")
+	}
+}
+
+func TestLoadConfigFile_RefusesFileOver1MiB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "urnet.yaml")
+	if err := os.WriteFile(path, []byte("#"+strings.Repeat("a", 1<<20)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadConfigFile(path); err == nil {
+		t.Fatal("loadConfigFile accepted a file above 1 MiB")
 	}
 }

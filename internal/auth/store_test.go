@@ -37,3 +37,39 @@ func TestSave_RefusesSymlinkedJWTFile(t *testing.T) {
 		t.Fatalf("symlink target overwritten: %q", b)
 	}
 }
+
+func TestLoad_RefusesSymlinkedJWTFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("URNETWORK_HOME", home)
+	victim := filepath.Join(t.TempDir(), "victim")
+	if err := os.WriteFile(victim, []byte("tok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(home, "jwt")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(""); err == nil {
+		t.Fatal("Load followed a symlinked jwt file")
+	}
+}
+
+func TestLoad_RefusesJWTFileOver64KiB(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("URNETWORK_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "jwt"), make([]byte, 64<<10+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(""); err == nil {
+		t.Fatal("Load accepted a jwt file above 64 KiB")
+	}
+}
+
+func TestLoad_ReadsSavedToken(t *testing.T) {
+	t.Setenv("URNETWORK_HOME", t.TempDir())
+	if err := Save("tok"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Load(""); err != nil || got != "tok" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
