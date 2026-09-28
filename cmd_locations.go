@@ -6,11 +6,13 @@ import (
 	"time"
 
 	"github.com/docopt/docopt-go"
+
+	"github.com/devrandom0/urnetwork-client/internal/config"
 )
 
 func cmdLocations(ctx context.Context, opts docopt.Opts) error {
-	apiURL := getStringOr(opts, "--api_url", DefaultAPIURL)
-	q := getStringOr(opts, "--query", "")
+	apiURL := config.StringOr(opts, "--api_url", config.DefaultAPIURL)
+	q := config.StringOr(opts, "--query", "")
 	jwtOpt, _ := opts.String("--jwt")
 	jwt, err := loadJWT(jwtOpt)
 	if err != nil {

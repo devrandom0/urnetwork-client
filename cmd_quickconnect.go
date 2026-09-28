@@ -10,6 +10,7 @@ import (
 
 	"github.com/docopt/docopt-go"
 
+	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
@@ -26,24 +27,24 @@ func jwtLoadArgForStep2(jwtOpt string, jwtFromEnv bool, userAuth, password strin
 
 // cmdQuickConnect performs: optional login+verify → ensure client JWT (with refresh) → start VPN.
 func cmdQuickConnect(ctx context.Context, opts docopt.Opts, jwtFromEnv bool) error {
-	vpnCfg, err := resolveVPNConfig(opts)
+	vpnCfg, err := config.ResolveVPNConfig(opts)
 	if err != nil {
 		return err
 	}
 	apiURL := vpnCfg.APIURL
 
-	userAuth := strings.TrimSpace(getStringOr(opts, "--user_auth", ""))
-	password := strings.TrimSpace(getStringOr(opts, "--password", ""))
+	userAuth := strings.TrimSpace(config.StringOr(opts, "--user_auth", ""))
+	password := strings.TrimSpace(config.StringOr(opts, "--password", ""))
 	if userAuth == "" {
 		userAuth = strings.TrimSpace(os.Getenv("URNETWORK_USERNAME"))
 	}
 	if password == "" {
 		password = strings.TrimSpace(os.Getenv("URNETWORK_PASSWORD"))
 	}
-	codeOpt := strings.TrimSpace(getStringOr(opts, "--code", ""))
+	codeOpt := strings.TrimSpace(config.StringOr(opts, "--code", ""))
 	jwtOpt, _ := opts.String("--jwt")
 	forceJWT, _ := opts.Bool("--force_jwt")
-	renewStr := strings.TrimSpace(getStringOr(opts, "--jwt_renew_interval", ""))
+	renewStr := strings.TrimSpace(config.StringOr(opts, "--jwt_renew_interval", ""))
 	var renewInterval time.Duration
 	if renewStr != "" {
 		if d, err := time.ParseDuration(renewStr); err == nil {

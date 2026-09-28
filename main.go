@@ -10,11 +10,9 @@ import (
 
 	"github.com/docopt/docopt-go"
 
+	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
-
-const DefaultAPIURL = "https://api.bringyour.com"
-const DefaultConnectURL = "wss://connect.bringyour.com"
 
 var Version = "dev"
 
@@ -80,7 +78,7 @@ Options:
     -h --help                    Show help
     --version                    Show version
     --config=<path>              Path to YAML config file; CLI flags take precedence
-`, DefaultAPIURL, DefaultConnectURL)
+`, config.DefaultAPIURL, config.DefaultConnectURL)
 }
 
 func main() {
@@ -99,24 +97,24 @@ func main() {
 	}
 
 	// Set up log file and level for commands that support it.
-	if logPath := strings.TrimSpace(getStringOr(opts, "--log_file", "")); logPath != "" {
+	if logPath := strings.TrimSpace(config.StringOr(opts, "--log_file", "")); logPath != "" {
 		if err := logx.SetupLogFile(logPath); err != nil {
 			fmt.Fprintf(os.Stderr, "log setup failed: %v\n", err)
 			os.Exit(1)
 		}
 	}
-	lvl := strings.TrimSpace(getStringOr(opts, "--log_level", ""))
+	lvl := strings.TrimSpace(config.StringOr(opts, "--log_level", ""))
 	dbg, _ := opts.Bool("--debug")
 	logx.SetLogLevel(lvl, dbg)
 
-	if err := validateEndpointFlags(opts); err != nil {
+	if err := config.ValidateEndpointFlags(opts); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2)
 	}
 
 	// Handle --background for commands that support it before creating context.
 	if bg, _ := opts.Bool("--background"); bg {
-		if mustBool(opts, "quick-connect") || mustBool(opts, "vpn") {
+		if config.MustBool(opts, "quick-connect") || config.MustBool(opts, "vpn") {
 			pid, err := startBackground(opts, os.Args, spawnBackground)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "background start failed: %v\n", err)
@@ -132,25 +130,25 @@ func main() {
 
 	var runErr error
 	switch {
-	case mustBool(opts, "login"):
+	case config.MustBool(opts, "login"):
 		runErr = cmdLogin(ctx, opts)
-	case mustBool(opts, "verify"):
+	case config.MustBool(opts, "verify"):
 		runErr = cmdVerify(ctx, opts)
-	case mustBool(opts, "save-jwt"):
+	case config.MustBool(opts, "save-jwt"):
 		runErr = cmdSaveJWT(opts)
-	case mustBool(opts, "mint-client"):
+	case config.MustBool(opts, "mint-client"):
 		runErr = cmdMintClient(ctx, opts)
-	case mustBool(opts, "quick-connect"):
+	case config.MustBool(opts, "quick-connect"):
 		runErr = cmdQuickConnect(ctx, opts, secretsFromEnv["--jwt"])
-	case mustBool(opts, "find-providers"):
+	case config.MustBool(opts, "find-providers"):
 		runErr = cmdFindProviders(ctx, opts)
-	case mustBool(opts, "open"):
+	case config.MustBool(opts, "open"):
 		runErr = cmdOpen(ctx, opts)
-	case mustBool(opts, "locations"):
+	case config.MustBool(opts, "locations"):
 		runErr = cmdLocations(ctx, opts)
-	case mustBool(opts, "socks"):
+	case config.MustBool(opts, "socks"):
 		runErr = cmdSocks(ctx, opts)
-	case mustBool(opts, "vpn"):
+	case config.MustBool(opts, "vpn"):
 		runErr = cmdVpnFromOpts(ctx, opts)
 	default:
 		fmt.Println(usage)

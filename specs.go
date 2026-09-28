@@ -7,16 +7,17 @@ import (
 
 	"github.com/urnetwork/connect"
 
+	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 // providerLookupTimeout bounds startup location lookups so a slow API cannot stall VPN start.
 var providerLookupTimeout = 15 * time.Second
 
-// buildProviderSpecs constructs ProviderSpecs from a LocationConfig.
+// buildProviderSpecs constructs ProviderSpecs from a config.LocationConfig.
 // Priority: LocationID / LocationGroupID → LocationQuery (with HTTP fallback) → BestAvailable.
 // It also creates and returns the ClientStrategy needed by the VPN generator.
-func buildProviderSpecs(ctx context.Context, apiURL, jwt string, loc LocationConfig) (*connect.ClientStrategy, []*connect.ProviderSpec) {
+func buildProviderSpecs(ctx context.Context, apiURL, jwt string, loc config.LocationConfig) (*connect.ClientStrategy, []*connect.ProviderSpec) {
 	strat := connect.NewClientStrategyWithDefaults(ctx)
 	specs := []*connect.ProviderSpec{}
 

@@ -1,4 +1,5 @@
-package main
+// Package config parses, loads and validates the CLI's configuration.
+package config
 
 import (
 	"fmt"
@@ -12,6 +13,9 @@ import (
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 	"github.com/devrandom0/urnetwork-client/internal/socks"
 )
+
+const DefaultAPIURL = "https://api.bringyour.com"
+const DefaultConnectURL = "wss://connect.bringyour.com"
 
 // LocationConfig holds provider location selection options.
 type LocationConfig struct {
@@ -60,53 +64,53 @@ type SOCKSConfig struct {
 	Debug          bool
 }
 
-// parseLocationConfig extracts location-related CLI flags into a LocationConfig.
-func parseLocationConfig(opts docopt.Opts) LocationConfig {
+// ParseLocationConfig extracts location-related CLI flags into a LocationConfig.
+func ParseLocationConfig(opts docopt.Opts) LocationConfig {
 	return LocationConfig{
-		LocationID:      strings.TrimSpace(getStringOr(opts, "--location_id", "")),
-		LocationGroupID: strings.TrimSpace(getStringOr(opts, "--location_group_id", "")),
-		LocationQuery:   strings.TrimSpace(getStringOr(opts, "--location_query", "")),
+		LocationID:      strings.TrimSpace(StringOr(opts, "--location_id", "")),
+		LocationGroupID: strings.TrimSpace(StringOr(opts, "--location_group_id", "")),
+		LocationQuery:   strings.TrimSpace(StringOr(opts, "--location_query", "")),
 	}
 }
 
-// parseVPNConfig extracts the full VPN configuration from parsed docopt options and a
+// ParseVPNConfig extracts the full VPN configuration from parsed docopt options and a
 // pre-resolved JWT string. This is the only place docopt.Opts is read for VPN settings.
-func parseVPNConfig(opts docopt.Opts, jwt string) VPNConfig {
+func ParseVPNConfig(opts docopt.Opts, jwt string) VPNConfig {
 	defRoute, _ := opts.Bool("--default_route")
 	dbg, _ := opts.Bool("--debug")
 	allowLocal, _ := opts.Bool("--allow_inbound_local")
 	enableIPv6, _ := opts.Bool("--enable_ipv6")
 	killSwitch, _ := opts.Bool("--kill_switch")
-	socksListen := strings.TrimSpace(getStringOr(opts, "--socks", getStringOr(opts, "--socks_listen", "")))
+	socksListen := strings.TrimSpace(StringOr(opts, "--socks", StringOr(opts, "--socks_listen", "")))
 	return VPNConfig{
-		APIURL:              getStringOr(opts, "--api_url", DefaultAPIURL),
-		ConnectURL:          getStringOr(opts, "--connect_url", DefaultConnectURL),
-		TunName:             getStringOr(opts, "--tun", ""),
-		IPCIDR:              getStringOr(opts, "--ip_cidr", "10.255.0.2/24"),
-		MTU:                 getIntOr(opts, "--mtu", 1420),
+		APIURL:              StringOr(opts, "--api_url", DefaultAPIURL),
+		ConnectURL:          StringOr(opts, "--connect_url", DefaultConnectURL),
+		TunName:             StringOr(opts, "--tun", ""),
+		IPCIDR:              StringOr(opts, "--ip_cidr", "10.255.0.2/24"),
+		MTU:                 IntOr(opts, "--mtu", 1420),
 		DefaultRoute:        defRoute,
-		ExtraRoutes:         getStringOr(opts, "--route", ""),
-		ExcludeRoutes:       getStringOr(opts, "--exclude_route", ""),
-		DNSList:             getStringOr(opts, "--dns", ""),
-		DNSService:          strings.TrimSpace(getStringOr(opts, "--dns_service", "")),
-		DNSBootstrap:        strings.TrimSpace(getStringOr(opts, "--dns_bootstrap", "bypass")),
+		ExtraRoutes:         StringOr(opts, "--route", ""),
+		ExcludeRoutes:       StringOr(opts, "--exclude_route", ""),
+		DNSList:             StringOr(opts, "--dns", ""),
+		DNSService:          strings.TrimSpace(StringOr(opts, "--dns_service", "")),
+		DNSBootstrap:        strings.TrimSpace(StringOr(opts, "--dns_bootstrap", "bypass")),
 		SOCKSListen:         socksListen,
-		SOCKSAuth:           socks.ResolveSocksAuth(getStringOr(opts, "--socks_user", ""), getStringOr(opts, "--socks_pass", ""), os.Getenv),
-		AllowDomains:        splitCSV(getStringOr(opts, "--domain", "")),
-		ExcludeDomains:      splitCSV(getStringOr(opts, "--exclude_domain", "")),
-		AllowInboundSrcList: strings.TrimSpace(getStringOr(opts, "--allow_inbound_src", "")),
+		SOCKSAuth:           socks.ResolveSocksAuth(StringOr(opts, "--socks_user", ""), StringOr(opts, "--socks_pass", ""), os.Getenv),
+		AllowDomains:        SplitCSV(StringOr(opts, "--domain", "")),
+		ExcludeDomains:      SplitCSV(StringOr(opts, "--exclude_domain", "")),
+		AllowInboundSrcList: strings.TrimSpace(StringOr(opts, "--allow_inbound_src", "")),
 		AllowInboundLocal:   allowLocal,
 		EnableIPv6:          enableIPv6,
 		EnableKillSwitch:    killSwitch,
 		Debug:               dbg,
-		StatsInterval:       time.Duration(getIntOr(opts, "--stats_interval", 5)) * time.Second,
+		StatsInterval:       time.Duration(IntOr(opts, "--stats_interval", 5)) * time.Second,
 		JWT:                 jwt,
-		Location:            parseLocationConfig(opts),
+		Location:            ParseLocationConfig(opts),
 	}
 }
 
-// parseSOCKSConfig extracts SOCKS proxy configuration from parsed docopt options.
-func parseSOCKSConfig(opts docopt.Opts) SOCKSConfig {
+// ParseSOCKSConfig extracts SOCKS proxy configuration from parsed docopt options.
+func ParseSOCKSConfig(opts docopt.Opts) SOCKSConfig {
 	dbg, _ := opts.Bool("--debug")
 	listen, _ := opts.String("--listen")
 	extIP, _ := opts.String("--extender_ip")
@@ -119,9 +123,9 @@ func parseSOCKSConfig(opts docopt.Opts) SOCKSConfig {
 		ExtenderPort:   strings.TrimSpace(extPort),
 		ExtenderSNI:    strings.TrimSpace(extSNI),
 		ExtenderSecret: strings.TrimSpace(extSec),
-		Auth:           socks.ResolveSocksAuth(getStringOr(opts, "--socks_user", ""), getStringOr(opts, "--socks_pass", ""), os.Getenv),
-		AllowDomains:   splitCSV(getStringOr(opts, "--domain", "")),
-		ExcludeDomains: splitCSV(getStringOr(opts, "--exclude_domain", "")),
+		Auth:           socks.ResolveSocksAuth(StringOr(opts, "--socks_user", ""), StringOr(opts, "--socks_pass", ""), os.Getenv),
+		AllowDomains:   SplitCSV(StringOr(opts, "--domain", "")),
+		ExcludeDomains: SplitCSV(StringOr(opts, "--exclude_domain", "")),
 		Debug:          dbg,
 	}
 }
@@ -280,19 +284,19 @@ func resolveLogLevel(flagLevel string, flagDebug bool, fileLevel string, fileDeb
 	return fileLevel, fileDebug
 }
 
-// resolveVPNConfig is the single entry point for vpn and quick-connect: CLI flags, then
+// ResolveVPNConfig is the single entry point for vpn and quick-connect: CLI flags, then
 // the --config file, then defaults. It applies the effective log level and leaves JWT empty.
-func resolveVPNConfig(opts docopt.Opts) (VPNConfig, error) {
-	cfg := parseVPNConfig(opts, "")
-	cf, err := loadConfigFile(getStringOr(opts, "--config", ""))
+func ResolveVPNConfig(opts docopt.Opts) (VPNConfig, error) {
+	cfg := ParseVPNConfig(opts, "")
+	cf, err := loadConfigFile(StringOr(opts, "--config", ""))
 	if err != nil {
 		return VPNConfig{}, err
 	}
 	cfg = applyConfigFile(cfg, cf)
-	if err := validateEndpointURL("api_url", cfg.APIURL, "https", "http"); err != nil {
+	if err := ValidateEndpointURL("api_url", cfg.APIURL, "https", "http"); err != nil {
 		return VPNConfig{}, err
 	}
-	if err := validateEndpointURL("connect_url", cfg.ConnectURL, "wss", "ws"); err != nil {
+	if err := ValidateEndpointURL("connect_url", cfg.ConnectURL, "wss", "ws"); err != nil {
 		return VPNConfig{}, err
 	}
 	if cfg.SOCKSListen != "" {
@@ -300,6 +304,6 @@ func resolveVPNConfig(opts docopt.Opts) (VPNConfig, error) {
 			return VPNConfig{}, fmt.Errorf("socks: %w", err)
 		}
 	}
-	logx.SetLogLevel(resolveLogLevel(getStringOr(opts, "--log_level", ""), mustBool(opts, "--debug"), cf.LogLevel, cf.Debug))
+	logx.SetLogLevel(resolveLogLevel(StringOr(opts, "--log_level", ""), MustBool(opts, "--debug"), cf.LogLevel, cf.Debug))
 	return cfg, nil
 }

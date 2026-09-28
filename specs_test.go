@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/urnetwork/connect"
+
+	"github.com/devrandom0/urnetwork-client/internal/config"
 )
 
 // makeSpecServer spins up an httptest server that serves a /network/find-locations response
@@ -39,7 +41,7 @@ func makeSpecServer(t *testing.T, specs []*connect.ProviderSpec) *httptest.Serve
 func TestBuildProviderSpecs_BestAvailable(t *testing.T) {
 	// No location flags → BestAvailable spec.
 	ctx := context.Background()
-	_, specs := buildProviderSpecs(ctx, "http://unused", "", LocationConfig{})
+	_, specs := buildProviderSpecs(ctx, "http://unused", "", config.LocationConfig{})
 	if len(specs) != 1 || !specs[0].BestAvailable {
 		t.Fatalf("expected single BestAvailable spec, got %v", specs)
 	}
@@ -50,7 +52,7 @@ func TestBuildProviderSpecs_LocationID(t *testing.T) {
 	ctx := context.Background()
 	// Use a valid UUID-like ID. The connect library's ParseId should accept it.
 	id := "00000000-0000-0000-0000-000000000001"
-	_, specs := buildProviderSpecs(ctx, "http://unused", "", LocationConfig{LocationID: id})
+	_, specs := buildProviderSpecs(ctx, "http://unused", "", config.LocationConfig{LocationID: id})
 	if len(specs) == 0 {
 		t.Fatal("expected at least one spec for valid location ID")
 	}
@@ -63,7 +65,7 @@ func TestBuildProviderSpecs_LocationGroupID(t *testing.T) {
 	// LocationGroupID set → single spec with that group ID; no HTTP call.
 	ctx := context.Background()
 	id := "00000000-0000-0000-0000-000000000002"
-	_, specs := buildProviderSpecs(ctx, "http://unused", "", LocationConfig{LocationGroupID: id})
+	_, specs := buildProviderSpecs(ctx, "http://unused", "", config.LocationConfig{LocationGroupID: id})
 	if len(specs) == 0 {
 		t.Fatal("expected at least one spec for valid location group ID")
 	}
@@ -83,7 +85,7 @@ func TestBuildProviderSpecs_LocationQuery_HTTPSuccess(t *testing.T) {
 	srv := makeSpecServer(t, returnedSpecs)
 
 	ctx := context.Background()
-	_, specs := buildProviderSpecs(ctx, srv.URL, "", LocationConfig{LocationQuery: "country:Germany"})
+	_, specs := buildProviderSpecs(ctx, srv.URL, "", config.LocationConfig{LocationQuery: "country:Germany"})
 	if len(specs) == 0 {
 		t.Fatal("expected specs from HTTP response")
 	}
@@ -97,7 +99,7 @@ func TestBuildProviderSpecs_LocationQuery_HTTPEmpty_FallsBackToBestAvailable(t *
 	srv := makeSpecServer(t, nil) // server returns empty Specs slice
 
 	ctx := context.Background()
-	_, specs := buildProviderSpecs(ctx, srv.URL, "", LocationConfig{LocationQuery: "country:NowhereXYZ"})
+	_, specs := buildProviderSpecs(ctx, srv.URL, "", config.LocationConfig{LocationQuery: "country:NowhereXYZ"})
 	if len(specs) != 1 || !specs[0].BestAvailable {
 		t.Fatalf("expected BestAvailable fallback, got %v", specs)
 	}
@@ -119,7 +121,7 @@ func TestBuildProviderSpecs_LookupTimeoutFallsBack(t *testing.T) {
 	t.Cleanup(func() { providerLookupTimeout = oldTimeout })
 
 	start := time.Now()
-	_, specs := buildProviderSpecs(context.Background(), srv.URL, "", LocationConfig{LocationQuery: "country:Germany"})
+	_, specs := buildProviderSpecs(context.Background(), srv.URL, "", config.LocationConfig{LocationQuery: "country:Germany"})
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Fatalf("lookup took %s; a slow API must not block VPN startup", elapsed)
 	}

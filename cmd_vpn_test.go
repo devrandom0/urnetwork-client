@@ -5,13 +5,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 func TestVpnUsesTUN(t *testing.T) {
 	cases := map[string]bool{"": false, "none": false, "off": false, " NONE ": false, "utun9": true, "urnet0": true, "--default_route": true}
 	for tun, want := range cases {
-		if got := vpnUsesTUN(VPNConfig{TunName: tun}); got != want {
+		if got := vpnUsesTUN(config.VPNConfig{TunName: tun}); got != want {
 			t.Errorf("vpnUsesTUN(%q) = %v, want %v", tun, got, want)
 		}
 	}

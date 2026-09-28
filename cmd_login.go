@@ -5,10 +5,12 @@ import (
 	"fmt"
 
 	"github.com/docopt/docopt-go"
+
+	"github.com/devrandom0/urnetwork-client/internal/config"
 )
 
 func cmdLogin(ctx context.Context, opts docopt.Opts) error {
-	apiURL := getStringOr(opts, "--api_url", DefaultAPIURL)
+	apiURL := config.StringOr(opts, "--api_url", config.DefaultAPIURL)
 	userAuth, _ := opts.String("--user_auth")
 	password, _ := opts.String("--password")
 

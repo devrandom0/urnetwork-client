@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/urnetwork/connect"
+
+	"github.com/devrandom0/urnetwork-client/internal/config"
 )
 
 // httpDoer is the minimal interface satisfied by *http.Client.
@@ -37,7 +39,7 @@ func checkAPIRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= maxAPIRedirects {
 		return fmt.Errorf("stopped after %d redirects", maxAPIRedirects)
 	}
-	return validateEndpointURL("redirect", req.URL.String(), "https", "http")
+	return config.ValidateEndpointURL("redirect", req.URL.String(), "https", "http")
 }
 
 func doAPIRequest(req *http.Request, out any, what string) error {

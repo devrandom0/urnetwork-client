@@ -6,14 +6,16 @@ import (
 	"strings"
 
 	"github.com/docopt/docopt-go"
+
+	"github.com/devrandom0/urnetwork-client/internal/config"
 )
 
 func cmdVpnFromOpts(ctx context.Context, opts docopt.Opts) error {
-	cfg, err := resolveVPNConfig(opts)
+	cfg, err := config.ResolveVPNConfig(opts)
 	if err != nil {
 		return err
 	}
-	jwt, err := loadJWT(getStringOr(opts, "--jwt", ""))
+	jwt, err := loadJWT(config.StringOr(opts, "--jwt", ""))
 	if err != nil && vpnUsesTUN(cfg) {
 		return fmt.Errorf("vpn needs a JWT (run 'login' or pass --jwt): %w", err)
 	}
@@ -22,7 +24,7 @@ func cmdVpnFromOpts(ctx context.Context, opts docopt.Opts) error {
 }
 
 // vpnUsesTUN mirrors the SOCKS-only detection in cmdVpn; SOCKS-only mode never calls the API.
-func vpnUsesTUN(cfg VPNConfig) bool {
+func vpnUsesTUN(cfg config.VPNConfig) bool {
 	tun := strings.TrimSpace(cfg.TunName)
 	return tun != "" && !isTUNDisabled(tun)
 }

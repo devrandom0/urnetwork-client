@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/urnetwork/connect"
+
+	"github.com/devrandom0/urnetwork-client/internal/config"
 )
 
 // Integration test (opt-in): requires URNETWORK_TEST_INTEGRATION=1 and a valid JWT in URNETWORK_JWT or ~/.urnetwork/jwt
@@ -14,7 +16,7 @@ func TestIntegration_FindLocations_And_FindProviders(t *testing.T) {
 	if os.Getenv("URNETWORK_TEST_INTEGRATION") != "1" {
 		t.Skip("integration test disabled; set URNETWORK_TEST_INTEGRATION=1 to enable")
 	}
-	apiURL := DefaultAPIURL
+	apiURL := config.DefaultAPIURL
 	jwt, err := loadJWT(os.Getenv("URNETWORK_JWT"))
 	if err != nil {
 		t.Skipf("no jwt available: %v", err)

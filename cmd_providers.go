@@ -7,10 +7,12 @@ import (
 
 	"github.com/docopt/docopt-go"
 	"github.com/urnetwork/connect"
+
+	"github.com/devrandom0/urnetwork-client/internal/config"
 )
 
 func cmdFindProviders(ctx context.Context, opts docopt.Opts) error {
-	apiURL := getStringOr(opts, "--api_url", DefaultAPIURL)
+	apiURL := config.StringOr(opts, "--api_url", config.DefaultAPIURL)
 	jwtOpt, _ := opts.String("--jwt")
 	jwt, err := loadJWT(jwtOpt)
 	if err != nil {
@@ -21,13 +23,13 @@ func cmdFindProviders(ctx context.Context, opts docopt.Opts) error {
 		fmt.Printf("client_id: %s\n", clientID)
 	}
 
-	count := getIntOr(opts, "--count", 8)
-	rankMode := getStringOr(opts, "--rank_mode", "quality")
+	count := config.IntOr(opts, "--count", 8)
+	rankMode := config.StringOr(opts, "--rank_mode", "quality")
 
 	qCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	loc := parseLocationConfig(opts)
+	loc := config.ParseLocationConfig(opts)
 	_, specs := buildProviderSpecs(qCtx, apiURL, jwt, loc)
 
 	api := newByAPI(qCtx, apiURL, jwt)
@@ -45,4 +47,13 @@ func cmdFindProviders(ctx context.Context, opts docopt.Opts) error {
 			p.ClientId.String(), p.Tier, p.EstimatedBytesPerSecond, idsToStrings(p.IntermediaryIds))
 	}
 	return nil
+}
+
+// idsToStrings converts a slice of connect.Id to a slice of their string representations.
+func idsToStrings(ids []connect.Id) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, id.String())
+	}
+	return out
 }

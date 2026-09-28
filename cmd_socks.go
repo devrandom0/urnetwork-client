@@ -6,12 +6,13 @@ import (
 
 	"github.com/docopt/docopt-go"
 
+	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 	"github.com/devrandom0/urnetwork-client/internal/socks"
 )
 
 func cmdSocks(ctx context.Context, opts docopt.Opts) error {
-	cfg := parseSOCKSConfig(opts)
+	cfg := config.ParseSOCKSConfig(opts)
 
 	if cfg.ListenAddr == "" {
 		return fmt.Errorf("--listen is required for socks command")

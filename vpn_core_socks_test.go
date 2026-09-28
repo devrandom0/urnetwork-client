@@ -8,11 +8,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/logx"
+	"github.com/devrandom0/urnetwork-client/internal/socks"
 )
 
+func TestSocksOptionsFromVPN_KeepsAuth(t *testing.T) {
+	if got := socksOptionsFromVPN(config.VPNConfig{SOCKSAuth: socks.SocksAuth{User: "a", Pass: "b"}}, "").Auth; got.User != "a" {
+		t.Fatalf("socksOptionsFromVPN dropped auth: %+v", got)
+	}
+}
+
 func TestRunSocksOnly_NoListenIsError(t *testing.T) {
-	err := runSocksOnly(context.Background(), VPNConfig{})
+	err := runSocksOnly(context.Background(), config.VPNConfig{})
 	if err == nil || !strings.Contains(err.Error(), "nothing to do") {
 		t.Fatalf("want a 'nothing to do' error so the process exits non-zero, got %v", err)
 	}
@@ -21,7 +29,7 @@ func TestRunSocksOnly_NoListenIsError(t *testing.T) {
 func TestRunSocksOnly_ServesUntilCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- runSocksOnly(ctx, VPNConfig{SOCKSListen: "127.0.0.1:0"}) }()
+	go func() { done <- runSocksOnly(ctx, config.VPNConfig{SOCKSListen: "127.0.0.1:0"}) }()
 	select {
 	case err := <-done:
 		t.Fatalf("returned before cancel: %v", err)
@@ -34,7 +42,7 @@ func TestRunSocksOnly_ServesUntilCancel(t *testing.T) {
 }
 
 func TestSocksOptionsFromVPN(t *testing.T) {
-	cfg := VPNConfig{
+	cfg := config.VPNConfig{
 		SOCKSListen:    "127.0.0.1:1080",
 		AllowDomains:   []string{"a.example"},
 		ExcludeDomains: []string{"b.example"},
