@@ -12,6 +12,8 @@ import (
 	"github.com/devrandom0/urnetwork-client/internal/safefile"
 )
 
+const maxJWTFileSize = 64 << 10
+
 func Path() string {
 	if base := strings.TrimSpace(os.Getenv("URNETWORK_HOME")); base != "" {
 		return filepath.Join(base, "jwt")
@@ -25,7 +27,7 @@ func Load(maybe string) (string, error) {
 		return strings.TrimSpace(maybe), nil
 	}
 	path := Path()
-	b, err := os.ReadFile(path)
+	b, err := safefile.ReadFile(path, maxJWTFileSize)
 	if err != nil {
 		return "", fmt.Errorf("no jwt provided and failed to read %s: %w", path, err)
 	}

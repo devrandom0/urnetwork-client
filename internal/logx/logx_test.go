@@ -52,3 +52,17 @@ func TestSetupLogFile_RefusesSymlink(t *testing.T) {
 		t.Fatal("stdout redirected despite the error")
 	}
 }
+
+func TestSetupLogFile_CreatesLogDir0700(t *testing.T) {
+	origOut, origErr := os.Stdout, os.Stderr
+	t.Cleanup(func() { os.Stdout, os.Stderr = origOut, origErr })
+	dir := filepath.Join(t.TempDir(), "logs")
+	if err := SetupLogFile(filepath.Join(dir, "urnet.log")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Stdout.Close() })
+	fi, err := os.Stat(dir)
+	if err != nil || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("log dir mode=%v err=%v, want 0700", fi.Mode(), err)
+	}
+}
