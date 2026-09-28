@@ -24,7 +24,7 @@ type LocationConfig struct {
 	LocationQuery   string
 }
 
-// VPNConfig holds all configuration for cmdVpn and vpnRunCore.
+// VPNConfig holds all configuration for session.Run and session.runCore.
 type VPNConfig struct {
 	APIURL              string
 	ConnectURL          string
