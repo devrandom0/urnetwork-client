@@ -7,6 +7,7 @@ import (
 	"github.com/docopt/docopt-go"
 
 	"github.com/devrandom0/urnetwork-client/internal/logx"
+	"github.com/devrandom0/urnetwork-client/internal/socks"
 )
 
 func cmdSocks(ctx context.Context, opts docopt.Opts) error {
@@ -20,7 +21,7 @@ func cmdSocks(ctx context.Context, opts docopt.Opts) error {
 	// and runs a plain SOCKS5 proxy. Track as a known gap.
 	logx.Info("Extender details: IP=%s Port=%s SNI=%s\n", cfg.ExtenderIP, cfg.ExtenderPort, cfg.ExtenderSNI)
 
-	stopSocks, err := StartSocks5(ctx, SocksOptions{
+	stopSocks, err := socks.StartSocks5(ctx, socks.SocksOptions{
 		ListenAddr:     cfg.ListenAddr,
 		Auth:           cfg.Auth,
 		Debug:          cfg.Debug,

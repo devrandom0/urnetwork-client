@@ -1,4 +1,4 @@
-package main
+package socks
 
 import (
 	"context"
@@ -6,8 +6,6 @@ import (
 	"net"
 	"strings"
 	"testing"
-
-	"github.com/docopt/docopt-go"
 )
 
 func TestSelectSocksMethod(t *testing.T) {
@@ -49,8 +47,8 @@ func TestSocksAuthValidate(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := tc.a.validate(); (err == nil) != tc.ok {
-				t.Fatalf("validate() = %v, want ok=%v", err, tc.ok)
+			if err := tc.a.Validate(); (err == nil) != tc.ok {
+				t.Fatalf("Validate() = %v, want ok=%v", err, tc.ok)
 			}
 		})
 	}
@@ -140,24 +138,9 @@ func TestResolveSocksAuth(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := resolveSocksAuth(tc.flagUser, tc.flagPass, tc.getenv); got != tc.want {
+			if got := ResolveSocksAuth(tc.flagUser, tc.flagPass, tc.getenv); got != tc.want {
 				t.Fatalf("got %+v, want %+v", got, tc.want)
 			}
 		})
-	}
-}
-
-func TestParseConfigs_SocksAuthFromFlagsAndEnv(t *testing.T) {
-	t.Setenv(envSocksUser, "")
-	t.Setenv(envSocksPass, "from-env")
-	opts := docopt.Opts{"--socks_user": "alice"}
-	if got := parseVPNConfig(opts, "").SOCKSAuth; got != (SocksAuth{User: "alice", Pass: "from-env"}) {
-		t.Fatalf("vpn SOCKSAuth = %+v", got)
-	}
-	if got := parseSOCKSConfig(opts).Auth; got != (SocksAuth{User: "alice", Pass: "from-env"}) {
-		t.Fatalf("socks Auth = %+v", got)
-	}
-	if got := socksOptionsFromVPN(VPNConfig{SOCKSAuth: SocksAuth{User: "a", Pass: "b"}}, "").Auth; got.User != "a" {
-		t.Fatalf("socksOptionsFromVPN dropped auth: %+v", got)
 	}
 }

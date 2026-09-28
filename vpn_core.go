@@ -13,6 +13,7 @@ import (
 	"github.com/songgao/water"
 
 	"github.com/devrandom0/urnetwork-client/internal/logx"
+	"github.com/devrandom0/urnetwork-client/internal/socks"
 
 	"github.com/urnetwork/connect"
 	"github.com/urnetwork/connect/protocol"
@@ -259,7 +260,7 @@ func vpnRunCore(
 	var stopSocks func() error
 	if cfg.SOCKSListen != "" {
 		warnIfSocksDNSUnset(tunIfName, cfg.DNSList)
-		if s, err := StartSocks5(ctx, socksOptionsFromVPN(cfg, tunIfName)); err != nil {
+		if s, err := socks.StartSocks5(ctx, socksOptionsFromVPN(cfg, tunIfName)); err != nil {
 			logx.Warn("failed to start socks at %s: %v\n", cfg.SOCKSListen, err)
 		} else {
 			stopSocks = s
@@ -293,8 +294,8 @@ func warnIfSocksDNSUnset(bindIf string, dnsList string) {
 	logx.Warn("SOCKS hostname lookups go through the VPN interface and fail closed; if the system resolver is on the LAN or is Docker's 127.0.0.11, set --dns=<public resolver> (e.g. 1.1.1.1)\n")
 }
 
-func socksOptionsFromVPN(cfg VPNConfig, bindIf string) SocksOptions {
-	return SocksOptions{
+func socksOptionsFromVPN(cfg VPNConfig, bindIf string) socks.SocksOptions {
+	return socks.SocksOptions{
 		ListenAddr:     cfg.SOCKSListen,
 		BindIf:         bindIf,
 		Auth:           cfg.SOCKSAuth,
@@ -310,7 +311,7 @@ func runSocksOnly(ctx context.Context, cfg VPNConfig) error {
 	if cfg.SOCKSListen == "" {
 		return errors.New("no TUN and no --socks given; nothing to do (set --tun=<name> and/or --socks=<addr>)")
 	}
-	stop, err := StartSocks5(ctx, socksOptionsFromVPN(cfg, ""))
+	stop, err := socks.StartSocks5(ctx, socksOptionsFromVPN(cfg, ""))
 	if err != nil {
 		return fmt.Errorf("start socks failed: %w", err)
 	}
