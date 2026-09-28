@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 )
@@ -43,10 +44,8 @@ func selectSocksMethod(offered []byte, authRequired bool) byte {
 	if authRequired {
 		want = socksMethodUserPass
 	}
-	for _, m := range offered {
-		if m == want {
-			return want
-		}
+	if slices.Contains(offered, want) {
+		return want
 	}
 	return socksMethodNoAcceptable
 }
