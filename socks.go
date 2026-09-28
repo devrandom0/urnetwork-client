@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -15,19 +16,48 @@ import (
 	"time"
 )
 
+const (
+	socksVersion5 = 0x05
+
+	socksMethodNoAuth = 0x00
+
+	socksCmdConnect      = 0x01
+	socksCmdUDPAssociate = 0x03
+
+	socksATYPIPv4   = 0x01
+	socksATYPDomain = 0x03
+	socksATYPIPv6   = 0x04
+
+	socksRepSucceeded            = 0x00
+	socksRepGeneralFailure       = 0x01
+	socksRepNetUnreachable       = 0x03
+	socksRepHostUnreachable      = 0x04
+	socksRepConnRefused          = 0x05
+	socksRepCmdNotSupported      = 0x07
+	socksRepAddrTypeNotSupported = 0x08
+
+	defaultSocksHandshakeTimeout = 10 * time.Second
+)
+
+var errSocksBadATYP = errors.New("unsupported SOCKS address type")
+
 // SocksOptions configures StartSocks5.
 type SocksOptions struct {
-	ListenAddr     string
-	BindIf         string // interface that VPN-routed traffic must leave through; empty means system routing
-	Debug          bool
-	AllowDomains   []string
-	ExcludeDomains []string
-	DNSServers     []string // first entry replaces the system resolver for hostname lookups
+	ListenAddr       string
+	BindIf           string // interface that VPN-routed traffic must leave through; empty means system routing
+	Debug            bool
+	AllowDomains     []string
+	ExcludeDomains   []string
+	DNSServers       []string      // first entry replaces the system resolver for hostname lookups
+	HandshakeTimeout time.Duration // zero means defaultSocksHandshakeTimeout
 }
 
 // StartSocks5 starts a SOCKS5 proxy and returns a stop function.
 func StartSocks5(ctx context.Context, opts SocksOptions) (func() error, error) {
-	resolver := newSocksResolver(opts.DNSServers)
+	if opts.HandshakeTimeout <= 0 {
+		opts.HandshakeTimeout = defaultSocksHandshakeTimeout
+	}
+	srv := &socksServer{opts: opts, resolver: newSocksResolver(opts.DNSServers)}
 	ln, err := net.Listen("tcp", opts.ListenAddr)
 	if err != nil {
 		return nil, err
@@ -35,12 +65,15 @@ func StartSocks5(ctx context.Context, opts SocksOptions) (func() error, error) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		acceptLoop(ctx, ln, time.Second, func(conn net.Conn) {
-			go handleSocksConn(ctx, conn, opts.BindIf, opts.Debug, opts.AllowDomains, opts.ExcludeDomains, resolver)
-		})
+		acceptLoop(ctx, ln, time.Second, func(conn net.Conn) { go srv.handleConn(ctx, conn) })
 	}()
 	stop := func() error { _ = ln.Close(); <-done; return nil }
 	return stop, nil
+}
+
+type socksServer struct {
+	opts     SocksOptions
+	resolver *net.Resolver
 }
 
 // acceptLoop keeps serving through transient Accept errors such as EMFILE and only
@@ -92,203 +125,221 @@ func newSocksResolver(dnsServers []string) *net.Resolver {
 	}
 }
 
-func handleSocksConn(
-	ctx context.Context,
-	c net.Conn,
-	bindIf string,
-	debug bool,
-	allowDomains []string,
-	excludeDomains []string,
-	resolver *net.Resolver,
-) {
+func (s *socksServer) handleConn(ctx context.Context, c net.Conn) {
 	defer func() { _ = c.Close() }()
+	// Bounded handshake so idle clients cannot pin goroutines; each session clears it.
+	_ = c.SetDeadline(time.Now().Add(s.opts.HandshakeTimeout))
 
-	// Apply a deadline for the SOCKS handshake phase to avoid leaking goroutines
-	// on clients that connect but never send data. Once the tunnel is established
-	// the deadline is cleared so long-lived connections work correctly.
-	const handshakeTimeout = 10 * time.Second
-	_ = c.SetDeadline(time.Now().Add(handshakeTimeout))
+	if err := s.negotiate(c); err != nil {
+		if s.opts.Debug {
+			fmt.Printf("[socks] handshake from %s failed: %v\n", c.RemoteAddr(), err)
+		}
+		return
+	}
+	hdr := make([]byte, 3)
+	if _, err := io.ReadFull(c, hdr); err != nil {
+		return
+	}
+	if hdr[0] != socksVersion5 {
+		_ = writeSocksReply(c, socksRepGeneralFailure, nil)
+		return
+	}
+	dst, err := readSocksAddr(c)
+	if err != nil {
+		if errors.Is(err, errSocksBadATYP) {
+			_ = writeSocksReply(c, socksRepAddrTypeNotSupported, nil)
+		}
+		return
+	}
+	switch hdr[1] {
+	case socksCmdConnect:
+		s.handleConnect(ctx, c, dst)
+	case socksCmdUDPAssociate:
+		s.runUDPAssociate(ctx, c)
+	default:
+		_ = writeSocksReply(c, socksRepCmdNotSupported, nil)
+	}
+}
 
-	// RFC 1928 greeting
-	// +----+----------+----------+
-	// |VER | NMETHODS | METHODS  |
-	// +----+----------+----------+
-	buf := make([]byte, 262)
-	if _, err := io.ReadFull(c, buf[:2]); err != nil {
-		return
+func (s *socksServer) negotiate(c net.Conn) error {
+	head := make([]byte, 2)
+	if _, err := io.ReadFull(c, head); err != nil {
+		return err
 	}
-	ver, nMethods := buf[0], int(buf[1])
-	if ver != 5 {
-		return
+	if head[0] != socksVersion5 {
+		return fmt.Errorf("unsupported SOCKS version %d", head[0])
 	}
-	if _, err := io.ReadFull(c, buf[:nMethods]); err != nil {
-		return
+	if _, err := io.ReadFull(c, make([]byte, int(head[1]))); err != nil {
+		return err
 	}
-	// no auth
-	if _, err := c.Write([]byte{5, 0}); err != nil {
-		return
-	}
+	_, err := c.Write([]byte{socksVersion5, socksMethodNoAuth})
+	return err
+}
 
-	// Request
-	// +----+-----+-------+------+----------+----------+
-	// |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
-	// +----+-----+-------+------+----------+----------+
-	if _, err := io.ReadFull(c, buf[:4]); err != nil {
-		return
-	}
-	ver, cmd, atyp := buf[0], buf[1], buf[3]
-	if ver != 5 {
-		_ = writeSocksReply(c, 1, nil)
-		return
-	}
-	if cmd == 3 { // UDP ASSOCIATE
-		runUDPAssociate(ctx, c, bindIf, debug, allowDomains, excludeDomains, resolver)
-		return
-	}
-	if cmd != 1 { // CONNECT only
-		_ = writeSocksReply(c, 7, nil)
-		return
+type socksAddr struct {
+	atyp byte
+	host string // IP literal or domain name
+	port int
+}
+
+func (a socksAddr) String() string { return net.JoinHostPort(a.host, strconv.Itoa(a.port)) }
+
+func readSocksAddr(r io.Reader) (socksAddr, error) {
+	var atyp [1]byte
+	if _, err := io.ReadFull(r, atyp[:]); err != nil {
+		return socksAddr{}, err
 	}
 	var host string
-	switch atyp {
-	case 1: // IPv4
-		if _, err := io.ReadFull(c, buf[:4]); err != nil {
-			return
+	switch atyp[0] {
+	case socksATYPIPv4, socksATYPIPv6:
+		size := net.IPv4len
+		if atyp[0] == socksATYPIPv6 {
+			size = net.IPv6len
 		}
-		host = net.IP(buf[:4]).String()
-	case 3: // domain
-		if _, err := io.ReadFull(c, buf[:1]); err != nil {
-			return
+		b := make([]byte, size)
+		if _, err := io.ReadFull(r, b); err != nil {
+			return socksAddr{}, err
 		}
-		l := int(buf[0])
-		if _, err := io.ReadFull(c, buf[:l]); err != nil {
-			return
+		host = net.IP(b).String()
+	case socksATYPDomain:
+		var l [1]byte
+		if _, err := io.ReadFull(r, l[:]); err != nil {
+			return socksAddr{}, err
 		}
-		host = string(buf[:l])
-	case 4: // IPv6
-		if _, err := io.ReadFull(c, buf[:16]); err != nil {
-			return
+		b := make([]byte, int(l[0]))
+		if _, err := io.ReadFull(r, b); err != nil {
+			return socksAddr{}, err
 		}
-		host = net.IP(buf[:16]).String()
+		host = string(b)
 	default:
-		_ = writeSocksReply(c, 8, nil)
-		return
+		return socksAddr{atyp: atyp[0]}, errSocksBadATYP
 	}
-	if _, err := io.ReadFull(c, buf[:2]); err != nil {
-		return
+	var p [2]byte
+	if _, err := io.ReadFull(r, p[:]); err != nil {
+		return socksAddr{}, err
 	}
-	port := int(buf[0])<<8 | int(buf[1])
-	// Resolve target address to an IP for routing. Prefer IPv4
-	var ipForRoute net.IP
-	var addr string
-	var reqDomain string
-	if atyp == 3 { // domain
-		// Use system resolver
-		reqDomain = strings.ToLower(host)
-		addrs, _ := resolver.LookupIP(ctx, "ip", host)
-		for _, ip := range addrs {
-			if ip.To4() != nil {
-				ipForRoute = ip
-				break
-			}
-			if ipForRoute == nil {
-				ipForRoute = ip
-			}
-		}
-		if ipForRoute == nil {
-			_ = writeSocksReply(c, 4, nil) // host unreachable
+	return socksAddr{atyp: atyp[0], host: host, port: int(binary.BigEndian.Uint16(p[:]))}, nil
+}
+
+func (s *socksServer) handleConnect(ctx context.Context, c net.Conn, dst socksAddr) {
+	var domain string
+	ip := net.ParseIP(dst.host)
+	if dst.atyp == socksATYPDomain {
+		domain = strings.ToLower(dst.host)
+		if ip = s.resolve(ctx, dst.host); ip == nil {
+			_ = writeSocksReply(c, socksRepHostUnreachable, nil)
 			return
 		}
-		addr = net.JoinHostPort(ipForRoute.String(), strconv.Itoa(port))
-	} else {
-		ipForRoute = net.ParseIP(host)
-		addr = net.JoinHostPort(host, strconv.Itoa(port))
 	}
-	useVPN := true
-	if len(allowDomains) > 0 {
-		if reqDomain == "" || !domainMatches(reqDomain, allowDomains) {
-			useVPN = false
-		}
+	target := net.JoinHostPort(ip.String(), strconv.Itoa(dst.port))
+	useVPN := s.routeViaVPN(domain)
+	if s.opts.Debug {
+		fmt.Printf("[socks] CONNECT %s (ip=%s) bindIf=%s useVPN=%v\n", dst, ip, s.opts.BindIf, useVPN)
 	}
-	if reqDomain != "" && domainMatches(reqDomain, excludeDomains) {
-		useVPN = false
-	}
-	if debug {
-		fmt.Printf("[socks] CONNECT %s (ip=%s) bindIf=%s useVPN=%v\n", host+":"+strconv.Itoa(port), ipForRoute, bindIf, useVPN)
-	}
-
-	// Define relay function early so it's available for both initial and fallback connections.
-	relay := func(dst, src net.Conn, wg *sync.WaitGroup) {
-		defer wg.Done()
-		_, _ = io.Copy(dst, src)
-		// Signal EOF to the write side of dst so the peer sees a clean close.
-		if tc, ok := dst.(*net.TCPConn); ok {
-			_ = tc.CloseWrite()
-		}
-	}
-
 	d := net.Dialer{Timeout: 30 * time.Second}
-	if useVPN && bindIf != "" {
-		// Bind outbound socket to VPN interface
-		d.Control = func(network, address string, rc syscall.RawConn) error {
-			if !strings.Contains(network, "tcp") {
-				return nil
-			}
-			var retErr error
-			ctlErr := rc.Control(func(fd uintptr) {
-				retErr = bindFDToInterface(int(fd), bindIf)
-			})
-			if ctlErr != nil {
-				return ctlErr
-			}
-			return retErr
-		}
+	if useVPN && s.opts.BindIf != "" {
+		d.Control = s.bindControl
 	}
-
-	rc, err := d.DialContext(ctx, "tcp", addr)
+	rc, err := d.DialContext(ctx, "tcp", target)
 	if err != nil {
-		// Map common errors to SOCKS reply codes
-		rep := byte(1) // general failure by default
-		if ne, ok := err.(net.Error); ok && ne.Timeout() {
-			rep = 4
-		}
-		var se syscall.Errno
-		if errors.As(err, &se) {
-			switch se {
-			case syscall.ECONNREFUSED:
-				rep = 5
-			case syscall.ENETUNREACH:
-				rep = 3
-			case syscall.EHOSTUNREACH:
-				rep = 4
-			case syscall.ETIMEDOUT:
-				rep = 4
-			}
-		}
-		if debug {
-			fmt.Printf("[socks] dial error to %s: %v (rep=%d)\n", addr, err, rep)
+		rep := dialErrorReply(err)
+		if s.opts.Debug {
+			fmt.Printf("[socks] dial error to %s: %v (rep=%d)\n", target, err, rep)
 		}
 		_ = writeSocksReply(c, rep, nil)
 		return
 	}
 	defer func() { _ = rc.Close() }()
-	if err := writeSocksReply(c, 0, rc.LocalAddr()); err != nil {
+	if err := writeSocksReply(c, socksRepSucceeded, rc.LocalAddr()); err != nil {
 		return
 	}
-	// Handshake complete — clear deadline so the tunnel can run indefinitely.
 	_ = c.SetDeadline(time.Time{})
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go relay(rc, c, &wg)
-	go relay(c, rc, &wg)
+	go relayTCP(rc, c, &wg)
+	go relayTCP(c, rc, &wg)
 	wg.Wait()
 }
 
-func writeSocksReply(c net.Conn, rep byte, bindAddr net.Addr) error {
-	// Minimal reply with 0.0.0.0:0
-	resp := []byte{5, rep, 0, 1, 0, 0, 0, 0, 0, 0}
-	_, err := c.Write(resp)
+func relayTCP(dst, src net.Conn, wg *sync.WaitGroup) {
+	defer wg.Done()
+	_, _ = io.Copy(dst, src)
+	if tc, ok := dst.(*net.TCPConn); ok {
+		_ = tc.CloseWrite()
+	}
+}
+
+func (s *socksServer) bindControl(_, _ string, rc syscall.RawConn) error {
+	var bindErr error
+	if err := rc.Control(func(fd uintptr) { bindErr = bindFDToInterface(int(fd), s.opts.BindIf) }); err != nil {
+		return err
+	}
+	return bindErr
+}
+
+// resolve prefers IPv4 because the tunnel drops IPv6 unless --enable_ipv6 is set.
+func (s *socksServer) resolve(ctx context.Context, host string) net.IP {
+	addrs, _ := s.resolver.LookupIP(ctx, "ip", host)
+	var pick net.IP
+	for _, ip := range addrs {
+		if ip.To4() != nil {
+			return ip
+		}
+		if pick == nil {
+			pick = ip
+		}
+	}
+	return pick
+}
+
+func (s *socksServer) routeViaVPN(domain string) bool {
+	if len(s.opts.AllowDomains) > 0 && (domain == "" || !domainMatches(domain, s.opts.AllowDomains)) {
+		return false
+	}
+	return domain == "" || !domainMatches(domain, s.opts.ExcludeDomains)
+}
+
+func dialErrorReply(err error) byte {
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return socksRepHostUnreachable
+	}
+	var se syscall.Errno
+	if errors.As(err, &se) {
+		switch se {
+		case syscall.ECONNREFUSED:
+			return socksRepConnRefused
+		case syscall.ENETUNREACH:
+			return socksRepNetUnreachable
+		case syscall.EHOSTUNREACH, syscall.ETIMEDOUT:
+			return socksRepHostUnreachable
+		}
+	}
+	return socksRepGeneralFailure
+}
+
+func writeSocksReply(w io.Writer, rep byte, bindAddr net.Addr) error {
+	ip, port := net.IPv4zero, 0
+	switch a := bindAddr.(type) {
+	case *net.TCPAddr:
+		ip, port = a.IP, a.Port
+	case *net.UDPAddr:
+		ip, port = a.IP, a.Port
+	}
+	resp := appendSocksIP([]byte{socksVersion5, rep, 0x00}, ip)
+	resp = binary.BigEndian.AppendUint16(resp, uint16(port))
+	_, err := w.Write(resp)
 	return err
+}
+
+func appendSocksIP(b []byte, ip net.IP) []byte {
+	if v4 := ip.To4(); v4 != nil {
+		return append(append(b, socksATYPIPv4), v4...)
+	}
+	if v6 := ip.To16(); v6 != nil {
+		return append(append(b, socksATYPIPv6), v6...)
+	}
+	return append(b, socksATYPIPv4, 0, 0, 0, 0)
 }
 
 // domainMatches checks if host matches any suffix in patterns (case-insensitive).
@@ -307,7 +358,8 @@ func domainMatches(host string, patterns []string) bool {
 }
 
 // runUDPAssociate implements SOCKS5 UDP ASSOCIATE for a single TCP control connection.
-func runUDPAssociate(ctx context.Context, ctrl net.Conn, bindIf string, debug bool, allowDomains, excludeDomains []string, resolver *net.Resolver) {
+func (s *socksServer) runUDPAssociate(ctx context.Context, ctrl net.Conn) {
+	bindIf, debug, allowDomains, excludeDomains, resolver := s.opts.BindIf, s.opts.Debug, s.opts.AllowDomains, s.opts.ExcludeDomains, s.resolver
 	// Allocate a UDP listener for the client on loopback (IPv4)
 	pcClient, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
