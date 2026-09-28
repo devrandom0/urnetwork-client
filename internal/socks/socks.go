@@ -344,9 +344,8 @@ func (s *socksServer) handleConnect(ctx context.Context, c net.Conn, dst socksAd
 	}
 	_ = c.SetDeadline(time.Time{})
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go relayTCP(rc, c, &wg)
-	go relayTCP(c, rc, &wg)
+	wg.Go(func() { relayTCP(rc, c) })
+	wg.Go(func() { relayTCP(c, rc) })
 	wg.Wait()
 }
 
@@ -360,8 +359,7 @@ func withoutDialTarget(err error) error {
 	return err
 }
 
-func relayTCP(dst, src net.Conn, wg *sync.WaitGroup) {
-	defer wg.Done()
+func relayTCP(dst, src net.Conn) {
 	_, _ = io.Copy(dst, src)
 	if tc, ok := dst.(*net.TCPConn); ok {
 		_ = tc.CloseWrite()
@@ -595,22 +593,10 @@ func (s *socksServer) runUDPAssociate(ctx context.Context, ctrl net.Conn, req so
 	}
 	done := make(chan struct{})
 	defer close(done)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		assoc.closeWhenIdle(ctrl, s.opts.UDPIdleTimeout, done)
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		s.relayFromClient(ctx, pcClient, pcVPN, pcSys, assoc)
-	}()
+	wg.Go(func() { assoc.closeWhenIdle(ctrl, s.opts.UDPIdleTimeout, done) })
+	wg.Go(func() { s.relayFromClient(ctx, pcClient, pcVPN, pcSys, assoc) })
 	for _, pc := range conns[1:] {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			relayToClient(pc, pcClient, assoc)
-		}()
+		wg.Go(func() { relayToClient(pc, pcClient, assoc) })
 	}
 	// RFC 1928: the association ends when the TCP control connection ends.
 	_, _ = io.Copy(io.Discard, ctrl)
