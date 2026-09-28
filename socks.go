@@ -15,35 +15,20 @@ import (
 	"time"
 )
 
-// StartSocks5 starts a minimal SOCKS5 proxy at listenAddr.
-// If bindIf is non-empty (e.g., "utun10" or "tun0"), outbound connections will be attempted with SO_BINDTODEVICE where supported
-// (Linux) or using a control on macOS to set IP_BOUND_IF via syscall.RawConn.Control.
-// If dnsServers is non-empty, the first entry is used as the DNS resolver for hostname lookups
-// instead of the system default resolver.
-func StartSocks5(
-	ctx context.Context,
-	listenAddr string,
-	bindIf string,
-	debug bool,
-	allowDomains []string,
-	excludeDomains []string,
-	dnsServers []string,
-) (func() error, error) {
-	resolver := net.DefaultResolver
-	if len(dnsServers) > 0 {
-		addr := dnsServers[0]
-		if _, _, err := net.SplitHostPort(addr); err != nil {
-			addr = net.JoinHostPort(addr, "53")
-		}
-		resolver = &net.Resolver{
-			PreferGo: true,
-			Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-				d := net.Dialer{Timeout: 5 * time.Second}
-				return d.DialContext(ctx, "udp", addr)
-			},
-		}
-	}
-	ln, err := net.Listen("tcp", listenAddr)
+// SocksOptions configures StartSocks5.
+type SocksOptions struct {
+	ListenAddr     string
+	BindIf         string // interface that VPN-routed traffic must leave through; empty means system routing
+	Debug          bool
+	AllowDomains   []string
+	ExcludeDomains []string
+	DNSServers     []string // first entry replaces the system resolver for hostname lookups
+}
+
+// StartSocks5 starts a SOCKS5 proxy and returns a stop function.
+func StartSocks5(ctx context.Context, opts SocksOptions) (func() error, error) {
+	resolver := newSocksResolver(opts.DNSServers)
+	ln, err := net.Listen("tcp", opts.ListenAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -58,11 +43,28 @@ func StartSocks5(
 				}
 				return
 			}
-			go handleSocksConn(ctx, conn, bindIf, debug, allowDomains, excludeDomains, resolver)
+			go handleSocksConn(ctx, conn, opts.BindIf, opts.Debug, opts.AllowDomains, opts.ExcludeDomains, resolver)
 		}
 	}()
 	stop := func() error { _ = ln.Close(); <-done; return nil }
 	return stop, nil
+}
+
+func newSocksResolver(dnsServers []string) *net.Resolver {
+	if len(dnsServers) == 0 {
+		return net.DefaultResolver
+	}
+	addr := dnsServers[0]
+	if _, _, err := net.SplitHostPort(addr); err != nil {
+		addr = net.JoinHostPort(addr, "53")
+	}
+	return &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			d := net.Dialer{Timeout: 5 * time.Second}
+			return d.DialContext(ctx, "udp", addr)
+		},
+	}
 }
 
 func handleSocksConn(

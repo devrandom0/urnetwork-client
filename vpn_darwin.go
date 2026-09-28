@@ -29,18 +29,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 
 	// If TUN is disabled or not specified (and not a missing-arg case), run SOCKS-only.
 	if isTUNDisabled(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
-		if cfg.SOCKSListen == "" {
-			logError("--tun=none specified but no --socks provided; nothing to do\n")
-			return nil
-		}
-		stopSocks, err := StartSocks5(ctx, cfg.SOCKSListen, "", cfg.Debug, cfg.AllowDomains, cfg.ExcludeDomains, splitCSV(cfg.DNSList))
-		if err != nil {
-			return fmt.Errorf("start socks failed: %w", err)
-		}
-		defer func() { _ = stopSocks() }()
-		logInfo("SOCKS started without TUN (system routes only). Press Ctrl+C to exit.\n")
-		<-ctx.Done()
-		return nil
+		return runSocksOnly(ctx, cfg)
 	}
 
 	// Create TUN device.
