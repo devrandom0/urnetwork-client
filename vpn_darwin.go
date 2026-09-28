@@ -4,14 +4,12 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
-	"github.com/songgao/water"
-
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 	"github.com/devrandom0/urnetwork-client/internal/netcfg"
+	"github.com/devrandom0/urnetwork-client/internal/tunnel"
 )
 
 // cmdVpn (macOS): create a utun device and bridge packets with RemoteUserNatMultiClient.
@@ -32,24 +30,14 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 		return runSocksOnly(ctx, cfg)
 	}
 
-	// Create TUN device.
-	waterCfg := water.Config{DeviceType: water.TUN}
+	devName := tunName
 	if tunLikelyMissingArg {
-		waterCfg.Name = ""
+		devName = ""
 		logx.Warn("--tun provided without a valid name (got %q); using auto utun\n", rawTun)
-	} else {
-		waterCfg.Name = tunName
 	}
-	dev, err := water.New(waterCfg)
+	dev, err := tunnel.Open(devName)
 	if err != nil {
-		if strings.TrimSpace(waterCfg.Name) != "" {
-			logx.Warn("failed to create %s (%v); retrying with auto utun name\n", waterCfg.Name, err)
-			waterCfg.Name = ""
-			dev, err = water.New(waterCfg)
-		}
-		if err != nil {
-			return fmt.Errorf("create utun failed: %w", err)
-		}
+		return err
 	}
 	defer func() { _ = dev.Close() }()
 	actualName := dev.Name()
@@ -68,7 +56,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	}
 
 	// Packet counters (shared with the DNS cache goroutine).
-	var pktsIn, bytesIn, pktsOut, bytesOut uint64
+	var counters tunnel.Counters
 
 	// Detect original default gateway before altering routes.
 	defGw, _, gwErr := netcfg.DefaultGateway()
@@ -135,10 +123,10 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 
 	// DNS cache bootstrap: remove DNS bypass once the tunnel has traffic.
 	if cfg.DefaultRoute && cfg.DNSBootstrap == "cache" {
-		go netcfg.RemoveDNSBypassWhenWarm(ctx, rm, &pktsIn, &pktsOut, 3*time.Second, 200*time.Millisecond)
+		go netcfg.RemoveDNSBypassWhenWarm(ctx, rm, &counters.PktsIn, &counters.PktsOut, 3*time.Second, 200*time.Millisecond)
 	}
 
 	// Run shared dataplane + SOCKS + stats.
-	vpnRunCore(ctx, dev, actualName, cfg, &pktsIn, &pktsOut, &bytesIn, &bytesOut, func() {})
+	vpnRunCore(ctx, dev, actualName, cfg, &counters, func() {})
 	return nil
 }
