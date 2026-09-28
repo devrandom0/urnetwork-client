@@ -13,7 +13,11 @@ import (
 
 // cmdQuickConnect performs: optional login+verify → ensure client JWT (with refresh) → start VPN.
 func cmdQuickConnect(ctx context.Context, opts docopt.Opts) error {
-	apiURL := getStringOr(opts, "--api_url", DefaultAPIURL)
+	vpnCfg, err := resolveVPNConfig(opts)
+	if err != nil {
+		return err
+	}
+	apiURL := vpnCfg.APIURL
 
 	userAuth := strings.TrimSpace(getStringOr(opts, "--user_auth", ""))
 	password := strings.TrimSpace(getStringOr(opts, "--password", ""))
@@ -83,11 +87,7 @@ func cmdQuickConnect(ctx context.Context, opts docopt.Opts) error {
 			if validateClientJWT(ctx, apiURL, jwt) {
 				logInfo("using existing client JWT (client_id=%s)\n", id)
 			} else {
-				retryEvery := renewInterval
-				if retryEvery <= 0 {
-					retryEvery = time.Minute
-				}
-				for {
+				for attempt := 0; ; attempt++ {
 					if userAuth == "" || password == "" {
 						return errors.New("existing client JWT appears invalid; provide --user_auth and --password or a BY token via --jwt to refresh")
 					}
@@ -105,9 +105,10 @@ func cmdQuickConnect(ctx context.Context, opts docopt.Opts) error {
 							break
 						}
 					}
-					logWarn("jwt still not usable; retrying in %s\n", retryEvery.String())
+					wait := loginRetryBackoff(attempt)
+					logWarn("jwt still not usable; retrying in %s\n", wait)
 					select {
-					case <-time.After(retryEvery):
+					case <-time.After(wait):
 					case <-ctx.Done():
 						return ctx.Err()
 					}
@@ -190,8 +191,23 @@ func cmdQuickConnect(ctx context.Context, opts docopt.Opts) error {
 		close(stopRenew)
 		return fmt.Errorf("no jwt available after setup: %w", err)
 	}
-	vpnCfg := parseVPNConfig(opts, finalJWT)
+	vpnCfg.JWT = finalJWT
 	runErr := cmdVpn(ctx, vpnCfg)
 	close(stopRenew)
 	return runErr
+}
+
+const (
+	loginRetryMin = 10 * time.Second
+	loginRetryMax = 5 * time.Minute
+)
+
+// loginRetryBackoff is independent of --jwt_renew_interval, which is usually hours and
+// used to stall startup for that long after a single failed login.
+func loginRetryBackoff(attempt int) time.Duration {
+	d := loginRetryMin
+	for i := 0; i < attempt && d < loginRetryMax; i++ {
+		d *= 2
+	}
+	return min(d, loginRetryMax)
 }
