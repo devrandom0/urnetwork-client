@@ -48,3 +48,33 @@ func TestSocksOptionsFromVPN(t *testing.T) {
 		t.Fatalf("domains not copied: %+v", got)
 	}
 }
+
+func TestWarnIfSocksDNSUnset_WarnsWhenBoundWithoutDNS(t *testing.T) {
+	setLogLevel("info", false)
+	logged := captureStderr(t, func() {
+		warnIfSocksDNSUnset("utun9", "")
+	})
+	if !strings.Contains(logged, "fail closed") {
+		t.Fatalf("stderr = %q; want the SOCKS DNS warning", logged)
+	}
+}
+
+func TestWarnIfSocksDNSUnset_SilentWithDNSConfigured(t *testing.T) {
+	setLogLevel("info", false)
+	logged := captureStderr(t, func() {
+		warnIfSocksDNSUnset("utun9", "1.1.1.1")
+	})
+	if logged != "" {
+		t.Fatalf("stderr = %q; want no warning when --dns is set", logged)
+	}
+}
+
+func TestWarnIfSocksDNSUnset_SilentWhenNotBoundToVPNInterface(t *testing.T) {
+	setLogLevel("info", false)
+	logged := captureStderr(t, func() {
+		warnIfSocksDNSUnset("", "")
+	})
+	if logged != "" {
+		t.Fatalf("stderr = %q; want no warning when not bound to a VPN interface", logged)
+	}
+}

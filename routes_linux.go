@@ -79,7 +79,12 @@ func (m *linuxRouteManager) AddSplitDefault() error {
 		}
 	}
 	if len(failed) > 0 {
-		return fmt.Errorf("split default route %s via %s not installed; traffic would leak outside the tunnel", strings.Join(failed, ", "), m.tunName)
+		var hints []string
+		for _, dst := range failed {
+			hints = append(hints, fmt.Sprintf("sudo ip route del %s", dst))
+		}
+		return fmt.Errorf("split default route %s via %s not installed; traffic would leak outside the tunnel; if a stale route exists, run: %s",
+			strings.Join(failed, ", "), m.tunName, strings.Join(hints, " && "))
 	}
 	return nil
 }

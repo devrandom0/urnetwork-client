@@ -74,6 +74,8 @@ Global help:
 
 If the proxy listens on anything other than a loopback address and no auth is configured, the client logs a WARN at startup. It still starts, so existing LAN setups keep working.
 
+With `--tun`, SOCKS hostname lookups go through the VPN interface and fail closed. If the system resolver is on the LAN or is Docker's `127.0.0.11`, it is unreachable from inside the tunnel; set `--dns=<public resolver>` (e.g. `--dns=1.1.1.1`) to fix lookups. If no `--dns` is given, the client logs a WARN at startup naming this.
+
 Supported SOCKS5 commands: CONNECT and UDP ASSOCIATE. BIND is answered with "command not supported".
 
 Standalone proxy without TUN/VPN: `./urnet-client socks --listen=... --extender_ip=... --extender_port=... --extender_sni=...`
@@ -96,7 +98,7 @@ Standalone proxy without TUN/VPN: `./urnet-client socks --listen=... --extender_
 
 ### Kill switch
 
-- `--kill_switch` — Block all traffic if the VPN connection drops. **Requires `--default_route`.** On graceful exit, the blackhole default route is preserved — traffic stays blocked until you manually restore your gateway.
+- `--kill_switch` — Block all traffic if the VPN connection drops. **Requires `--default_route`.** On graceful exit, the blackhole default route is preserved — traffic stays blocked until you manually restore your gateway. If startup fails after the blackhole route is installed, the host stays offline the same way: run the restore command printed in the error to bring connectivity back.
 
 ### Diagnostics
 

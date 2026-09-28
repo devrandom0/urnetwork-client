@@ -256,6 +256,7 @@ func vpnRunCore(
 	// Optional SOCKS5 proxy bound to the VPN interface
 	var stopSocks func() error
 	if cfg.SOCKSListen != "" {
+		warnIfSocksDNSUnset(tunIfName, cfg.DNSList)
 		if s, err := StartSocks5(ctx, socksOptionsFromVPN(cfg, tunIfName)); err != nil {
 			logWarn("failed to start socks at %s: %v\n", cfg.SOCKSListen, err)
 		} else {
@@ -278,6 +279,16 @@ func vpnRunCore(
 	if onBeforeExit != nil {
 		onBeforeExit()
 	}
+}
+
+// warnIfSocksDNSUnset logs once at startup when SOCKS hostname lookups will be resolved
+// through the VPN interface with no explicit --dns override: a LAN or Docker (127.0.0.11)
+// resolver is unreachable from inside the tunnel, so lookups fail closed silently otherwise.
+func warnIfSocksDNSUnset(bindIf string, dnsList string) {
+	if bindIf == "" || strings.TrimSpace(dnsList) != "" {
+		return
+	}
+	logWarn("SOCKS hostname lookups go through the VPN interface and fail closed; if the system resolver is on the LAN or is Docker's 127.0.0.11, set --dns=<public resolver> (e.g. 1.1.1.1)\n")
 }
 
 func socksOptionsFromVPN(cfg VPNConfig, bindIf string) SocksOptions {
