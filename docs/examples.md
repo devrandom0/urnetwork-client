@@ -98,11 +98,28 @@ sudo ./urnet-client vpn \
   --log_file=/tmp/urnet-client.log
 ```
 
+## SOCKS proxy for your LAN (for example a MikroTik container)
+
+Other devices on the LAN can use the VPN through the proxy. Always set credentials when binding a non-loopback address:
+
+```bash
+export URNETWORK_SOCKS_USER=lan
+export URNETWORK_SOCKS_PASS='a-long-random-secret'
+sudo -E ./urnet-client vpn \
+  --tun urnet0 \
+  --socks=0.0.0.0:1080 \
+  --location_query="country:Germany"
+```
+
+Clients then use `socks5://lan:<password>@<router-ip>:1080`. On a MikroTik container, pass the two variables as container envs instead of flags so the password does not show up in the process list.
+
+Without credentials the proxy still starts but logs a WARN, and anyone who can reach the port can use your VPN.
+
 ## Standalone SOCKS subcommand
 
 ```bash
 ./urnet-client socks \
-  --listen=0.0.0.0:1080 \
+  --listen=127.0.0.1:1080 \
   --extender_ip=<IP> \
   --extender_port=443 \
   --extender_sni=<hostname>

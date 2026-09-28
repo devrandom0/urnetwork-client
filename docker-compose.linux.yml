@@ -14,5 +14,5 @@ services:
       - --default_route
       - --exclude_route=8.8.8.8/32
       - --dns=8.8.8.8
-      - --socks=0.0.0.0:1080
+      - --socks=127.0.0.1:1080
       - --log_level=info

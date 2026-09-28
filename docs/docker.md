@@ -39,8 +39,10 @@ docker compose -f docker-compose.yml run --rm urnet-client --help
 
 OS-specific overrides:
 
-- `docker-compose.linux.yml`: host networking
-- `docker-compose.macos.yml`: bridge networking with `1080:1080` port mapping
+- `docker-compose.linux.yml`: host networking; the proxy listens on `127.0.0.1:1080` of the host only.
+- `docker-compose.macos.yml`: bridge networking; the proxy listens on `0.0.0.0:1080` inside the container and the port is published on `127.0.0.1:1080` of the host only. The startup WARN about a non-loopback bind refers to the container address and is expected here.
+
+To offer the proxy to your LAN, change the bind (Linux: `--socks=0.0.0.0:1080`; macOS: `ports: ["1080:1080"]`) and set `URNETWORK_SOCKS_USER` / `URNETWORK_SOCKS_PASS` in `environment:`. See "SOCKS proxy for your LAN" in examples.md.
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d
