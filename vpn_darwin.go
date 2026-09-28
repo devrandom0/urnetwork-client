@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/songgao/water"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 // cmdVpn (macOS): create a utun device and bridge packets with RemoteUserNatMultiClient.
@@ -23,7 +25,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	logStartupConfig(cfg)
 
 	if cfg.EnableKillSwitch && !cfg.DefaultRoute {
-		logWarn("--kill_switch has no effect without --default_route; kill switch requires a full default route to block leaks\n")
+		logx.Warn("--kill_switch has no effect without --default_route; kill switch requires a full default route to block leaks\n")
 	}
 
 	// If TUN is disabled or not specified (and not a missing-arg case), run SOCKS-only.
@@ -35,14 +37,14 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	waterCfg := water.Config{DeviceType: water.TUN}
 	if tunLikelyMissingArg {
 		waterCfg.Name = ""
-		logWarn("--tun provided without a valid name (got %q); using auto utun\n", rawTun)
+		logx.Warn("--tun provided without a valid name (got %q); using auto utun\n", rawTun)
 	} else {
 		waterCfg.Name = tunName
 	}
 	dev, err := water.New(waterCfg)
 	if err != nil {
 		if strings.TrimSpace(waterCfg.Name) != "" {
-			logWarn("failed to create %s (%v); retrying with auto utun name\n", waterCfg.Name, err)
+			logx.Warn("failed to create %s (%v); retrying with auto utun name\n", waterCfg.Name, err)
 			waterCfg.Name = ""
 			dev, err = water.New(waterCfg)
 		}
@@ -55,7 +57,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	if actualName == "" {
 		actualName = tunName
 	}
-	logInfo("TUN %s created\n", actualName)
+	logx.Info("TUN %s created\n", actualName)
 
 	peerIP, err := configureDarwinTUN(actualName, cfg.IPCIDR, cfg.MTU, cfg.EnableIPv6)
 	if err != nil {
@@ -63,7 +65,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	}
 
 	if cfg.SOCKSListen != "" && !cfg.DefaultRoute && cfg.ExtraRoutes == "" && cfg.ExcludeRoutes == "" {
-		logInfo("SOCKS mode without route changes: only SOCKS traffic will use the VPN.\n")
+		logx.Info("SOCKS mode without route changes: only SOCKS traffic will use the VPN.\n")
 	}
 
 	// Packet counters (shared with the DNS cache goroutine).
@@ -72,7 +74,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	// Detect original default gateway before altering routes.
 	defGw, _, gwErr := getDefaultGateway()
 	if gwErr != nil && (cfg.DefaultRoute || strings.TrimSpace(cfg.ExcludeRoutes) != "") {
-		logWarn("failed to detect default gateway: %v\n", gwErr)
+		logx.Warn("failed to detect default gateway: %v\n", gwErr)
 	}
 
 	// Set up route manager; Cleanup runs on exit via defer.
@@ -110,10 +112,10 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	if cfg.DNSList != "" {
 		if cfg.DNSService != "" {
 			if err := rm.SetDNS(splitCSV(cfg.DNSList), cfg.DNSService); err != nil {
-				logWarn("failed to set DNS via networksetup for %s: %v\n", cfg.DNSService, err)
+				logx.Warn("failed to set DNS via networksetup for %s: %v\n", cfg.DNSService, err)
 			}
 		} else {
-			logWarn("--dns provided without --dns_service; skipping DNS change on macOS\n")
+			logx.Warn("--dns provided without --dns_service; skipping DNS change on macOS\n")
 		}
 		bypass := cfg.DefaultRoute && (cfg.DNSBootstrap == "bypass" || cfg.DNSBootstrap == "cache")
 		rm.AddDNSServerRoutes(splitCSV(cfg.DNSList), bypass)
@@ -122,10 +124,10 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 		if resolvers, err := getSystemDNSResolvers(); err == nil {
 			rm.AddDNSServerRoutes(resolvers, true)
 			if len(resolvers) > 0 {
-				logInfo("Kept existing DNS resolvers via %s: %v\n", defGw, resolvers)
+				logx.Info("Kept existing DNS resolvers via %s: %v\n", defGw, resolvers)
 			}
 		} else {
-			logWarn("failed to detect system DNS resolvers: %v\n", err)
+			logx.Warn("failed to detect system DNS resolvers: %v\n", err)
 		}
 	}
 	if !cfg.DefaultRoute && cfg.DNSList != "" {
@@ -171,7 +173,7 @@ func configureDarwinTUN(name, ipCIDR string, mtu int, enableIPv6 bool) (string, 
 		if enableIPv6 {
 			return "", fmt.Errorf("configure TUN %s IPv6 address: %w", name, err)
 		}
-		logDebug("IPv6 address on %s not set (%v); continuing because --enable_ipv6 is off\n", name, err)
+		logx.Debug("IPv6 address on %s not set (%v); continuing because --enable_ipv6 is off\n", name, err)
 	}
 	return peerIP, nil
 }

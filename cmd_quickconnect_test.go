@@ -9,6 +9,8 @@ import (
 	"time"
 
 	gojwt "github.com/golang-jwt/jwt/v5"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 func TestLoginRetryBackoff(t *testing.T) {
@@ -31,7 +33,7 @@ func TestLoginRetryBackoff(t *testing.T) {
 }
 
 func TestCmdQuickConnect_LoadsConfigFile(t *testing.T) {
-	t.Cleanup(func() { setLogLevel("info", false) })
+	t.Cleanup(func() { logx.SetLogLevel("info", false) })
 	t.Setenv("URNETWORK_HOME", t.TempDir())
 	t.Setenv("URNETWORK_USERNAME", "")
 	t.Setenv("URNETWORK_PASSWORD", "")

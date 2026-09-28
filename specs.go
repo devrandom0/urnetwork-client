@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/urnetwork/connect"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 // providerLookupTimeout bounds startup location lookups so a slow API cannot stall VPN start.
@@ -34,12 +36,12 @@ func buildProviderSpecs(ctx context.Context, apiURL, jwt string, loc LocationCon
 			defer cancel()
 			if httpRes, err := httpFindLocations(lookupCtx, apiURL, jwt, q); err == nil && httpRes != nil && len(httpRes.Specs) > 0 {
 				specs = httpRes.Specs
-				logInfo("using %d specs from location query: %s\n", len(specs), q)
+				logx.Info("using %d specs from location query: %s\n", len(specs), q)
 			}
 			if len(specs) == 0 {
 				if fb := findSpecsByQueryFallback(lookupCtx, apiURL, jwt, q); len(fb) > 0 {
 					specs = fb
-					logInfo("using %d specs from provider-locations (fallback) for: %s\n", len(specs), q)
+					logx.Info("using %d specs from provider-locations (fallback) for: %s\n", len(specs), q)
 				}
 			}
 		}

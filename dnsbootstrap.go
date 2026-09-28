@@ -6,6 +6,8 @@ import (
 	"context"
 	"sync/atomic"
 	"time"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 type dnsBypassRemover interface{ RemoveDNSBypass() }
@@ -28,7 +30,7 @@ func removeDNSBypassWhenWarm(ctx context.Context, rm dnsBypassRemover, pktsIn, p
 			}
 		}
 		rm.RemoveDNSBypass()
-		logInfo("DNS bootstrap cache complete; DNS bypass removed\n")
+		logx.Info("DNS bootstrap cache complete; DNS bypass removed\n")
 		return
 	}
 }

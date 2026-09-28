@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/docopt/docopt-go"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 func cmdSocks(ctx context.Context, opts docopt.Opts) error {
@@ -16,7 +18,7 @@ func cmdSocks(ctx context.Context, opts docopt.Opts) error {
 
 	// NOTE: extender connection is not yet implemented; the binary logs the target
 	// and runs a plain SOCKS5 proxy. Track as a known gap.
-	logInfo("Extender details: IP=%s Port=%s SNI=%s\n", cfg.ExtenderIP, cfg.ExtenderPort, cfg.ExtenderSNI)
+	logx.Info("Extender details: IP=%s Port=%s SNI=%s\n", cfg.ExtenderIP, cfg.ExtenderPort, cfg.ExtenderSNI)
 
 	stopSocks, err := StartSocks5(ctx, SocksOptions{
 		ListenAddr:     cfg.ListenAddr,
@@ -30,10 +32,10 @@ func cmdSocks(ctx context.Context, opts docopt.Opts) error {
 	}
 	defer func() { _ = stopSocks() }()
 
-	logInfo("SOCKS5 proxy listening at %s\n", cfg.ListenAddr)
-	logInfo("Connecting to extender at %s:%s (SNI: %s)\n", cfg.ExtenderIP, cfg.ExtenderPort, cfg.ExtenderSNI)
+	logx.Info("SOCKS5 proxy listening at %s\n", cfg.ListenAddr)
+	logx.Info("Connecting to extender at %s:%s (SNI: %s)\n", cfg.ExtenderIP, cfg.ExtenderPort, cfg.ExtenderSNI)
 
 	<-ctx.Done()
-	logInfo("Shutting down SOCKS5 proxy...\n")
+	logx.Info("Shutting down SOCKS5 proxy...\n")
 	return nil
 }

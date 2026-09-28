@@ -1,31 +1,31 @@
-package main
+package logx
 
 import "testing"
 
 func TestSetLogLevel(t *testing.T) {
-	setLogLevel("info", false)
-	if !isInfoEnabled() || isDebugEnabled() {
+	SetLogLevel("info", false)
+	if !IsInfoEnabled() || IsDebugEnabled() {
 		t.Fatalf("info should enable info but not debug")
 	}
-	setLogLevel("debug", false)
-	if !isDebugEnabled() {
+	SetLogLevel("debug", false)
+	if !IsDebugEnabled() {
 		t.Fatalf("debug should enable debug")
 	}
-	setLogLevel("warn", false)
-	if !isWarnEnabled() || isInfoEnabled() {
+	SetLogLevel("warn", false)
+	if !IsWarnEnabled() || IsInfoEnabled() {
 		t.Fatalf("warn should disable info")
 	}
-	setLogLevel("error", false)
-	if !isErrorEnabled() || isWarnEnabled() {
+	SetLogLevel("error", false)
+	if !IsErrorEnabled() || IsWarnEnabled() {
 		t.Fatalf("error should disable warn")
 	}
-	setLogLevel("quiet", false)
+	SetLogLevel("quiet", false)
 	if LogLevel(currentLogLevel.Load()) != LevelQuiet {
 		t.Fatalf("quiet should set LevelQuiet")
 	}
 	// --debug implies debug when no explicit level
-	setLogLevel("", true)
-	if !isDebugEnabled() {
+	SetLogLevel("", true)
+	if !IsDebugEnabled() {
 		t.Fatalf("debug flag should imply debug level when no level is set")
 	}
 }

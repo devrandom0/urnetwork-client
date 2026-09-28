@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/songgao/water"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 func cmdVpn(ctx context.Context, cfg VPNConfig) error {
@@ -19,7 +21,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 	logStartupConfig(cfg)
 
 	if cfg.EnableKillSwitch && !cfg.DefaultRoute {
-		logWarn("--kill_switch has no effect without --default_route; kill switch requires a full default route to block leaks\n")
+		logx.Warn("--kill_switch has no effect without --default_route; kill switch requires a full default route to block leaks\n")
 	}
 
 	// TUN-less mode: SOCKS-only when TUN is disabled or not specified.
@@ -29,7 +31,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 
 	// If tun name looks like a flag (missing value), use a safe default.
 	if tunLikelyMissingArg {
-		logWarn("--tun provided without a valid name (got %q); using default 'urnet0'\n", rawTun)
+		logx.Warn("--tun provided without a valid name (got %q); using default 'urnet0'\n", rawTun)
 		tunName = "urnet0"
 	}
 
@@ -41,7 +43,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 		return fmt.Errorf("create TUN failed: %w", err)
 	}
 	defer func() { _ = dev.Close() }()
-	logInfo("TUN %s created\n", tunName)
+	logx.Info("TUN %s created\n", tunName)
 
 	if err := configureLinuxTUN(tunName, cfg); err != nil {
 		return err
@@ -115,7 +117,7 @@ func configureLinuxTUN(name string, cfg VPNConfig) error {
 		if cfg.EnableIPv6 {
 			return fmt.Errorf("configure TUN %s IPv6 address: %w", name, err)
 		}
-		logDebug("IPv6 address on %s not set (%v); continuing because --enable_ipv6 is off\n", name, err)
+		logx.Debug("IPv6 address on %s not set (%v); continuing because --enable_ipv6 is off\n", name, err)
 	}
 	return nil
 }

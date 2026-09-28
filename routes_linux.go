@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 // linuxRouteManager implements RouteManager for Linux using `ip route` commands.
@@ -39,7 +41,7 @@ func newLinuxRouteManager(tunName, origGw, origDev string) *linuxRouteManager {
 // "File exists", means the route is not ours and must stay out of Cleanup.
 func (m *linuxRouteManager) addRoute(args ...string) bool {
 	if err := run("ip", append([]string{"route", "add"}, args...)...); err != nil {
-		logWarn("ip route add %s failed: %v\n", strings.Join(args, " "), err)
+		logx.Warn("ip route add %s failed: %v\n", strings.Join(args, " "), err)
 		return false
 	}
 	return true
@@ -112,7 +114,7 @@ func (m *linuxRouteManager) AddKillSwitchRoute() error {
 	err := run("ip", "route", "add", "blackhole", "default")
 	if err == nil {
 		m.killSwitchAdded = true
-		logInfo("kill switch: blackhole default route installed\n")
+		logx.Info("kill switch: blackhole default route installed\n")
 		return nil
 	}
 	if restore == nil {
@@ -120,7 +122,7 @@ func (m *linuxRouteManager) AddKillSwitchRoute() error {
 	}
 	manual := strings.Join(restore, " ")
 	if rErr := run(restore[0], restore[1:]...); rErr != nil {
-		logError("kill switch: could not restore default route: %v; run: %s\n", rErr, manual)
+		logx.Error("kill switch: could not restore default route: %v; run: %s\n", rErr, manual)
 		return fmt.Errorf("kill switch: install blackhole default route: %w; restoring the default route also failed, run: %s", err, manual)
 	}
 	return fmt.Errorf("kill switch: install blackhole default route: %w; original default route restored", err)
@@ -208,7 +210,7 @@ func (m *linuxRouteManager) Cleanup() {
 	// Without kill switch: remove blackhole and restore original default gateway.
 	if m.killSwitchAdded {
 		if m.killSwitch {
-			logInfo("kill switch: blackhole default route preserved; all traffic is blocked until you run: ip route del blackhole default && ip route add default via <gateway>\n")
+			logx.Info("kill switch: blackhole default route preserved; all traffic is blocked until you run: ip route del blackhole default && ip route add default via <gateway>\n")
 		} else {
 			_ = run("ip", "route", "del", "blackhole", "default")
 			if m.origGw != "" && m.origDev != "" {

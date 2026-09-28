@@ -9,6 +9,8 @@ import (
 	"syscall"
 
 	"github.com/docopt/docopt-go"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 const DefaultAPIURL = "https://api.bringyour.com"
@@ -98,14 +100,14 @@ func main() {
 
 	// Set up log file and level for commands that support it.
 	if logPath := strings.TrimSpace(getStringOr(opts, "--log_file", "")); logPath != "" {
-		if err := setupLogFile(logPath); err != nil {
+		if err := logx.SetupLogFile(logPath); err != nil {
 			fmt.Fprintf(os.Stderr, "log setup failed: %v\n", err)
 			os.Exit(1)
 		}
 	}
 	lvl := strings.TrimSpace(getStringOr(opts, "--log_level", ""))
 	dbg, _ := opts.Bool("--debug")
-	setLogLevel(lvl, dbg)
+	logx.SetLogLevel(lvl, dbg)
 
 	if err := validateEndpointFlags(opts); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

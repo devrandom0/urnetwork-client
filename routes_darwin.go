@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 // darwinAddedRoute records a route entry with type metadata for precise cleanup.
@@ -158,7 +160,7 @@ func (m *darwinRouteManager) AddExclude(dest string) {
 	if err == nil {
 		m.addedExcludes = append(m.addedExcludes, darwinAddedRoute{isHost: isHost, dest: dest})
 	} else if !strings.Contains(out, "File exists") {
-		logWarn("failed to add exclude %s: %v\n", dest, err)
+		logx.Warn("failed to add exclude %s: %v\n", dest, err)
 	}
 }
 
@@ -184,7 +186,7 @@ func (m *darwinRouteManager) AddExtraRoute(dest string) {
 		}
 	}
 	if err != nil && !strings.Contains(out, "File exists") {
-		logWarn("failed to add extra route %s: %v\n", dest, err)
+		logx.Warn("failed to add extra route %s: %v\n", dest, err)
 		return
 	}
 	m.addedExtra = append(m.addedExtra, darwinAddedRoute{isHost: isHost, dest: dest})
@@ -228,7 +230,7 @@ func (m *darwinRouteManager) SetDNS(servers []string, service string) error {
 	}
 	m.dnsConfigured = true
 	m.dnsService = service
-	logInfo("DNS set for service %s -> %v\n", service, servers)
+	logx.Info("DNS set for service %s -> %v\n", service, servers)
 	return nil
 }
 
@@ -260,14 +262,14 @@ func (m *darwinRouteManager) AddKillSwitchRoute() error {
 	_, err := runCapture("route", "-n", "add", "-blackhole", "default")
 	if err == nil {
 		m.killSwitchAdded = true
-		logInfo("kill switch: blackhole default route installed\n")
+		logx.Info("kill switch: blackhole default route installed\n")
 		return nil
 	}
 	if !deletedDefault {
 		return fmt.Errorf("kill switch: install blackhole default route: %w", err)
 	}
 	if rErr := runSudo("route", "-n", "add", "default", m.defGw); rErr != nil {
-		logError("kill switch: could not restore default route via %s: %v; run: sudo route add default %s\n", m.defGw, rErr, m.defGw)
+		logx.Error("kill switch: could not restore default route via %s: %v; run: sudo route add default %s\n", m.defGw, rErr, m.defGw)
 		return fmt.Errorf("kill switch: install blackhole default route: %w; restoring the default route also failed, run: sudo route add default %s", err, m.defGw)
 	}
 	return fmt.Errorf("kill switch: install blackhole default route: %w; original default route restored", err)
@@ -336,7 +338,7 @@ func (m *darwinRouteManager) Cleanup() {
 	// Without kill switch: remove blackhole and restore original default gateway.
 	if m.killSwitchAdded {
 		if m.killSwitch {
-			logInfo("kill switch: blackhole default route preserved; all traffic is blocked until you run: sudo route delete default && sudo route add default <gateway>\n")
+			logx.Info("kill switch: blackhole default route preserved; all traffic is blocked until you run: sudo route delete default && sudo route add default <gateway>\n")
 		} else {
 			_ = runSudo("route", "-n", "delete", "default")
 			if m.defGw != "" {
@@ -374,7 +376,7 @@ func (m *darwinRouteManager) addVariant(dest, mask string) bool {
 	}
 
 	if m.peerIP == "" {
-		logWarn("failed to add split default for %s (%s)\n", dest, mask)
+		logx.Warn("failed to add split default for %s (%s)\n", dest, mask)
 		return false
 	}
 
@@ -400,7 +402,7 @@ func (m *darwinRouteManager) addVariant(dest, mask string) bool {
 		}
 	}
 
-	logWarn("failed to add split default for %s (%s)\n", dest, mask)
+	logx.Warn("failed to add split default for %s (%s)\n", dest, mask)
 	return false
 }
 

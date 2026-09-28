@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 func TestVpnUsesTUN(t *testing.T) {
@@ -16,7 +18,7 @@ func TestVpnUsesTUN(t *testing.T) {
 }
 
 func TestCmdVpnFromOpts_MissingJWTFailsInTUNMode(t *testing.T) {
-	t.Cleanup(func() { setLogLevel("info", false) })
+	t.Cleanup(func() { logx.SetLogLevel("info", false) })
 	t.Setenv("URNETWORK_HOME", t.TempDir())
 	err := cmdVpnFromOpts(context.Background(), vpnTestOpts(map[string]interface{}{"--tun": "urnet-test0"}))
 	if err == nil || !strings.Contains(err.Error(), "JWT") {
@@ -25,7 +27,7 @@ func TestCmdVpnFromOpts_MissingJWTFailsInTUNMode(t *testing.T) {
 }
 
 func TestCmdVpnFromOpts_SocksOnlyDoesNotNeedJWT(t *testing.T) {
-	t.Cleanup(func() { setLogLevel("info", false) })
+	t.Cleanup(func() { logx.SetLogLevel("info", false) })
 	t.Setenv("URNETWORK_HOME", t.TempDir())
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

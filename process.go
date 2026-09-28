@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -138,21 +137,4 @@ func spawnBackground(argv []string, secrets []secretArg) (int, error) {
 		return 0, err
 	}
 	return cmd.Process.Pid, nil
-}
-
-// setupLogFile redirects os.Stdout and os.Stderr to the given file path, appending if it exists.
-// The file is created with 0o600 permissions to protect potentially sensitive log content.
-func setupLogFile(path string) error {
-	if dir := filepath.Dir(path); dir != "." && dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	os.Stdout = f
-	os.Stderr = f
-	return nil
 }

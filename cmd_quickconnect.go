@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/docopt/docopt-go"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 // jwtLoadArgForStep2 decides what to pass to loadJWT when ensuring the client JWT after
@@ -47,7 +49,7 @@ func cmdQuickConnect(ctx context.Context, opts docopt.Opts, jwtFromEnv bool) err
 		if d, err := time.ParseDuration(renewStr); err == nil {
 			renewInterval = d
 		} else {
-			logWarn("invalid --jwt_renew_interval=%q; ignoring\n", renewStr)
+			logx.Warn("invalid --jwt_renew_interval=%q; ignoring\n", renewStr)
 		}
 	}
 
@@ -72,7 +74,7 @@ func cmdQuickConnect(ctx context.Context, opts docopt.Opts, jwtFromEnv bool) err
 			if err := saveJWT(loginRes.ByJwt); err != nil {
 				return fmt.Errorf("save jwt failed: %w", err)
 			}
-			logInfo("saved JWT for network %s -> %s\n", loginRes.NetworkName, jwtPath())
+			logx.Info("saved JWT for network %s -> %s\n", loginRes.NetworkName, jwtPath())
 		}
 
 		if codeOpt != "" {
@@ -83,7 +85,7 @@ func cmdQuickConnect(ctx context.Context, opts docopt.Opts, jwtFromEnv bool) err
 			if err := saveJWT(byJwt2); err != nil {
 				return fmt.Errorf("save jwt failed: %w", err)
 			}
-			logInfo("verified and saved JWT -> %s\n", jwtPath())
+			logx.Info("verified and saved JWT -> %s\n", jwtPath())
 		}
 	}
 
@@ -108,41 +110,41 @@ func cmdQuickConnect(ctx context.Context, opts docopt.Opts, jwtFromEnv bool) err
 				case <-ticker.C:
 					currentJwt, err := loadJWT("")
 					if err != nil {
-						logWarn("jwt renew: no jwt available: %v\n", err)
+						logx.Warn("jwt renew: no jwt available: %v\n", err)
 						continue
 					}
 					clientJwt, mintErr := mintClientJWT(ctx, apiURL, currentJwt)
 					if mintErr == nil {
 						if saveErr := saveJWT(clientJwt); saveErr != nil {
-							logWarn("jwt renew: save failed: %v\n", saveErr)
+							logx.Warn("jwt renew: save failed: %v\n", saveErr)
 						} else if id := parseClientID(clientJwt); id != "" {
-							logInfo("jwt renewed (client_id=%s)\n", id)
+							logx.Info("jwt renewed (client_id=%s)\n", id)
 						} else {
-							logInfo("jwt renewed\n")
+							logx.Info("jwt renewed\n")
 						}
 						continue
 					}
 					if userAuth != "" && password != "" {
 						loginRes, loginErr := loginWithPassword(ctx, apiURL, userAuth, password)
 						if loginErr != nil {
-							logWarn("jwt renew: login failed: %v\n", loginErr)
+							logx.Warn("jwt renew: login failed: %v\n", loginErr)
 							continue
 						}
 						if loginRes.VerificationRequired || loginRes.ByJwt == "" {
-							logWarn("jwt renew: login requires verification or returned no JWT\n")
+							logx.Warn("jwt renew: login requires verification or returned no JWT\n")
 							continue
 						}
 						clientJwt2, mintErr2 := mintClientJWT(ctx, apiURL, loginRes.ByJwt)
 						if mintErr2 != nil {
-							logWarn("jwt renew: mint failed: %v\n", mintErr2)
+							logx.Warn("jwt renew: mint failed: %v\n", mintErr2)
 							continue
 						}
 						if saveErr := saveJWT(clientJwt2); saveErr != nil {
-							logWarn("jwt renew: save failed: %v\n", saveErr)
+							logx.Warn("jwt renew: save failed: %v\n", saveErr)
 						} else if id := parseClientID(clientJwt2); id != "" {
-							logInfo("jwt renewed (client_id=%s)\n", id)
+							logx.Info("jwt renewed (client_id=%s)\n", id)
 						} else {
-							logInfo("jwt renewed\n")
+							logx.Info("jwt renewed\n")
 						}
 					}
 				case <-stopRenew:
@@ -188,14 +190,14 @@ func ensureClientJWT(ctx context.Context, apiURL, jwt string, forceJWT bool, use
 			return "", err
 		}
 		if id := parseClientID(clientJwt); id != "" {
-			logInfo("saved client JWT (client_id=%s) -> %s\n", id, jwtPath())
+			logx.Info("saved client JWT (client_id=%s) -> %s\n", id, jwtPath())
 		} else {
-			logInfo("saved client JWT -> %s\n", jwtPath())
+			logx.Info("saved client JWT -> %s\n", jwtPath())
 		}
 		return clientJwt, nil
 	}
 	if validateClientJWT(ctx, apiURL, jwt) {
-		logInfo("using existing client JWT (client_id=%s)\n", id)
+		logx.Info("using existing client JWT (client_id=%s)\n", id)
 		return jwt, nil
 	}
 	for attempt := 0; ; attempt++ {
@@ -204,20 +206,20 @@ func ensureClientJWT(ctx context.Context, apiURL, jwt string, forceJWT bool, use
 		}
 		loginRes, loginErr := loginWithPassword(ctx, apiURL, userAuth, password)
 		if loginErr != nil {
-			logWarn("jwt refresh: login failed: %v\n", loginErr)
+			logx.Warn("jwt refresh: login failed: %v\n", loginErr)
 		} else if !loginRes.VerificationRequired && loginRes.ByJwt != "" {
 			clientJwt, mintErr := mintClientJWT(ctx, apiURL, loginRes.ByJwt)
 			if mintErr != nil {
-				logWarn("jwt refresh: mint failed: %v\n", mintErr)
+				logx.Warn("jwt refresh: mint failed: %v\n", mintErr)
 			} else if saveErr := saveJWT(clientJwt); saveErr != nil {
-				logWarn("jwt refresh: save failed: %v\n", saveErr)
+				logx.Warn("jwt refresh: save failed: %v\n", saveErr)
 			} else if validateClientJWT(ctx, apiURL, clientJwt) {
-				logInfo("obtained new client JWT; proceeding\n")
+				logx.Info("obtained new client JWT; proceeding\n")
 				return clientJwt, nil
 			}
 		}
 		wait := loginRetryBackoff(attempt)
-		logWarn("jwt still not usable; retrying in %s\n", wait)
+		logx.Warn("jwt still not usable; retrying in %s\n", wait)
 		select {
 		case <-time.After(wait):
 		case <-ctx.Done():

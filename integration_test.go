@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"github.com/urnetwork/connect"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/urnetwork/connect"
 )
 
 // Integration test (opt-in): requires URNETWORK_TEST_INTEGRATION=1 and a valid JWT in URNETWORK_JWT or ~/.urnetwork/jwt
