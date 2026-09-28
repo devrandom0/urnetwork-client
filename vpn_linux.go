@@ -6,12 +6,13 @@ import (
 	"context"
 	"strings"
 
+	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 	"github.com/devrandom0/urnetwork-client/internal/netcfg"
 	"github.com/devrandom0/urnetwork-client/internal/tunnel"
 )
 
-func cmdVpn(ctx context.Context, cfg VPNConfig) error {
+func cmdVpn(ctx context.Context, cfg config.VPNConfig) error {
 	tunName := cfg.TunName
 	rawTun := strings.TrimSpace(tunName)
 	tunLikelyMissingArg := rawTun != "" && strings.HasPrefix(rawTun, "-")
@@ -74,15 +75,15 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 		if err := rm.AddSplitDefault(); err != nil {
 			return err
 		}
-		for _, r := range splitCSV(cfg.ExcludeRoutes) {
+		for _, r := range config.SplitCSV(cfg.ExcludeRoutes) {
 			rm.AddExclude(r)
 		}
 	}
-	for _, r := range splitCSV(cfg.ExtraRoutes) {
+	for _, r := range config.SplitCSV(cfg.ExtraRoutes) {
 		rm.AddExtraRoute(r)
 	}
 	if !cfg.DefaultRoute && cfg.DNSList != "" {
-		rm.AddDNSServerRoutes(splitCSV(cfg.DNSList), false)
+		rm.AddDNSServerRoutes(config.SplitCSV(cfg.DNSList), false)
 	}
 
 	// Run shared dataplane + SOCKS + stats.

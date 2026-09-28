@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"testing"
@@ -24,7 +24,7 @@ func TestValidateEndpointURL(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateEndpointURL("--x", tc.raw, tc.secure, tc.dev)
+			err := ValidateEndpointURL("--x", tc.raw, tc.secure, tc.dev)
 			if (err == nil) != tc.ok {
 				t.Fatalf("err = %v, want ok=%v", err, tc.ok)
 			}
@@ -33,13 +33,13 @@ func TestValidateEndpointURL(t *testing.T) {
 }
 
 func TestValidateEndpointFlags(t *testing.T) {
-	if err := validateEndpointFlags(docopt.Opts{"--api_url": DefaultAPIURL, "--connect_url": DefaultConnectURL}); err != nil {
+	if err := ValidateEndpointFlags(docopt.Opts{"--api_url": DefaultAPIURL, "--connect_url": DefaultConnectURL}); err != nil {
 		t.Fatalf("defaults must pass: %v", err)
 	}
-	if err := validateEndpointFlags(docopt.Opts{"--api_url": "http://api.example.com"}); err == nil {
+	if err := ValidateEndpointFlags(docopt.Opts{"--api_url": "http://api.example.com"}); err == nil {
 		t.Fatal("cleartext remote api_url must fail")
 	}
-	if err := validateEndpointFlags(docopt.Opts{}); err != nil {
+	if err := ValidateEndpointFlags(docopt.Opts{}); err != nil {
 		t.Fatalf("commands without URL flags must pass: %v", err)
 	}
 }

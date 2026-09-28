@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 	"github.com/devrandom0/urnetwork-client/internal/socks"
 	"github.com/devrandom0/urnetwork-client/internal/tunnel"
@@ -20,7 +21,7 @@ func vpnRunCore(
 	ctx context.Context,
 	dev tunnel.Device,
 	tunIfName string,
-	cfg VPNConfig,
+	cfg config.VPNConfig,
 	counters *tunnel.Counters,
 	onBeforeExit func(),
 ) {
@@ -83,7 +84,7 @@ func warnIfSocksDNSUnset(bindIf string, dnsList string) {
 	logx.Warn("SOCKS hostname lookups go through the VPN interface and fail closed; if the system resolver is on the LAN or is Docker's 127.0.0.11, set --dns=<public resolver> (e.g. 1.1.1.1)\n")
 }
 
-func socksOptionsFromVPN(cfg VPNConfig, bindIf string) socks.SocksOptions {
+func socksOptionsFromVPN(cfg config.VPNConfig, bindIf string) socks.SocksOptions {
 	return socks.SocksOptions{
 		ListenAddr:     cfg.SOCKSListen,
 		BindIf:         bindIf,
@@ -91,12 +92,12 @@ func socksOptionsFromVPN(cfg VPNConfig, bindIf string) socks.SocksOptions {
 		Debug:          cfg.Debug || logx.IsDebugEnabled(),
 		AllowDomains:   cfg.AllowDomains,
 		ExcludeDomains: cfg.ExcludeDomains,
-		DNSServers:     splitCSV(cfg.DNSList),
+		DNSServers:     config.SplitCSV(cfg.DNSList),
 	}
 }
 
 // runSocksOnly serves SOCKS with system routing when no TUN is configured.
-func runSocksOnly(ctx context.Context, cfg VPNConfig) error {
+func runSocksOnly(ctx context.Context, cfg config.VPNConfig) error {
 	if cfg.SOCKSListen == "" {
 		return errors.New("no TUN and no --socks given; nothing to do (set --tun=<name> and/or --socks=<addr>)")
 	}
@@ -121,8 +122,8 @@ func isTUNDisabled(name string) bool {
 	}
 }
 
-// logStartupConfig logs the effective VPN configuration summary from a VPNConfig.
-func logStartupConfig(cfg VPNConfig) {
+// logStartupConfig logs the effective VPN configuration summary from a config.VPNConfig.
+func logStartupConfig(cfg config.VPNConfig) {
 	configItems := []string{
 		fmt.Sprintf("api_url=%s", cfg.APIURL),
 		fmt.Sprintf("connect_url=%s", cfg.ConnectURL),

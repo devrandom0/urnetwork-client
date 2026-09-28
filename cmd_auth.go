@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/docopt/docopt-go"
+
+	"github.com/devrandom0/urnetwork-client/internal/config"
 )
 
 func cmdSaveJWT(opts docopt.Opts) error {
@@ -21,7 +23,7 @@ func cmdSaveJWT(opts docopt.Opts) error {
 }
 
 func cmdVerify(ctx context.Context, opts docopt.Opts) error {
-	apiURL := getStringOr(opts, "--api_url", DefaultAPIURL)
+	apiURL := config.StringOr(opts, "--api_url", config.DefaultAPIURL)
 	userAuth, _ := opts.String("--user_auth")
 	code, _ := opts.String("--code")
 
@@ -37,7 +39,7 @@ func cmdVerify(ctx context.Context, opts docopt.Opts) error {
 }
 
 func cmdMintClient(ctx context.Context, opts docopt.Opts) error {
-	apiURL := getStringOr(opts, "--api_url", DefaultAPIURL)
+	apiURL := config.StringOr(opts, "--api_url", config.DefaultAPIURL)
 	jwtOpt, _ := opts.String("--jwt")
 	jwt, err := loadJWT(jwtOpt)
 	if err != nil {

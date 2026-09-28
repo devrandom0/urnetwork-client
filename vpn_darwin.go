@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 	"github.com/devrandom0/urnetwork-client/internal/netcfg"
 	"github.com/devrandom0/urnetwork-client/internal/tunnel"
@@ -14,7 +15,7 @@ import (
 
 // cmdVpn (macOS): create a utun device and bridge packets with RemoteUserNatMultiClient.
 // Note: You typically need sudo to create/configure utun and set routes.
-func cmdVpn(ctx context.Context, cfg VPNConfig) error {
+func cmdVpn(ctx context.Context, cfg config.VPNConfig) error {
 	tunName := cfg.TunName
 	rawTun := strings.TrimSpace(tunName)
 	tunLikelyMissingArg := rawTun != "" && strings.HasPrefix(rawTun, "-")
@@ -80,32 +81,32 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 		if err := rm.AddSplitDefault(); err != nil {
 			return err
 		}
-		for _, r := range splitCSV(cfg.ExcludeRoutes) {
+		for _, r := range config.SplitCSV(cfg.ExcludeRoutes) {
 			rm.AddExclude(r)
 		}
 	} else if cfg.SOCKSListen != "" {
 		if cfg.ExtraRoutes == "" && cfg.ExcludeRoutes == "" {
 			rm.AddScopedDefault()
 		}
-		for _, r := range splitCSV(cfg.ExcludeRoutes) {
+		for _, r := range config.SplitCSV(cfg.ExcludeRoutes) {
 			rm.AddScopedExclude(r)
 		}
 	}
-	for _, r := range splitCSV(cfg.ExtraRoutes) {
+	for _, r := range config.SplitCSV(cfg.ExtraRoutes) {
 		rm.AddExtraRoute(r)
 	}
 
 	// DNS configuration.
 	if cfg.DNSList != "" {
 		if cfg.DNSService != "" {
-			if err := rm.SetDNS(splitCSV(cfg.DNSList), cfg.DNSService); err != nil {
+			if err := rm.SetDNS(config.SplitCSV(cfg.DNSList), cfg.DNSService); err != nil {
 				logx.Warn("failed to set DNS via networksetup for %s: %v\n", cfg.DNSService, err)
 			}
 		} else {
 			logx.Warn("--dns provided without --dns_service; skipping DNS change on macOS\n")
 		}
 		bypass := cfg.DefaultRoute && (cfg.DNSBootstrap == "bypass" || cfg.DNSBootstrap == "cache")
-		rm.AddDNSServerRoutes(splitCSV(cfg.DNSList), bypass)
+		rm.AddDNSServerRoutes(config.SplitCSV(cfg.DNSList), bypass)
 	} else if cfg.DefaultRoute && defGw != "" && (cfg.DNSBootstrap == "bypass" || cfg.DNSBootstrap == "cache") {
 		// No --dns: bypass current system resolvers so DNS works during default-route switch.
 		if resolvers, err := netcfg.SystemDNSResolvers(); err == nil {
@@ -118,7 +119,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 		}
 	}
 	if !cfg.DefaultRoute && cfg.DNSList != "" {
-		rm.AddDNSServerRoutes(splitCSV(cfg.DNSList), false)
+		rm.AddDNSServerRoutes(config.SplitCSV(cfg.DNSList), false)
 	}
 
 	// DNS cache bootstrap: remove DNS bypass once the tunnel has traffic.

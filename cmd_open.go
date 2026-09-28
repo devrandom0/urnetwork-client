@@ -7,11 +7,13 @@ import (
 
 	"github.com/docopt/docopt-go"
 	"github.com/urnetwork/connect"
+
+	"github.com/devrandom0/urnetwork-client/internal/config"
 )
 
 func cmdOpen(ctx context.Context, opts docopt.Opts) error {
-	apiURL := getStringOr(opts, "--api_url", DefaultAPIURL)
-	connectURL := getStringOr(opts, "--connect_url", DefaultConnectURL)
+	apiURL := config.StringOr(opts, "--api_url", config.DefaultAPIURL)
+	connectURL := config.StringOr(opts, "--connect_url", config.DefaultConnectURL)
 	jwtOpt, _ := opts.String("--jwt")
 	jwt, err := loadJWT(jwtOpt)
 	if err != nil {
@@ -40,7 +42,7 @@ func cmdOpen(ctx context.Context, opts docopt.Opts) error {
 		AppVersion: fmt.Sprintf("urnet-client %s", Version),
 	}
 
-	n := getIntOr(opts, "--transports", 4)
+	n := config.IntOr(opts, "--transports", 4)
 	for i := 0; i < n; i++ {
 		pt := connect.NewPlatformTransportWithDefaults(ctx, strat, client.RouteManager(), fmt.Sprintf("%s/", connectURL), auth)
 		defer pt.Close()

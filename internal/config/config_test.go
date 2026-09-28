@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"os"
@@ -84,9 +84,9 @@ func TestResolveVPNConfig(t *testing.T) {
 			if tc.file != "" {
 				flags["--config"] = writeTempConfig(t, tc.file)
 			}
-			cfg, err := resolveVPNConfig(vpnTestOpts(flags))
+			cfg, err := ResolveVPNConfig(vpnTestOpts(flags))
 			if err != nil {
-				t.Fatalf("resolveVPNConfig: %v", err)
+				t.Fatalf("ResolveVPNConfig: %v", err)
 			}
 			tc.check(t, cfg)
 		})
@@ -95,7 +95,7 @@ func TestResolveVPNConfig(t *testing.T) {
 
 func TestResolveVPNConfig_MissingFileIsError(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "nope.yaml")
-	if _, err := resolveVPNConfig(vpnTestOpts(map[string]interface{}{"--config": missing})); err == nil {
+	if _, err := ResolveVPNConfig(vpnTestOpts(map[string]interface{}{"--config": missing})); err == nil {
 		t.Fatal("want error for a missing config file")
 	}
 }
@@ -129,11 +129,11 @@ func TestResolveLogLevel(t *testing.T) {
 func TestResolveVPNConfig_RejectsCleartextURLFromFile(t *testing.T) {
 	t.Cleanup(func() { logx.SetLogLevel("info", false) })
 	path := writeTempConfig(t, "api_url: http://api.example.test\n")
-	if _, err := resolveVPNConfig(vpnTestOpts(map[string]interface{}{"--config": path})); err == nil {
+	if _, err := ResolveVPNConfig(vpnTestOpts(map[string]interface{}{"--config": path})); err == nil {
 		t.Fatal("cleartext api_url from the config file must be rejected")
 	}
 	ok := writeTempConfig(t, "connect_url: ws://localhost:9000\n")
-	if _, err := resolveVPNConfig(vpnTestOpts(map[string]interface{}{"--config": ok})); err != nil {
+	if _, err := ResolveVPNConfig(vpnTestOpts(map[string]interface{}{"--config": ok})); err != nil {
 		t.Fatalf("ws://localhost must be allowed: %v", err)
 	}
 }
@@ -142,14 +142,14 @@ func TestResolveVPNConfig_AppliesFileLogLevel(t *testing.T) {
 	t.Cleanup(func() { logx.SetLogLevel("info", false) })
 	path := writeTempConfig(t, "log_level: warn\n")
 
-	if _, err := resolveVPNConfig(vpnTestOpts(map[string]interface{}{"--config": path})); err != nil {
+	if _, err := ResolveVPNConfig(vpnTestOpts(map[string]interface{}{"--config": path})); err != nil {
 		t.Fatal(err)
 	}
 	if logx.IsInfoEnabled() {
 		t.Fatal("log_level: warn from the file was not applied")
 	}
 
-	if _, err := resolveVPNConfig(vpnTestOpts(map[string]interface{}{"--config": path, "--log_level": "debug"})); err != nil {
+	if _, err := ResolveVPNConfig(vpnTestOpts(map[string]interface{}{"--config": path, "--log_level": "debug"})); err != nil {
 		t.Fatal(err)
 	}
 	if !logx.IsDebugEnabled() {
@@ -162,8 +162,8 @@ func TestResolveVPNConfig_RejectsHalfConfiguredSocksAuth(t *testing.T) {
 	t.Setenv("URNETWORK_SOCKS_USER", "")
 	t.Setenv("URNETWORK_SOCKS_PASS", "")
 	opts := vpnTestOpts(map[string]interface{}{"--tun": "urnet0", "--socks": "127.0.0.1:1080", "--socks_user": "alice"})
-	if _, err := resolveVPNConfig(opts); err == nil {
-		t.Fatal("resolveVPNConfig accepted --socks_user without a password; the proxy would start unauthenticated or not at all")
+	if _, err := ResolveVPNConfig(opts); err == nil {
+		t.Fatal("ResolveVPNConfig accepted --socks_user without a password; the proxy would start unauthenticated or not at all")
 	}
 }
 
@@ -171,8 +171,8 @@ func TestResolveVPNConfig_IgnoresSocksAuthWithoutSocks(t *testing.T) {
 	t.Cleanup(func() { logx.SetLogLevel("info", false) })
 	t.Setenv("URNETWORK_SOCKS_USER", "alice")
 	t.Setenv("URNETWORK_SOCKS_PASS", "")
-	if _, err := resolveVPNConfig(vpnTestOpts(map[string]interface{}{"--tun": "urnet0"})); err != nil {
-		t.Fatalf("resolveVPNConfig = %v; SOCKS auth only matters when --socks is set", err)
+	if _, err := ResolveVPNConfig(vpnTestOpts(map[string]interface{}{"--tun": "urnet0"})); err != nil {
+		t.Fatalf("ResolveVPNConfig = %v; SOCKS auth only matters when --socks is set", err)
 	}
 }
 
@@ -180,13 +180,10 @@ func TestParseConfigs_SocksAuthFromFlagsAndEnv(t *testing.T) {
 	t.Setenv("URNETWORK_SOCKS_USER", "")
 	t.Setenv("URNETWORK_SOCKS_PASS", "from-env")
 	opts := docopt.Opts{"--socks_user": "alice"}
-	if got := parseVPNConfig(opts, "").SOCKSAuth; got != (socks.SocksAuth{User: "alice", Pass: "from-env"}) {
+	if got := ParseVPNConfig(opts, "").SOCKSAuth; got != (socks.SocksAuth{User: "alice", Pass: "from-env"}) {
 		t.Fatalf("vpn SOCKSAuth = %+v", got)
 	}
-	if got := parseSOCKSConfig(opts).Auth; got != (socks.SocksAuth{User: "alice", Pass: "from-env"}) {
+	if got := ParseSOCKSConfig(opts).Auth; got != (socks.SocksAuth{User: "alice", Pass: "from-env"}) {
 		t.Fatalf("socks Auth = %+v", got)
-	}
-	if got := socksOptionsFromVPN(VPNConfig{SOCKSAuth: socks.SocksAuth{User: "a", Pass: "b"}}, "").Auth; got.User != "a" {
-		t.Fatalf("socksOptionsFromVPN dropped auth: %+v", got)
 	}
 }

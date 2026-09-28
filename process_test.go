@@ -9,6 +9,7 @@ import (
 
 	"github.com/docopt/docopt-go"
 
+	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
@@ -136,7 +137,7 @@ func TestScrubSecretArgs_ChildArgvStillParses(t *testing.T) {
 				t.Fatalf("child argv %q still requests --background", args)
 			}
 			for _, s := range secretFlags {
-				if got, want := getStringOr(child, s.Flag, ""), getStringOr(parent, s.Flag, ""); got != want {
+				if got, want := config.StringOr(child, s.Flag, ""), config.StringOr(parent, s.Flag, ""); got != want {
 					t.Errorf("%s = %q in the child, want %q", s.Flag, got, want)
 				}
 			}
@@ -161,11 +162,11 @@ func TestLoadSecretEnv_UnsetsSecretVarsAfterReading(t *testing.T) {
 			t.Errorf("%s not reported as env-sourced", s.Flag)
 		}
 	}
-	cfg := parseVPNConfig(opts, "")
+	cfg := config.ParseVPNConfig(opts, "")
 	if cfg.SOCKSAuth.User != "socksuser" || cfg.SOCKSAuth.Pass != "envsocks" {
 		t.Fatalf("SOCKSAuth = %+v; the env values must be captured before they are unset", cfg.SOCKSAuth)
 	}
-	if getStringOr(opts, "--password", "") != "envpw" || getStringOr(opts, "--jwt", "") != "env-jwt" {
+	if config.StringOr(opts, "--password", "") != "envpw" || config.StringOr(opts, "--jwt", "") != "env-jwt" {
 		t.Fatalf("opts lost env secrets: %v", opts)
 	}
 }

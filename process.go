@@ -7,6 +7,8 @@ import (
 	"syscall"
 
 	"github.com/docopt/docopt-go"
+
+	"github.com/devrandom0/urnetwork-client/internal/config"
 )
 
 type secretArg struct {
@@ -26,7 +28,7 @@ var secretFlags = []secretArg{
 func backgroundSecrets(opts docopt.Opts) []secretArg {
 	out := make([]secretArg, 0, len(secretFlags))
 	for _, s := range secretFlags {
-		s.Value = getStringOr(opts, s.Flag, "")
+		s.Value = config.StringOr(opts, s.Flag, "")
 		out = append(out, s)
 	}
 	return out
@@ -39,7 +41,7 @@ func backgroundSecrets(opts docopt.Opts) []secretArg {
 func applySecretEnvFallbacks(opts docopt.Opts, getenv func(string) string) (fromEnv map[string]bool) {
 	fromEnv = map[string]bool{}
 	for _, s := range secretFlags {
-		if getStringOr(opts, s.Flag, "") != "" {
+		if config.StringOr(opts, s.Flag, "") != "" {
 			continue
 		}
 		if v := getenv(s.Env); v != "" {
@@ -113,7 +115,7 @@ func loadSecretEnv(opts docopt.Opts) map[string]bool {
 // startBackground resolves the VPN config first because the child's stderr is /dev/null:
 // a config error found only there would leave the user with a "started" message and no VPN.
 func startBackground(opts docopt.Opts, argv []string, spawn func([]string, []secretArg) (int, error)) (int, error) {
-	if _, err := resolveVPNConfig(opts); err != nil {
+	if _, err := config.ResolveVPNConfig(opts); err != nil {
 		return 0, err
 	}
 	return spawn(argv, backgroundSecrets(opts))
