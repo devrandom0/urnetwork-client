@@ -124,7 +124,7 @@ func parseSOCKSConfig(opts docopt.Opts) SOCKSConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Config file (--config / URNETWORK_CONFIG)
+// Config file (--config)
 // ---------------------------------------------------------------------------
 
 // ConfigFile holds all fields that can be set via a YAML config file.
@@ -160,6 +160,7 @@ type ConfigFile struct {
 	DNSService        string   `yaml:"dns_service"`
 	DNSBootstrap      string   `yaml:"dns_bootstrap"`
 	SOCKSListen       string   `yaml:"socks"`
+	SOCKSListenAlias  string   `yaml:"socks_listen"` // older docs used this key; "socks" wins when both are set
 	AllowDomains      []string `yaml:"domain"`
 	ExcludeDomains    []string `yaml:"exclude_domain"`
 	AllowInboundSrc   string   `yaml:"allow_inbound_src"`
@@ -185,6 +186,9 @@ func loadConfigFile(path string) (ConfigFile, error) {
 	var cf ConfigFile
 	if err := yaml.Unmarshal(data, &cf); err != nil {
 		return ConfigFile{}, fmt.Errorf("config file parse: %w", err)
+	}
+	if cf.SOCKSListen == "" {
+		cf.SOCKSListen = cf.SOCKSListenAlias
 	}
 	return cf, nil
 }
@@ -260,4 +264,28 @@ func applyConfigFile(cfg VPNConfig, cf ConfigFile) VPNConfig {
 		cfg.StatsInterval = time.Duration(cf.StatsInterval) * time.Second
 	}
 	return cfg
+}
+
+// resolveLogLevel applies precedence: --log_level, then --debug, then the config file.
+func resolveLogLevel(flagLevel string, flagDebug bool, fileLevel string, fileDebug bool) (string, bool) {
+	if strings.TrimSpace(flagLevel) != "" {
+		return flagLevel, flagDebug
+	}
+	if flagDebug {
+		return "debug", true
+	}
+	return fileLevel, fileDebug
+}
+
+// resolveVPNConfig is the single entry point for vpn and quick-connect: CLI flags, then
+// the --config file, then defaults. It applies the effective log level and leaves JWT empty.
+func resolveVPNConfig(opts docopt.Opts) (VPNConfig, error) {
+	cfg := parseVPNConfig(opts, "")
+	cf, err := loadConfigFile(getStringOr(opts, "--config", ""))
+	if err != nil {
+		return VPNConfig{}, err
+	}
+	cfg = applyConfigFile(cfg, cf)
+	setLogLevel(resolveLogLevel(getStringOr(opts, "--log_level", ""), mustBool(opts, "--debug"), cf.LogLevel, cf.Debug))
+	return cfg, nil
 }
