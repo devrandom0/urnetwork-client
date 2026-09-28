@@ -27,7 +27,18 @@ const (
 
 // defaultHTTPClient is used for all API HTTP calls.
 // Replace in tests to avoid real network requests.
-var defaultHTTPClient httpDoer = &http.Client{Timeout: apiHTTPTimeout}
+var defaultHTTPClient httpDoer = &http.Client{Timeout: apiHTTPTimeout, CheckRedirect: checkAPIRedirect}
+
+const maxAPIRedirects = 10
+
+// checkAPIRedirect applies the endpoint URL rules to redirect targets, because the Go client
+// resends the Authorization header on same-host redirects, including https to http downgrades.
+func checkAPIRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= maxAPIRedirects {
+		return fmt.Errorf("stopped after %d redirects", maxAPIRedirects)
+	}
+	return validateEndpointURL("redirect", req.URL.String(), "https", "http")
+}
 
 func doAPIRequest(req *http.Request, out any, what string) error {
 	resp, err := defaultHTTPClient.Do(req)
