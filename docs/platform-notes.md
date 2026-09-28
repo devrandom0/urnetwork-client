@@ -19,6 +19,8 @@
 ## Current limitations
 
 - UDP over SOCKS is available, but app support varies.
+- If the TUN address, MTU or link-up step fails, the client exits with an error before touching any route. The IPv6 ULA address is only required when `--enable_ipv6` is set.
+- On macOS, if the kill switch blackhole route cannot be installed, the original default route is restored and the VPN continues without a kill switch (a WARN is logged).
 
 ## Kill switch
 
