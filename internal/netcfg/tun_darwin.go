@@ -4,7 +4,6 @@ package netcfg
 
 import (
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 
@@ -47,14 +46,12 @@ func ConfigureDarwinTUN(name, ipCIDR string, mtu int, enableIPv6 bool) (string, 
 
 // DefaultGateway returns the IPv4 default gateway and interface (e.g., 192.168.1.1, en0) on macOS.
 func DefaultGateway() (string, string, error) {
-	cmd := exec.Command("route", "-n", "get", "default")
-	// Don't attach Stdout/Stderr to avoid noisy output; capture instead
-	out, err := cmd.Output()
+	out, err := runCapture("route", "-n", "get", "default")
 	if err != nil {
 		return "", "", fmt.Errorf("route get default failed: %w", err)
 	}
 	var gw, iface string
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "gateway:") {
 			gw = strings.TrimSpace(strings.TrimPrefix(line, "gateway:"))

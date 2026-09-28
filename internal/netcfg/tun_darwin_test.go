@@ -33,3 +33,12 @@ func TestConfigureDarwinTUN_ReturnsPeerAndToleratesIPv6WhenDisabled(t *testing.T
 		t.Fatal("IPv6 enabled: want error")
 	}
 }
+
+func TestDefaultGateway_UsesCommandRunner(t *testing.T) {
+	f := useFakeRunner(t)
+	f.results["route -n get default"] = fakeResult{out: "   route to: default\ndestination: default\n    gateway: 192.168.1.1\n  interface: en0\n"}
+	gw, iface, err := DefaultGateway()
+	if err != nil || gw != "192.168.1.1" || iface != "en0" {
+		t.Fatalf("DefaultGateway = %q, %q, %v; want the scripted gateway via the command runner", gw, iface, err)
+	}
+}

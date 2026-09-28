@@ -16,14 +16,22 @@ type commandRunner interface {
 type execRunner struct{}
 
 func (execRunner) Run(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
+	path, err := tools.resolve(name)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(path, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 
 func (execRunner) Capture(name string, args ...string) (string, error) {
-	out, err := exec.Command(name, args...).CombinedOutput()
+	path, err := tools.resolve(name)
+	if err != nil {
+		return "", err
+	}
+	out, err := exec.Command(path, args...).CombinedOutput()
 	return string(out), err
 }
 
