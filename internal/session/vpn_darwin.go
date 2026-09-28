@@ -1,6 +1,6 @@
 //go:build darwin
 
-package main
+package session
 
 import (
 	"context"
@@ -13,9 +13,9 @@ import (
 	"github.com/devrandom0/urnetwork-client/internal/tunnel"
 )
 
-// cmdVpn (macOS): create a utun device and bridge packets with RemoteUserNatMultiClient.
+// Run (macOS): create a utun device and bridge packets with RemoteUserNatMultiClient.
 // Note: You typically need sudo to create/configure utun and set routes.
-func cmdVpn(ctx context.Context, cfg config.VPNConfig) error {
+func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 	tunName := cfg.TunName
 	rawTun := strings.TrimSpace(tunName)
 	tunLikelyMissingArg := rawTun != "" && strings.HasPrefix(rawTun, "-")
@@ -27,7 +27,7 @@ func cmdVpn(ctx context.Context, cfg config.VPNConfig) error {
 	}
 
 	// If TUN is disabled or not specified (and not a missing-arg case), run SOCKS-only.
-	if isTUNDisabled(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
+	if IsTUNDisabled(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
 		return runSocksOnly(ctx, cfg)
 	}
 
@@ -128,6 +128,6 @@ func cmdVpn(ctx context.Context, cfg config.VPNConfig) error {
 	}
 
 	// Run shared dataplane + SOCKS + stats.
-	vpnRunCore(ctx, dev, actualName, cfg, &counters, func() {})
+	runCore(ctx, dev, actualName, cfg, appVersion, &counters, func() {})
 	return nil
 }

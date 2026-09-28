@@ -13,6 +13,7 @@ import (
 	"github.com/devrandom0/urnetwork-client/internal/auth"
 	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/logx"
+	"github.com/devrandom0/urnetwork-client/internal/session"
 	"github.com/devrandom0/urnetwork-client/internal/urapi"
 )
 
@@ -110,7 +111,7 @@ func cmdQuickConnect(ctx context.Context, opts docopt.Opts, jwtFromEnv bool) err
 
 	// 4) Start VPN with the client JWT from step 2
 	vpnCfg.JWT = clientJWT
-	runErr := cmdVpn(ctx, vpnCfg)
+	runErr := session.Run(ctx, vpnCfg, Version)
 	close(stopRenew)
 	return runErr
 }
