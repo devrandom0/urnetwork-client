@@ -1,4 +1,4 @@
-package main
+package urapi_test
 
 import (
 	"context"
@@ -6,8 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/urnetwork/connect"
-
+	"github.com/devrandom0/urnetwork-client/internal/auth"
 	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/urapi"
 )
@@ -18,26 +17,21 @@ func TestIntegration_FindLocations_And_FindProviders(t *testing.T) {
 		t.Skip("integration test disabled; set URNETWORK_TEST_INTEGRATION=1 to enable")
 	}
 	apiURL := config.DefaultAPIURL
-	jwt, err := loadJWT(os.Getenv("URNETWORK_JWT"))
+	jwt, err := auth.Load(os.Getenv("URNETWORK_JWT"))
 	if err != nil {
 		t.Skipf("no jwt available: %v", err)
 	}
 
-	// locations via http helpers
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if _, err := urapi.FindLocations(ctx, apiURL, jwt, "country:*"); err != nil {
 		t.Fatalf("find-locations failed: %v", err)
 	}
 
-	// find-providers via API
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel2()
-	strat := connect.NewClientStrategyWithDefaults(ctx2)
-	api := connect.NewBringYourApi(ctx2, strat, apiURL)
-	api.SetByJwt(jwt)
-	specs := []*connect.ProviderSpec{{BestAvailable: true}}
-	if _, err := api.FindProviders2Sync(&connect.FindProviders2Args{Specs: specs, Count: 1, RankMode: "quality"}); err != nil {
+	specs := urapi.SelectProviders(ctx2, apiURL, jwt, config.LocationConfig{})
+	if _, err := urapi.FindProviders(ctx2, apiURL, jwt, specs, 1, "quality"); err != nil {
 		t.Fatalf("FindProviders2 failed: %v", err)
 	}
 }

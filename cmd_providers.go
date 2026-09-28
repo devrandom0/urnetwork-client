@@ -7,6 +7,7 @@ import (
 
 	"github.com/docopt/docopt-go"
 
+	"github.com/devrandom0/urnetwork-client/internal/auth"
 	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/urapi"
 )
@@ -14,12 +15,12 @@ import (
 func cmdFindProviders(ctx context.Context, opts docopt.Opts) error {
 	apiURL := config.StringOr(opts, "--api_url", config.DefaultAPIURL)
 	jwtOpt, _ := opts.String("--jwt")
-	jwt, err := loadJWT(jwtOpt)
+	jwt, err := auth.Load(jwtOpt)
 	if err != nil {
 		return err
 	}
 
-	if clientID := parseClientID(jwt); clientID != "" {
+	if clientID := auth.ParseClientID(jwt); clientID != "" {
 		fmt.Printf("client_id: %s\n", clientID)
 	}
 
