@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"runtime"
 	"strconv"
 	"strings"
@@ -173,7 +174,7 @@ func (s *socksServer) handleConn(ctx context.Context, c net.Conn) {
 	case socksCmdConnect:
 		s.handleConnect(ctx, c, dst)
 	case socksCmdUDPAssociate:
-		s.runUDPAssociate(ctx, c)
+		s.runUDPAssociate(ctx, c, dst)
 	default:
 		_ = writeSocksReply(c, socksRepCmdNotSupported, nil)
 	}
@@ -277,7 +278,8 @@ func (s *socksServer) handleConnect(ctx context.Context, c net.Conn, dst socksAd
 	if err != nil {
 		rep := dialErrorReply(err)
 		if errors.Is(err, errBindInterface) {
-			logWarn("socks: %v; refusing CONNECT to %s instead of sending it outside the VPN\n", err, dst)
+			logWarn("socks: %v; refusing CONNECT instead of sending it outside the VPN\n", withoutDialTarget(err))
+			logDebug("socks: refused CONNECT to %s\n", dst)
 		}
 		if s.opts.Debug {
 			fmt.Printf("[socks] dial error to %s: %v (rep=%d)\n", target, err, rep)
@@ -295,6 +297,16 @@ func (s *socksServer) handleConnect(ctx context.Context, c net.Conn, dst socksAd
 	go relayTCP(rc, c, &wg)
 	go relayTCP(c, rc, &wg)
 	wg.Wait()
+}
+
+// withoutDialTarget strips the destination that net.OpError adds, so WARN logs do not record
+// which hosts SOCKS clients visit.
+func withoutDialTarget(err error) error {
+	var oe *net.OpError
+	if errors.As(err, &oe) && oe.Err != nil {
+		return oe.Err
+	}
+	return err
 }
 
 func relayTCP(dst, src net.Conn, wg *sync.WaitGroup) {
@@ -393,8 +405,65 @@ func domainMatches(host string, patterns []string) bool {
 	return false
 }
 
+// udpAssociation is the per-ASSOCIATE state shared by the relay goroutines.
+type udpAssociation struct {
+	clientIP net.IP
+	client   atomic.Pointer[net.UDPAddr] // set once, never replaced
+	peers    udpPeerSet
+}
+
+// maxUDPPeersPerAssociation bounds memory per association. Evicting an arbitrary entry when
+// full is acceptable because a legitimate client talks to few peers at once.
+const maxUDPPeersPerAssociation = 1024
+
+// udpPeerSet records the destinations an association has sent to; only they may reply.
+type udpPeerSet struct {
+	mu sync.Mutex
+	m  map[netip.AddrPort]struct{}
+}
+
+func udpAddrPort(ip net.IP, port int) (netip.AddrPort, bool) {
+	a, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return netip.AddrPort{}, false
+	}
+	return netip.AddrPortFrom(a.Unmap(), uint16(port)), true
+}
+
+func (p *udpPeerSet) add(ip net.IP, port int) {
+	key, ok := udpAddrPort(ip, port)
+	if !ok {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.m == nil {
+		p.m = make(map[netip.AddrPort]struct{})
+	}
+	if _, seen := p.m[key]; !seen && len(p.m) >= maxUDPPeersPerAssociation {
+		for k := range p.m {
+			delete(p.m, k)
+			break
+		}
+	}
+	p.m[key] = struct{}{}
+}
+
+func (p *udpPeerSet) has(addr *net.UDPAddr) bool {
+	key, ok := udpAddrPort(addr.IP, addr.Port)
+	if !ok {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_, found := p.m[key]
+	return found
+}
+
 // runUDPAssociate implements SOCKS5 UDP ASSOCIATE for a single TCP control connection.
-func (s *socksServer) runUDPAssociate(ctx context.Context, ctrl net.Conn) {
+// req is the DST.ADDR/DST.PORT of the request, which RFC 1928 lets the client use to declare
+// the port it will send from.
+func (s *socksServer) runUDPAssociate(ctx context.Context, ctrl net.Conn, req socksAddr) {
 	var (
 		wg    sync.WaitGroup
 		conns []net.PacketConn
@@ -443,24 +512,27 @@ func (s *socksServer) runUDPAssociate(ctx context.Context, ctrl net.Conn) {
 		fmt.Printf("[socks] UDP ASSOCIATE relay %s bindIf=%s\n", pcClient.LocalAddr(), s.opts.BindIf)
 	}
 
-	var client atomic.Pointer[net.UDPAddr]
+	assoc := &udpAssociation{clientIP: addrIP(ctrl.RemoteAddr())}
+	if req.port != 0 {
+		assoc.client.Store(&net.UDPAddr{IP: assoc.clientIP, Port: req.port})
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		s.relayFromClient(ctx, pcClient, pcVPN, pcSys, addrIP(ctrl.RemoteAddr()), &client)
+		s.relayFromClient(ctx, pcClient, pcVPN, pcSys, assoc)
 	}()
 	for _, pc := range conns[1:] {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			relayToClient(pc, pcClient, &client)
+			relayToClient(pc, pcClient, assoc)
 		}()
 	}
 	// RFC 1928: the association ends when the TCP control connection ends.
 	_, _ = io.Copy(io.Discard, ctrl)
 }
 
-func (s *socksServer) relayFromClient(ctx context.Context, pcClient, pcVPN, pcSys net.PacketConn, clientIP net.IP, client *atomic.Pointer[net.UDPAddr]) {
+func (s *socksServer) relayFromClient(ctx context.Context, pcClient, pcVPN, pcSys net.PacketConn, assoc *udpAssociation) {
 	buf := make([]byte, 65535)
 	for {
 		n, from, err := pcClient.ReadFrom(buf)
@@ -468,10 +540,13 @@ func (s *socksServer) relayFromClient(ctx context.Context, pcClient, pcVPN, pcSy
 			return
 		}
 		src, ok := from.(*net.UDPAddr)
-		if !ok || !src.IP.Equal(clientIP) {
+		if !ok || !src.IP.Equal(assoc.clientIP) {
 			continue
 		}
-		client.Store(src)
+		pinned := assoc.client.Load()
+		if pinned != nil && pinned.Port != src.Port {
+			continue
+		}
 		if n < 4 || buf[2] != 0 { // fragmented datagrams are not supported
 			continue
 		}
@@ -479,6 +554,9 @@ func (s *socksServer) relayFromClient(ctx context.Context, pcClient, pcVPN, pcSy
 		dst, err := readSocksAddr(r)
 		if err != nil {
 			continue
+		}
+		if pinned == nil {
+			assoc.client.Store(src)
 		}
 		payload := buf[n-r.Len() : n]
 		var domain string
@@ -496,11 +574,12 @@ func (s *socksServer) relayFromClient(ctx context.Context, pcClient, pcVPN, pcSy
 		if s.opts.Debug {
 			fmt.Printf("[socks-udp] -> %s:%d via %s\n", ip, dst.port, pc.LocalAddr())
 		}
+		assoc.peers.add(ip, dst.port)
 		_, _ = pc.WriteTo(payload, &net.UDPAddr{IP: ip, Port: dst.port})
 	}
 }
 
-func relayToClient(pc, pcClient net.PacketConn, client *atomic.Pointer[net.UDPAddr]) {
+func relayToClient(pc, pcClient net.PacketConn, assoc *udpAssociation) {
 	buf := make([]byte, 65535)
 	for {
 		n, from, err := pc.ReadFrom(buf)
@@ -508,8 +587,8 @@ func relayToClient(pc, pcClient net.PacketConn, client *atomic.Pointer[net.UDPAd
 			return
 		}
 		src, ok := from.(*net.UDPAddr)
-		dst := client.Load()
-		if !ok || dst == nil {
+		dst := assoc.client.Load()
+		if !ok || dst == nil || !assoc.peers.has(src) {
 			continue
 		}
 		pkt := appendSocksIP([]byte{0, 0, 0}, src.IP)
