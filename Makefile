@@ -21,6 +21,7 @@ help:
 	@echo "  build                 Build for host platform -> $(DIST)/$(BINARY)"
 	@echo "  test                  Run Go tests"
 	@echo "  test-race             Run Go tests with -race"
+	@echo "  version-check         Verify -ldflags -X main.Version reaches the binary"
 	@echo "  lint                  Run formatting and vet checks"
 	@echo "  ci-docker-build       Build Docker image (amd64) for CI validation (no push)"
 	@echo "  test-integration      Run integration tests (requires URNETWORK_TEST_INTEGRATION=1 and JWT)"
@@ -47,6 +48,14 @@ $(DIST):
 .PHONY: build
 build: $(DIST)
 	GOFLAGS=-trimpath go build -ldflags "$(LDFLAGS)" -o $(DIST)/$(BINARY) ./
+
+.PHONY: version-check
+version-check:
+	@tmp=$$(mktemp -d); \
+	go build -ldflags "-X main.Version=9.9.9" -o $$tmp/$(BINARY) . || { rm -rf $$tmp; exit 1; }; \
+	out=$$($$tmp/$(BINARY) --version); rm -rf $$tmp; \
+	if [ "$$out" != "9.9.9" ]; then echo "version-check: got '$$out', want 9.9.9"; exit 1; fi; \
+	echo "version-check: ok"
 
 .PHONY: test
 test:
@@ -105,12 +114,12 @@ build-all: build-linux-amd64 build-linux-arm64 build-darwin-amd64 build-darwin-a
 
 .PHONY: docker-build
 docker-build:
-	DOCKER_BUILDKIT=1 docker build -t $(IMAGE) .
+	DOCKER_BUILDKIT=1 docker build --build-arg VERSION=$(VERSION) -t $(IMAGE) .
 
 .PHONY: ci-docker-build
 ci-docker-build:
 	# Build only linux/amd64 for quick CI validation using repo root context
-	DOCKER_BUILDKIT=1 docker build -f Dockerfile -t test/urnetwork-client:ci .
+	DOCKER_BUILDKIT=1 docker build --build-arg VERSION=$(VERSION) -f Dockerfile -t test/urnetwork-client:ci .
 
 # --- Multi-arch (buildx) ---
 .PHONY: dockerx-setup
