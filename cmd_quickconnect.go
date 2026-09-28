@@ -12,18 +12,18 @@ import (
 )
 
 // jwtLoadArgForStep2 decides what to pass to loadJWT when ensuring the client JWT after
-// the optional login step. When login just ran, it forces a fresh read from disk instead
-// of jwtOpt, because docopt's usage grouping makes --jwt mutually exclusive with
-// --user_auth/--password, so a stale --jwt env fallback would shadow the JWT login just saved.
-func jwtLoadArgForStep2(jwtOpt, userAuth, password string) string {
-	if userAuth != "" || password != "" {
+// the optional login step. When login just ran and the JWT only came from URNETWORK_JWT,
+// it forces a fresh read from disk so a stale env token cannot shadow the JWT login
+// just saved. An explicit --jwt always wins.
+func jwtLoadArgForStep2(jwtOpt string, jwtFromEnv bool, userAuth, password string) string {
+	if jwtFromEnv && (userAuth != "" || password != "") {
 		return ""
 	}
 	return jwtOpt
 }
 
 // cmdQuickConnect performs: optional login+verify → ensure client JWT (with refresh) → start VPN.
-func cmdQuickConnect(ctx context.Context, opts docopt.Opts) error {
+func cmdQuickConnect(ctx context.Context, opts docopt.Opts, jwtFromEnv bool) error {
 	vpnCfg, err := resolveVPNConfig(opts)
 	if err != nil {
 		return err
@@ -88,57 +88,13 @@ func cmdQuickConnect(ctx context.Context, opts docopt.Opts) error {
 	}
 
 	// 2) Ensure we have a working client-scoped JWT
-	{
-		jwt, err := loadJWT(jwtLoadArgForStep2(jwtOpt, userAuth, password))
-		if err != nil {
-			return errors.New("no JWT available; provide --user_auth/--password to login or --jwt to use an existing token")
-		}
-
-		if id := parseClientID(jwt); id != "" && !forceJWT {
-			if validateClientJWT(ctx, apiURL, jwt) {
-				logInfo("using existing client JWT (client_id=%s)\n", id)
-			} else {
-				for attempt := 0; ; attempt++ {
-					if userAuth == "" || password == "" {
-						return errors.New("existing client JWT appears invalid; provide --user_auth and --password or a BY token via --jwt to refresh")
-					}
-					loginRes, loginErr := loginWithPassword(ctx, apiURL, userAuth, password)
-					if loginErr != nil {
-						logWarn("jwt refresh: login failed: %v\n", loginErr)
-					} else if !loginRes.VerificationRequired && loginRes.ByJwt != "" {
-						clientJwt, mintErr := mintClientJWT(ctx, apiURL, loginRes.ByJwt)
-						if mintErr != nil {
-							logWarn("jwt refresh: mint failed: %v\n", mintErr)
-						} else if saveErr := saveJWT(clientJwt); saveErr != nil {
-							logWarn("jwt refresh: save failed: %v\n", saveErr)
-						} else if validateClientJWT(ctx, apiURL, clientJwt) {
-							logInfo("obtained new client JWT; proceeding\n")
-							break
-						}
-					}
-					wait := loginRetryBackoff(attempt)
-					logWarn("jwt still not usable; retrying in %s\n", wait)
-					select {
-					case <-time.After(wait):
-					case <-ctx.Done():
-						return ctx.Err()
-					}
-				}
-			}
-		} else {
-			clientJwt, mintErr := mintClientJWT(ctx, apiURL, jwt)
-			if mintErr != nil {
-				return mintErr
-			}
-			if err := saveJWT(clientJwt); err != nil {
-				return err
-			}
-			if id := parseClientID(clientJwt); id != "" {
-				logInfo("saved client JWT (client_id=%s) -> %s\n", id, jwtPath())
-			} else {
-				logInfo("saved client JWT -> %s\n", jwtPath())
-			}
-		}
+	jwt, err := loadJWT(jwtLoadArgForStep2(jwtOpt, jwtFromEnv, userAuth, password))
+	if err != nil {
+		return errors.New("no JWT available; provide --user_auth/--password to login or --jwt to use an existing token")
+	}
+	clientJWT, err := ensureClientJWT(ctx, apiURL, jwt, forceJWT, userAuth, password)
+	if err != nil {
+		return err
 	}
 
 	// 3) Optional background JWT renewal goroutine
@@ -196,13 +152,8 @@ func cmdQuickConnect(ctx context.Context, opts docopt.Opts) error {
 		}()
 	}
 
-	// 4) Load the final JWT and start VPN
-	finalJWT, err := loadJWT("")
-	if err != nil {
-		close(stopRenew)
-		return fmt.Errorf("no jwt available after setup: %w", err)
-	}
-	vpnCfg.JWT = finalJWT
+	// 4) Start VPN with the client JWT from step 2
+	vpnCfg.JWT = clientJWT
 	runErr := cmdVpn(ctx, vpnCfg)
 	close(stopRenew)
 	return runErr
@@ -221,4 +172,56 @@ func loginRetryBackoff(attempt int) time.Duration {
 		d *= 2
 	}
 	return min(d, loginRetryMax)
+}
+
+// ensureClientJWT returns a usable client-scoped JWT, starting from jwt: a valid client JWT
+// is used as is, an invalid one is refreshed by logging in again, and a BY network JWT is
+// exchanged for a client JWT. Refreshed and minted tokens are also saved to disk.
+func ensureClientJWT(ctx context.Context, apiURL, jwt string, forceJWT bool, userAuth, password string) (string, error) {
+	id := parseClientID(jwt)
+	if id == "" || forceJWT {
+		clientJwt, err := mintClientJWT(ctx, apiURL, jwt)
+		if err != nil {
+			return "", err
+		}
+		if err := saveJWT(clientJwt); err != nil {
+			return "", err
+		}
+		if id := parseClientID(clientJwt); id != "" {
+			logInfo("saved client JWT (client_id=%s) -> %s\n", id, jwtPath())
+		} else {
+			logInfo("saved client JWT -> %s\n", jwtPath())
+		}
+		return clientJwt, nil
+	}
+	if validateClientJWT(ctx, apiURL, jwt) {
+		logInfo("using existing client JWT (client_id=%s)\n", id)
+		return jwt, nil
+	}
+	for attempt := 0; ; attempt++ {
+		if userAuth == "" || password == "" {
+			return "", errors.New("existing client JWT appears invalid; provide --user_auth and --password or a BY token via --jwt to refresh")
+		}
+		loginRes, loginErr := loginWithPassword(ctx, apiURL, userAuth, password)
+		if loginErr != nil {
+			logWarn("jwt refresh: login failed: %v\n", loginErr)
+		} else if !loginRes.VerificationRequired && loginRes.ByJwt != "" {
+			clientJwt, mintErr := mintClientJWT(ctx, apiURL, loginRes.ByJwt)
+			if mintErr != nil {
+				logWarn("jwt refresh: mint failed: %v\n", mintErr)
+			} else if saveErr := saveJWT(clientJwt); saveErr != nil {
+				logWarn("jwt refresh: save failed: %v\n", saveErr)
+			} else if validateClientJWT(ctx, apiURL, clientJwt) {
+				logInfo("obtained new client JWT; proceeding\n")
+				return clientJwt, nil
+			}
+		}
+		wait := loginRetryBackoff(attempt)
+		logWarn("jwt still not usable; retrying in %s\n", wait)
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
 }

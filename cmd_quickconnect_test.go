@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	gojwt "github.com/golang-jwt/jwt/v5"
 )
 
 func TestLoginRetryBackoff(t *testing.T) {
@@ -33,7 +37,7 @@ func TestCmdQuickConnect_LoadsConfigFile(t *testing.T) {
 	t.Setenv("URNETWORK_PASSWORD", "")
 	bad := writeTempConfig(t, "mtu: [not-an-int\n")
 
-	err := cmdQuickConnect(context.Background(), vpnTestOpts(map[string]interface{}{"--config": bad}))
+	err := cmdQuickConnect(context.Background(), vpnTestOpts(map[string]interface{}{"--config": bad}), false)
 
 	if err == nil || !strings.Contains(err.Error(), "config file") {
 		t.Fatalf("err = %v; quick-connect must load --config before doing anything else", err)
@@ -44,21 +48,57 @@ func TestJWTLoadArgForStep2(t *testing.T) {
 	cases := []struct {
 		name           string
 		jwtOpt         string
+		jwtFromEnv     bool
 		userAuth       string
 		password       string
 		wantLoadJWTArg string
 	}{
-		{"login just ran via user_auth, ignores stale jwt opt", "env-jwt", "me@x", "pw", ""},
-		{"login just ran via password only", "env-jwt", "", "pw", ""},
-		{"no login, explicit --jwt kept", "cli-jwt", "", "", "cli-jwt"},
-		{"no login, no jwt opt", "", "", "", ""},
+		{"login just ran, env jwt is stale", "env-jwt", true, "me@x", "pw", ""},
+		{"login just ran via password only, env jwt is stale", "env-jwt", true, "", "pw", ""},
+		{"explicit --jwt wins over env login credentials", "cli-jwt", false, "me@x", "pw", "cli-jwt"},
+		{"no login, explicit --jwt kept", "cli-jwt", false, "", "", "cli-jwt"},
+		{"no login, env jwt kept", "env-jwt", true, "", "", "env-jwt"},
+		{"no login, no jwt opt", "", false, "", "", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := jwtLoadArgForStep2(tc.jwtOpt, tc.userAuth, tc.password)
+			got := jwtLoadArgForStep2(tc.jwtOpt, tc.jwtFromEnv, tc.userAuth, tc.password)
 			if got != tc.wantLoadJWTArg {
-				t.Fatalf("jwtLoadArgForStep2(%q, %q, %q) = %q, want %q", tc.jwtOpt, tc.userAuth, tc.password, got, tc.wantLoadJWTArg)
+				t.Fatalf("jwtLoadArgForStep2(%q, %v, %q, %q) = %q, want %q", tc.jwtOpt, tc.jwtFromEnv, tc.userAuth, tc.password, got, tc.wantLoadJWTArg)
 			}
 		})
+	}
+}
+
+func fakeClientJWT(t *testing.T, clientID string) string {
+	t.Helper()
+	tok, err := gojwt.NewWithClaims(gojwt.SigningMethodHS256, gojwt.MapClaims{"client_id": clientID}).SignedString([]byte("test"))
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	return tok
+}
+
+func TestEnsureClientJWT_KeepsValidJWTFromFlag(t *testing.T) {
+	t.Setenv("URNETWORK_HOME", t.TempDir())
+	if err := saveJWT(fakeClientJWT(t, "on-disk")); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/network/find-providers2" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"providers":[]}`))
+	}))
+	defer srv.Close()
+	fromFlag := fakeClientJWT(t, "from-flag")
+
+	got, err := ensureClientJWT(context.Background(), srv.URL, fromFlag, false, "", "")
+	if err != nil {
+		t.Fatalf("ensureClientJWT: %v", err)
+	}
+	if got != fromFlag {
+		t.Fatalf("ensureClientJWT returned client_id=%q; want the validated --jwt token, not the one on disk", parseClientID(got))
 	}
 }

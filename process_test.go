@@ -76,3 +76,18 @@ func TestBackgroundSecrets_ReadsParsedOptions(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+func TestApplySecretEnvFallbacks_ReportsEnvSourcedFlags(t *testing.T) {
+	opts := docopt.Opts{"--password": nil, "--jwt": "", "--socks_pass": "cli"}
+	env := map[string]string{"URNETWORK_PASSWORD": "envpw", "URNETWORK_JWT": "env-jwt", "URNETWORK_SOCKS_PASS": "envsocks"}
+	fromEnv := applySecretEnvFallbacks(opts, func(k string) string { return env[k] })
+	if !fromEnv["--password"] {
+		t.Fatal("--password came only from the environment and must be reported as such")
+	}
+	if fromEnv["--jwt"] || opts["--jwt"] != "env-jwt" {
+		t.Fatalf("--jwt=%v fromEnv=%v; a redacted --jwt= placeholder on argv means the value came from the CLI", opts["--jwt"], fromEnv["--jwt"])
+	}
+	if fromEnv["--socks_pass"] {
+		t.Fatal("--socks_pass was set on the CLI")
+	}
+}
