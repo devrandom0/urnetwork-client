@@ -101,6 +101,11 @@ Options:
 	dbg, _ := opts.Bool("--debug")
 	setLogLevel(lvl, dbg)
 
+	if err := validateEndpointFlags(opts); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
+	}
+
 	// Handle --background for commands that support it before creating context.
 	if bg, _ := opts.Bool("--background"); bg {
 		if mustBool(opts, "quick-connect") || mustBool(opts, "vpn") {
