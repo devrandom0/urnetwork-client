@@ -285,8 +285,8 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    needs: test
-    if: github.event_name != 'pull_request'
+    needs: [test, release]
+    if: always() && github.event_name != 'pull_request' && needs.test.result == 'success' && (needs.release.result == 'success' || needs.release.result == 'skipped')
     name: Docker build (${{ matrix.arch }})
     permissions:
       contents: read
@@ -349,7 +349,7 @@ jobs:
           outputs: type=image,"name=ghcr.io/${{ github.repository_owner }}/urnetwork-client,${{ secrets.DOCKERHUB_USERNAME }}/urnetwork-client",push-by-digest=true,name-canonical=true,push=true
           build-args: |
             BUILDKIT_INLINE_CACHE=1
-            VERSION=${{ steps.meta.outputs.version }}
+            VERSION=${{ needs.release.outputs.version || steps.meta.outputs.version }}
           cache-from: |
             type=gha,scope=docker-${{ matrix.arch }}
             type=registry,ref=ghcr.io/${{ github.repository_owner }}/urnetwork-client:buildcache-docker-${{ matrix.arch }}
@@ -373,7 +373,7 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     needs: docker-build
-    if: github.event_name != 'pull_request'
+    if: always() && github.event_name != 'pull_request' && needs.docker-build.result == 'success'
     name: Docker merge manifests
     permissions:
       packages: write
