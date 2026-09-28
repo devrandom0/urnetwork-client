@@ -5,7 +5,7 @@ services:
       - 8.8.8.8
     # Docker Desktop on macOS does not support host networking; map the SOCKS port instead
     ports:
-      - "1080:1080"
+      - "127.0.0.1:1080:1080"
     # Ensure TUN setup works in the Linux VM
     cap_add:
       - NET_ADMIN

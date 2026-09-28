@@ -69,6 +69,9 @@ func StartSocks5(ctx context.Context, opts SocksOptions) (func() error, error) {
 	if err != nil {
 		return nil, err
 	}
+	if socksExposedWithoutAuth(ln.Addr(), opts.Auth) {
+		logWarn("SOCKS5 on %s accepts connections from other hosts WITHOUT authentication; anyone who can reach this port can use your VPN. Set --socks_user and URNETWORK_SOCKS_PASS, or bind 127.0.0.1\n", ln.Addr())
+	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -76,6 +79,14 @@ func StartSocks5(ctx context.Context, opts SocksOptions) (func() error, error) {
 	}()
 	stop := func() error { _ = ln.Close(); <-done; return nil }
 	return stop, nil
+}
+
+func socksExposedWithoutAuth(addr net.Addr, auth SocksAuth) bool {
+	if auth.Enabled() {
+		return false
+	}
+	ip := addrIP(addr)
+	return ip == nil || !ip.IsLoopback()
 }
 
 type socksServer struct {
