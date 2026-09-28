@@ -2923,7 +2923,10 @@ Any unchecked item above becomes a follow-up entry under "Deferred to Phase 2+" 
 - Evaluate a maintained SOCKS5 library (for example `go-socks5`) against `internal/socks`.
 - macOS kill switch blackhole suspicion: verify whether `route -n add -blackhole default` without a gateway ever succeeds (Phase 0 manual check still pending).
 - Dropping `--background`.
-- `auth.Load` still reads the JWT through a symlink (only writes are hardened).
+- `safefile.ReadFile` refuses a symlink only as root and only at the final path component; a root read below a user-owned symlinked directory is not checked the way writes are.
+- `make lint` fails on a macOS host: its `GOOS=linux go vet` needs `CGO_ENABLED=0` (the gate sets it, the Makefile does not).
+- `internal/safefile` does not build for `GOOS=windows` (`syscall.Stat_t`, `O_NOFOLLOW`); add a build tag or a stub if Windows is ever targeted.
+- actionlint reports SC2086 (unquoted variable) in the ci.yml step at line 635, present before this phase.
 - `DefaultGateway` now parses combined stdout+stderr from `route -n get default`; revisit if a macOS version prints a `gateway:` line on stderr.
 - `make lint` runs `go mod tidy`, which can change the tree in CI without failing.
 - Standalone `socks` command still does not connect to the extender.
