@@ -65,19 +65,27 @@ Global help:
 
 ### SOCKS
 
-When using `vpn` subcommand:
+`vpn` and `quick-connect`:
 
-- `--socks=<addr>` (alias: `--socks_listen`) — Start SOCKS5 proxy. **Requires `--tun` to bind traffic through VPN.**
-- `--domain=<list>` — Comma-separated domains that must route through VPN (SOCKS-only mode)
-- `--exclude_domain=<list>` — Comma-separated domains to exclude from VPN routing
+- `--socks=<addr>` (alias: `--socks_listen`): start a SOCKS5 proxy. With `--tun`, proxied traffic is bound to the VPN interface. If that binding fails, the request is refused instead of leaving through your normal connection.
+- `--socks_user=<user>` and `--socks_pass=<pass>`: require RFC 1929 username/password auth. Env fallbacks: `URNETWORK_SOCKS_USER`, `URNETWORK_SOCKS_PASS`. Prefer the env var for the password, because command-line arguments are visible to every local user.
+- `--domain=<list>`: comma-separated domains that must route through the VPN (SOCKS only).
+- `--exclude_domain=<list>`: comma-separated domains that bypass the VPN (SOCKS only).
 
-For a standalone SOCKS proxy (without TUN/VPN), use the separate `socks` command: `./urnet-client socks --listen=... --extender_ip=... --extender_port=... --extender_sni=...`
+If the proxy listens on anything other than a loopback address and no auth is configured, the client logs a WARN at startup. It still starts, so existing LAN setups keep working.
+
+With `--tun`, SOCKS hostname lookups go through the VPN interface and fail closed. If the system resolver is on the LAN or is Docker's `127.0.0.11`, it is unreachable from inside the tunnel; set `--dns=<public resolver>` (e.g. `--dns=1.1.1.1`) to fix lookups. If no `--dns` is given, the client logs a WARN at startup naming this.
+
+Supported SOCKS5 commands: CONNECT and UDP ASSOCIATE. BIND is answered with "command not supported".
+
+Standalone proxy without TUN/VPN: `./urnet-client socks --listen=... --extender_ip=... --extender_port=... --extender_sni=...`
 
 - `--listen=<addr>`
 - `--extender_ip=<ip>`
 - `--extender_port=<port>`
 - `--extender_sni=<sni>`
 - `--extender_secret=<secret>`
+- `--socks_user=<user>`, `--socks_pass=<pass>` (same meaning and env fallbacks as above)
 
 ### Inbound filtering
 
@@ -90,7 +98,7 @@ For a standalone SOCKS proxy (without TUN/VPN), use the separate `socks` command
 
 ### Kill switch
 
-- `--kill_switch` — Block all traffic if the VPN connection drops. **Requires `--default_route`.** On graceful exit, the blackhole default route is preserved — traffic stays blocked until you manually restore your gateway.
+- `--kill_switch` — Block all traffic if the VPN connection drops. **Requires `--default_route`.** On graceful exit, the blackhole default route is preserved — traffic stays blocked until you manually restore your gateway. If startup fails after the blackhole route is installed, the host stays offline the same way: run the restore command printed in the error to bring connectivity back.
 
 ### Diagnostics
 

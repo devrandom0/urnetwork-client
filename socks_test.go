@@ -26,7 +26,7 @@ func TestDomainMatches(t *testing.T) {
 func TestStartSocks5_NilDNS(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	stop, err := StartSocks5(ctx, "127.0.0.1:0", "", false, nil, nil, nil)
+	stop, err := StartSocks5(ctx, SocksOptions{ListenAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatalf("StartSocks5 with nil dns: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestStartSocks5_NilDNS(t *testing.T) {
 func TestStartSocks5_EmptyDNS(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	stop, err := StartSocks5(ctx, "127.0.0.1:0", "", false, nil, nil, []string{})
+	stop, err := StartSocks5(ctx, SocksOptions{ListenAddr: "127.0.0.1:0", DNSServers: []string{}})
 	if err != nil {
 		t.Fatalf("StartSocks5 with empty dns: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestStartSocks5_EmptyDNS(t *testing.T) {
 func TestStartSocks5_CustomDNS_PortNormalization(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	stop, err := StartSocks5(ctx, "127.0.0.1:0", "", false, nil, nil, []string{"9.9.9.9"})
+	stop, err := StartSocks5(ctx, SocksOptions{ListenAddr: "127.0.0.1:0", DNSServers: []string{"9.9.9.9"}})
 	if err != nil {
 		t.Fatalf("StartSocks5 with bare-IP dns: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestStartSocks5_CustomDNS_PortNormalization(t *testing.T) {
 func TestStartSocks5_CustomDNS_WithPort(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	stop, err := StartSocks5(ctx, "127.0.0.1:0", "", false, nil, nil, []string{"9.9.9.9:53"})
+	stop, err := StartSocks5(ctx, SocksOptions{ListenAddr: "127.0.0.1:0", DNSServers: []string{"9.9.9.9:53"}})
 	if err != nil {
 		t.Fatalf("StartSocks5 with host:port dns: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestSocks5_CustomDNS_UsedForLookup(t *testing.T) {
 	defer cancel()
 
 	proxyAddr := grabFreeAddr(t)
-	stop, err := StartSocks5(ctx, proxyAddr, "", false, nil, nil, []string{dnsAddr})
+	stop, err := StartSocks5(ctx, SocksOptions{ListenAddr: proxyAddr, DNSServers: []string{dnsAddr}})
 	if err != nil {
 		t.Fatalf("StartSocks5: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestSocks5_DefaultDNS_NXDOMAINFails(t *testing.T) {
 	defer cancel()
 
 	proxyAddr := grabFreeAddr(t)
-	stop, err := StartSocks5(ctx, proxyAddr, "", false, nil, nil, nil)
+	stop, err := StartSocks5(ctx, SocksOptions{ListenAddr: proxyAddr})
 	if err != nil {
 		t.Fatalf("StartSocks5: %v", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/urnetwork/connect"
 )
@@ -99,5 +100,30 @@ func TestBuildProviderSpecs_LocationQuery_HTTPEmpty_FallsBackToBestAvailable(t *
 	_, specs := buildProviderSpecs(ctx, srv.URL, "", LocationConfig{LocationQuery: "country:NowhereXYZ"})
 	if len(specs) != 1 || !specs[0].BestAvailable {
 		t.Fatalf("expected BestAvailable fallback, got %v", specs)
+	}
+}
+
+func TestBuildProviderSpecs_LookupTimeoutFallsBack(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+		}
+	}))
+	t.Cleanup(srv.Close)
+	oldClient := defaultHTTPClient
+	defaultHTTPClient = srv.Client()
+	t.Cleanup(func() { defaultHTTPClient = oldClient })
+	oldTimeout := providerLookupTimeout
+	providerLookupTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { providerLookupTimeout = oldTimeout })
+
+	start := time.Now()
+	_, specs := buildProviderSpecs(context.Background(), srv.URL, "", LocationConfig{LocationQuery: "country:Germany"})
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("lookup took %s; a slow API must not block VPN startup", elapsed)
+	}
+	if len(specs) != 1 || !specs[0].BestAvailable {
+		t.Fatalf("want BestAvailable fallback, got %v", specs)
 	}
 }
