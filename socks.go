@@ -19,7 +19,9 @@ import (
 const (
 	socksVersion5 = 0x05
 
-	socksMethodNoAuth = 0x00
+	socksMethodNoAuth       = 0x00
+	socksMethodUserPass     = 0x02
+	socksMethodNoAcceptable = 0xFF
 
 	socksCmdConnect      = 0x01
 	socksCmdUDPAssociate = 0x03
@@ -50,10 +52,14 @@ type SocksOptions struct {
 	ExcludeDomains   []string
 	DNSServers       []string      // first entry replaces the system resolver for hostname lookups
 	HandshakeTimeout time.Duration // zero means defaultSocksHandshakeTimeout
+	Auth             SocksAuth
 }
 
 // StartSocks5 starts a SOCKS5 proxy and returns a stop function.
 func StartSocks5(ctx context.Context, opts SocksOptions) (func() error, error) {
+	if err := opts.Auth.validate(); err != nil {
+		return nil, err
+	}
 	if opts.HandshakeTimeout <= 0 {
 		opts.HandshakeTimeout = defaultSocksHandshakeTimeout
 	}
@@ -169,11 +175,26 @@ func (s *socksServer) negotiate(c net.Conn) error {
 	if head[0] != socksVersion5 {
 		return fmt.Errorf("unsupported SOCKS version %d", head[0])
 	}
-	if _, err := io.ReadFull(c, make([]byte, int(head[1]))); err != nil {
+	offered := make([]byte, int(head[1]))
+	if _, err := io.ReadFull(c, offered); err != nil {
 		return err
 	}
-	_, err := c.Write([]byte{socksVersion5, socksMethodNoAuth})
-	return err
+	method := selectSocksMethod(offered, s.opts.Auth.Enabled())
+	if _, err := c.Write([]byte{socksVersion5, method}); err != nil {
+		return err
+	}
+	switch method {
+	case socksMethodNoAuth:
+		return nil
+	case socksMethodUserPass:
+		err := socksUserPassAuth(c, s.opts.Auth)
+		if errors.Is(err, errSocksAuthFailed) {
+			logWarn("socks: rejected credentials from %s\n", c.RemoteAddr())
+		}
+		return err
+	default:
+		return errors.New("client offered no acceptable authentication method")
+	}
 }
 
 type socksAddr struct {
