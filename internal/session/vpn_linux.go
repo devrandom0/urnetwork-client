@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package session
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"github.com/devrandom0/urnetwork-client/internal/tunnel"
 )
 
-func cmdVpn(ctx context.Context, cfg config.VPNConfig) error {
+func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 	tunName := cfg.TunName
 	rawTun := strings.TrimSpace(tunName)
 	tunLikelyMissingArg := rawTun != "" && strings.HasPrefix(rawTun, "-")
@@ -24,7 +24,7 @@ func cmdVpn(ctx context.Context, cfg config.VPNConfig) error {
 	}
 
 	// TUN-less mode: SOCKS-only when TUN is disabled or not specified.
-	if isTUNDisabled(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
+	if IsTUNDisabled(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
 		return runSocksOnly(ctx, cfg)
 	}
 
@@ -88,6 +88,6 @@ func cmdVpn(ctx context.Context, cfg config.VPNConfig) error {
 
 	// Run shared dataplane + SOCKS + stats.
 	var counters tunnel.Counters
-	vpnRunCore(ctx, dev, tunName, cfg, &counters, func() {})
+	runCore(ctx, dev, tunName, cfg, appVersion, &counters, func() {})
 	return nil
 }

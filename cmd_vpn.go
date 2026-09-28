@@ -9,6 +9,7 @@ import (
 
 	"github.com/devrandom0/urnetwork-client/internal/auth"
 	"github.com/devrandom0/urnetwork-client/internal/config"
+	"github.com/devrandom0/urnetwork-client/internal/session"
 )
 
 func cmdVpnFromOpts(ctx context.Context, opts docopt.Opts) error {
@@ -21,11 +22,11 @@ func cmdVpnFromOpts(ctx context.Context, opts docopt.Opts) error {
 		return fmt.Errorf("vpn needs a JWT (run 'login' or pass --jwt): %w", err)
 	}
 	cfg.JWT = jwt
-	return cmdVpn(ctx, cfg)
+	return session.Run(ctx, cfg, Version)
 }
 
 // vpnUsesTUN mirrors the SOCKS-only detection in cmdVpn; SOCKS-only mode never calls the API.
 func vpnUsesTUN(cfg config.VPNConfig) bool {
 	tun := strings.TrimSpace(cfg.TunName)
-	return tun != "" && !isTUNDisabled(tun)
+	return tun != "" && !session.IsTUNDisabled(tun)
 }

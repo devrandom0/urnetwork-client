@@ -1,4 +1,5 @@
-package main
+// Package session runs the VPN dataplane and SOCKS lifecycle for a connected session.
+package session
 
 import (
 	"context"
@@ -13,13 +14,14 @@ import (
 	"github.com/devrandom0/urnetwork-client/internal/urapi"
 )
 
-// vpnRunCore selects providers, runs the dataplane between dev and the provider, prints stats
+// runCore selects providers, runs the dataplane between dev and the provider, prints stats
 // and serves the optional SOCKS proxy until ctx ends, then runs onBeforeExit.
-func vpnRunCore(
+func runCore(
 	ctx context.Context,
 	dev tunnel.Device,
 	tunIfName string,
 	cfg config.VPNConfig,
+	appVersion string,
 	counters *tunnel.Counters,
 	onBeforeExit func(),
 ) {
@@ -27,7 +29,7 @@ func vpnRunCore(
 		APIURL:     cfg.APIURL,
 		ConnectURL: cfg.ConnectURL,
 		JWT:        cfg.JWT,
-		AppVersion: Version,
+		AppVersion: appVersion,
 		Location:   cfg.Location,
 	})
 	policy := tunnel.NewInboundPolicy(cfg.AllowInboundSrcList, cfg.AllowInboundLocal, cfg.IPCIDR)
@@ -104,9 +106,9 @@ func runSocksOnly(ctx context.Context, cfg config.VPNConfig) error {
 	return nil
 }
 
-// isTUNDisabled returns true when the provided name represents a disabled TUN
+// IsTUNDisabled returns true when the provided name represents a disabled TUN
 // (e.g., "none", "no", "off", "false", "disable", "0").
-func isTUNDisabled(name string) bool {
+func IsTUNDisabled(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "none", "non", "no", "off", "false", "disable", "disabled", "0":
 		return true
