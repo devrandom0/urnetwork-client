@@ -1,7 +1,5 @@
 # Cross-platform build Makefile for urnet-client
 
-MODULE_PATH := github.com/urnetwork/connect
-CMD_PATH := $(MODULE_PATH)/cmd/urnet-client
 BINARY := urnet-client
 DIST := dist
 
@@ -73,6 +71,8 @@ lint:
 	  echo "gofmt found issues:" && echo "$$fmt_out" && exit 1; \
 	fi
 	go vet ./...
+	GOOS=linux go vet ./...
+	GOOS=darwin go vet ./...
 	golangci-lint run ./...
 
 .PHONY: hooks-install
@@ -132,20 +132,22 @@ dockerx-setup:
 dockerx-build: dockerx-setup
 	DOCKER_BUILDKIT=1 docker buildx build \
 	  --platform linux/amd64,linux/arm64 \
+	  --build-arg VERSION=$(VERSION) \
 	  -f Dockerfile \
 	  -t $(IMAGE_BASENAME):$(VERSION) \
 	  -t $(IMAGE_BASENAME):latest \
-	  ../../.. \
+	  . \
 	  --load
 
 .PHONY: dockerx-push
 dockerx-push: dockerx-setup
 	DOCKER_BUILDKIT=1 docker buildx build \
 	  --platform linux/amd64,linux/arm64 \
+	  --build-arg VERSION=$(VERSION) \
 	  -f Dockerfile \
 	  -t $(IMAGE_BASENAME):$(VERSION) \
 	  -t $(IMAGE_BASENAME):latest \
-	  ../../.. \
+	  . \
 	  --push
 
 .PHONY: dockerx-release
