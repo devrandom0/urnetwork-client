@@ -267,33 +267,129 @@ func TestOpenAppend_RefusesFileOwnedByAnotherUser(t *testing.T) {
 	}
 }
 
-func TestSymlinkedPathErr(t *testing.T) {
-	cases := []struct {
-		name            string
-		cleaned, actual string
-		euid            int
-		wantErr         bool
-	}{
-		{"non-root may use a symlinked dir", "/tmp/x", "/private/tmp/x", 1000, false},
-		{"root refuses a symlinked dir", "/tmp/x", "/private/tmp/x", 0, true},
-		{"root accepts a plain dir", "/root/.urnetwork", "/root/.urnetwork", 0, false},
+type fakeEntry struct {
+	uid    uint32
+	mode   fs.FileMode
+	target string
+}
+
+type fakeInfo struct {
+	name string
+	e    fakeEntry
+}
+
+func (f fakeInfo) Name() string       { return f.name }
+func (f fakeInfo) Size() int64        { return 0 }
+func (f fakeInfo) Mode() fs.FileMode  { return f.e.mode }
+func (f fakeInfo) ModTime() time.Time { return time.Time{} }
+func (f fakeInfo) IsDir() bool        { return f.e.mode.IsDir() }
+func (f fakeInfo) Sys() any           { return &syscall.Stat_t{Uid: f.e.uid} }
+
+type fakeFS map[string]fakeEntry
+
+func (m fakeFS) lstat(p string) (fs.FileInfo, error) {
+	e, ok := m[p]
+	if !ok {
+		return nil, &fs.PathError{Op: "lstat", Path: p, Err: fs.ErrNotExist}
 	}
+	return fakeInfo{filepath.Base(p), e}, nil
+}
+
+func (m fakeFS) readlink(p string) (string, error) {
+	e, ok := m[p]
+	if !ok || e.mode&fs.ModeSymlink == 0 {
+		return "", &fs.PathError{Op: "readlink", Path: p, Err: syscall.EINVAL}
+	}
+	return e.target, nil
+}
+
+func rootDir(perm fs.FileMode) fakeEntry { return fakeEntry{0, fs.ModeDir | perm, ""} }
+func link(uid uint32, target string) fakeEntry {
+	return fakeEntry{uid, fs.ModeSymlink | 0o755, target}
+}
+
+// macFS mirrors macOS: /tmp and /var are root-owned links into /private in the root-owned /.
+func macFS() fakeFS {
+	return fakeFS{
+		"/":                            rootDir(0o755),
+		"/tmp":                         link(0, "private/tmp"),
+		"/var":                         link(0, "private/var"),
+		"/private":                     rootDir(0o755),
+		"/private/tmp":                 rootDir(0o777 | fs.ModeSticky),
+		"/private/tmp/logs":            {0, fs.ModeDir | 0o700, ""},
+		"/private/var":                 rootDir(0o755),
+		"/private/var/root":            rootDir(0o750),
+		"/private/var/root/.urnetwork": rootDir(0o700),
+		"/home":                        rootDir(0o755),
+		"/home/u":                      {1000, fs.ModeDir | 0o755, ""},
+		"/home/u/dots":                 {1000, fs.ModeDir | 0o755, ""},
+		"/home/u/.urnetwork":           link(1000, "dots"),
+		"/home/u/rootlink":             link(0, "dots"),
+		"/srv":                         rootDir(0o777),
+		"/srv/data":                    rootDir(0o755),
+		"/srv/link":                    link(0, "data"),
+		"/pub":                         rootDir(0o777 | fs.ModeSticky),
+		"/pub/data":                    rootDir(0o755),
+		"/pub/link":                    link(0, "data"),
+		"/chain":                       link(0, "/home/u/.urnetwork"),
+		"/loop":                        link(0, "/loop"),
+	}
+}
+
+func TestRootSymlinkErr(t *testing.T) {
+	cases := []struct {
+		path    string
+		wantErr bool
+	}{
+		{"/tmp/logs", false},
+		{"/var/root/.urnetwork", false},
+		{"/private/tmp/logs", false},
+		{"/home/u/.urnetwork", true},
+		{"/home/u/rootlink", true},
+		{"/srv/link", true},
+		{"/pub/link", false},
+		{"/chain", true},
+		{"/loop", true},
+		{"/nope", true},
+	}
+	m := macFS()
 	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			err := symlinkedPathErr(c.cleaned, c.actual, c.euid)
+		t.Run(c.path, func(t *testing.T) {
+			err := rootSymlinkErr(c.path, m.lstat, m.readlink)
 			if (err != nil) != c.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, c.wantErr)
 			}
-			if err != nil && !strings.Contains(err.Error(), c.cleaned) {
+			if err != nil && !strings.Contains(err.Error(), c.path) {
 				t.Fatalf("error %q does not name the configured path", err)
 			}
 		})
 	}
 }
 
-func TestWriteFile_RootRefusesSymlinkedDir(t *testing.T) {
+func TestWriteFile_RootAcceptsRootOwnedSymlinkedDir(t *testing.T) {
 	useEUID(t, 0)
 	useOwner(t, func(fs.FileInfo) (uint32, uint32, bool) { return 0, 0, true })
+	realDir := realTempDir(t)
+	linkDir := filepath.Join(realTempDir(t), "home")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFile(filepath.Join(linkDir, "jwt"), []byte("x")); err != nil {
+		t.Fatalf("root-owned symlinks such as macOS /tmp and /var must be followed as root: %v", err)
+	}
+	if mustRead(t, filepath.Join(realDir, "jwt")) != "x" {
+		t.Fatal("file not written into the resolved directory")
+	}
+}
+
+func TestWriteFile_RootRefusesSymlinkedDir(t *testing.T) {
+	useEUID(t, 0)
+	useOwner(t, func(fi fs.FileInfo) (uint32, uint32, bool) {
+		if fi.Mode()&fs.ModeSymlink != 0 {
+			return 4343, 4343, true
+		}
+		return 0, 0, true
+	})
 	linkDir := filepath.Join(realTempDir(t), "home")
 	if err := os.Symlink(realTempDir(t), linkDir); err != nil {
 		t.Fatal(err)
@@ -448,18 +544,54 @@ func TestReadFile_MissingFileIsNotExist(t *testing.T) {
 	}
 }
 
-func TestReadFile_RefusesSymlink(t *testing.T) {
+func symlinkTo(t *testing.T, content string) string {
+	t.Helper()
 	victim := filepath.Join(t.TempDir(), "victim")
-	if err := os.WriteFile(victim, []byte("secret"), 0o600); err != nil {
+	if err := os.WriteFile(victim, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	link := filepath.Join(t.TempDir(), "jwt")
 	if err := os.Symlink(victim, link); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadFile(link, 16); err == nil {
-		t.Fatal("ReadFile followed a symlink")
+	return link
+}
+
+func TestReadFile_RefusesSymlink(t *testing.T) {
+	useEUID(t, 0)
+	link := symlinkTo(t, "secret")
+	_, err := ReadFile(link, 16)
+	if err == nil {
+		t.Fatal("ReadFile followed a symlink as root")
 	}
+	if want := link + " is a symlink; refusing to follow it as root"; err.Error() != want {
+		t.Fatalf("err = %q, want %q", err, want)
+	}
+}
+
+func TestReadFile_FollowsSymlinkWhenNotRoot(t *testing.T) {
+	useEUID(t, 4242)
+	b, err := ReadFile(symlinkTo(t, "secret"), 16)
+	if err != nil || string(b) != "secret" {
+		t.Fatalf("a non-root read must follow a symlink such as a dotfile manager link: %q, %v", b, err)
+	}
+}
+
+func TestReadFile_NonRootStillRefusesFIFOBehindSymlink(t *testing.T) {
+	useEUID(t, 4242)
+	fifo := filepath.Join(t.TempDir(), "fifo")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "jwt")
+	if err := os.Symlink(fifo, link); err != nil {
+		t.Fatal(err)
+	}
+	withTimeout(t, 5*time.Second, func() {
+		if _, err := ReadFile(link, 16); err == nil {
+			t.Error("ReadFile accepted a FIFO behind a symlink")
+		}
+	})
 }
 
 func TestReadFile_RefusesOversizedFile(t *testing.T) {
@@ -504,4 +636,67 @@ func nonblocking(t *testing.T, f *os.File) bool {
 		t.Fatal(errno)
 	}
 	return flags&syscall.O_NONBLOCK != 0
+}
+
+func TestAppendOwnerErr(t *testing.T) {
+	cases := []struct {
+		name            string
+		fileUID, dirUID uint32
+		euid, sudoUID   int
+		wantErr         bool
+	}{
+		{"non-root owns the file", 1000, 1000, 1000, -1, false},
+		{"non-root, file owned by dir owner", 2000, 2000, 1000, -1, false},
+		{"non-root, file owned by someone else", 3000, 1000, 1000, -1, true},
+		{"root, root-owned file", 0, 1000, 0, -1, false},
+		{"root, file owned by SUDO_UID", 1000, 1000, 0, 1000, false},
+		{"root, file owned by dir owner but not SUDO_UID", 2000, 2000, 0, 1000, true},
+		{"root without sudo, file owned by dir owner", 2000, 2000, 0, -1, true},
+		{"root, file owned by another user", 3000, 0, 0, 1000, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := appendOwnerErr("/d/urnet.log", c.fileUID, c.dirUID, c.euid, c.sudoUID)
+			if (err != nil) != c.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, c.wantErr)
+			}
+		})
+	}
+}
+
+func rootAppendToFileOwnedBy(t *testing.T, fileUID uint32) error {
+	t.Helper()
+	useEUID(t, 0)
+	t.Setenv("SUDO_UID", "1234")
+	useOwner(t, func(fi fs.FileInfo) (uint32, uint32, bool) {
+		switch {
+		case fi.Name() == ".":
+			return 2000, 2000, true
+		case fi.IsDir():
+			return 0, 0, true
+		default:
+			return fileUID, fileUID, true
+		}
+	})
+	path := filepath.Join(realTempDir(t), "urnet.log")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := OpenAppend(path)
+	if err == nil {
+		_ = f.Close()
+	}
+	return err
+}
+
+func TestOpenAppend_RootRefusesFileOwnedByNonSudoDirOwner(t *testing.T) {
+	if err := rootAppendToFileOwnedBy(t, 2000); err == nil {
+		t.Fatal("root appended to a file owned by a user other than root or SUDO_UID")
+	}
+}
+
+func TestOpenAppend_RootAcceptsFileOwnedBySudoUser(t *testing.T) {
+	if err := rootAppendToFileOwnedBy(t, 1234); err != nil {
+		t.Fatalf("root must append to a file owned by the SUDO_UID user: %v", err)
+	}
 }
