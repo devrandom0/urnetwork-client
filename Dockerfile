@@ -12,6 +12,7 @@ ENV GOTOOLCHAIN=auto
 # Build args for cross-compilation (used by BuildKit/buildx)
 ARG TARGETOS
 ARG TARGETARCH
+ARG VERSION=dev
 
 WORKDIR /src
 
@@ -30,7 +31,7 @@ COPY *.go ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-    go build -trimpath -buildvcs=false -ldflags="-s -w" \
+    go build -trimpath -buildvcs=false -ldflags="-s -w -X main.Version=${VERSION}" \
     -o /out/urnet-client ./
 
 # Runtime image
