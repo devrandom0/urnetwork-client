@@ -6,6 +6,7 @@ import (
 
 	"github.com/docopt/docopt-go"
 
+	"github.com/devrandom0/urnetwork-client/internal/auth"
 	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/urapi"
 )
@@ -26,9 +27,9 @@ func cmdLogin(ctx context.Context, opts docopt.Opts) error {
 	if res.ByJwt == "" {
 		return fmt.Errorf("login succeeded but no by_jwt returned")
 	}
-	if err := saveJWT(res.ByJwt); err != nil {
+	if err := auth.Save(res.ByJwt); err != nil {
 		return fmt.Errorf("save jwt failed: %w", err)
 	}
-	fmt.Printf("saved JWT for network %s -> %s\n", res.NetworkName, jwtPath())
+	fmt.Printf("saved JWT for network %s -> %s\n", res.NetworkName, auth.Path())
 	return nil
 }

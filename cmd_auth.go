@@ -7,6 +7,7 @@ import (
 
 	"github.com/docopt/docopt-go"
 
+	"github.com/devrandom0/urnetwork-client/internal/auth"
 	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/urapi"
 )
@@ -16,10 +17,10 @@ func cmdSaveJWT(opts docopt.Opts) error {
 	if strings.TrimSpace(jwt) == "" {
 		return fmt.Errorf("--jwt is required")
 	}
-	if err := saveJWT(jwt); err != nil {
+	if err := auth.Save(jwt); err != nil {
 		return fmt.Errorf("save failed: %w", err)
 	}
-	fmt.Printf("saved to %s\n", jwtPath())
+	fmt.Printf("saved to %s\n", auth.Path())
 	return nil
 }
 
@@ -32,17 +33,17 @@ func cmdVerify(ctx context.Context, opts docopt.Opts) error {
 	if err != nil {
 		return fmt.Errorf("verify error: %w", err)
 	}
-	if err := saveJWT(byJwt); err != nil {
+	if err := auth.Save(byJwt); err != nil {
 		return fmt.Errorf("save jwt failed: %w", err)
 	}
-	fmt.Printf("saved JWT -> %s\n", jwtPath())
+	fmt.Printf("saved JWT -> %s\n", auth.Path())
 	return nil
 }
 
 func cmdMintClient(ctx context.Context, opts docopt.Opts) error {
 	apiURL := config.StringOr(opts, "--api_url", config.DefaultAPIURL)
 	jwtOpt, _ := opts.String("--jwt")
-	jwt, err := loadJWT(jwtOpt)
+	jwt, err := auth.Load(jwtOpt)
 	if err != nil {
 		return err
 	}
@@ -51,13 +52,13 @@ func cmdMintClient(ctx context.Context, opts docopt.Opts) error {
 	if err != nil {
 		return err
 	}
-	if err := saveJWT(clientJwt); err != nil {
+	if err := auth.Save(clientJwt); err != nil {
 		return err
 	}
-	if id := parseClientID(clientJwt); id != "" {
-		fmt.Printf("saved client JWT (client_id=%s) -> %s\n", id, jwtPath())
+	if id := auth.ParseClientID(clientJwt); id != "" {
+		fmt.Printf("saved client JWT (client_id=%s) -> %s\n", id, auth.Path())
 	} else {
-		fmt.Printf("saved client JWT -> %s\n", jwtPath())
+		fmt.Printf("saved client JWT -> %s\n", auth.Path())
 	}
 	return nil
 }

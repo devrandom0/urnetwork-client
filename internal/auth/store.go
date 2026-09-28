@@ -1,4 +1,5 @@
-package main
+// Package auth manages the client JWT store and the login/renewal lifecycle.
+package auth
 
 import (
 	"fmt"
@@ -9,7 +10,7 @@ import (
 	gojwt "github.com/golang-jwt/jwt/v5"
 )
 
-func jwtPath() string {
+func Path() string {
 	if base := strings.TrimSpace(os.Getenv("URNETWORK_HOME")); base != "" {
 		return filepath.Join(base, "jwt")
 	}
@@ -17,11 +18,11 @@ func jwtPath() string {
 	return filepath.Join(home, ".urnetwork", "jwt")
 }
 
-func loadJWT(maybe string) (string, error) {
+func Load(maybe string) (string, error) {
 	if strings.TrimSpace(maybe) != "" {
 		return strings.TrimSpace(maybe), nil
 	}
-	path := jwtPath()
+	path := Path()
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("no jwt provided and failed to read %s: %w", path, err)
@@ -29,17 +30,17 @@ func loadJWT(maybe string) (string, error) {
 	return strings.TrimSpace(string(b)), nil
 }
 
-func saveJWT(jwt string) error {
-	path := jwtPath()
+func Save(jwt string) error {
+	path := Path()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	return os.WriteFile(path, []byte(strings.TrimSpace(jwt)+"\n"), 0o600)
 }
 
-// parseClientID extracts the client_id claim from a JWT without verifying its signature.
+// ParseClientID extracts the client_id claim from a JWT without verifying its signature.
 // The result is used for informational display and token-type detection only.
-func parseClientID(jwt string) string {
+func ParseClientID(jwt string) string {
 	claims := gojwt.MapClaims{}
 	_, _, _ = gojwt.NewParser().ParseUnverified(jwt, claims)
 	if v, ok := claims["client_id"]; ok {
