@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 )
 
 // darwinAddedRoute records a route entry with type metadata for precise cleanup.
@@ -31,6 +32,7 @@ type darwinRouteManager struct {
 
 	addedCtrlBypass  []string           // IPs given bypass host routes for API/connect endpoints
 	addedDNSBypass   []string           // IPs given bypass host routes for DNS servers
+	mu               sync.Mutex         // guards addedDNSBypass; RemoveDNSBypass runs on the bootstrap goroutine
 	addedExcludes    []darwinAddedRoute // exclude routes via defGw or reject
 	addedScopedExcls []darwinAddedRoute // scoped reject excludes (SOCKS-only mode)
 	addedSplits      []darwinSplitRoute // split-default routes that were successfully added
@@ -194,7 +196,9 @@ func (m *darwinRouteManager) AddDNSServerRoutes(ips []string, bypass bool) {
 			}
 			if out, err := runCapture("route", "-n", "add", "-host", ip, m.defGw); err == nil || strings.Contains(out, "File exists") {
 				if err == nil {
+					m.mu.Lock()
 					m.addedDNSBypass = append(m.addedDNSBypass, ip)
+					m.mu.Unlock()
 				}
 			}
 		} else {
@@ -221,8 +225,11 @@ func (m *darwinRouteManager) SetDNS(servers []string, service string) error {
 }
 
 // RemoveDNSBypass removes all DNS server bypass routes immediately.
-// Used by the dns_bootstrap=cache goroutine once the VPN tunnel has traffic.
+// Called from the dns_bootstrap=cache goroutine and from Cleanup; the mutex makes
+// the two safe to run concurrently and ensures each route is deleted exactly once.
 func (m *darwinRouteManager) RemoveDNSBypass() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, ip := range m.addedDNSBypass {
 		_ = runSudo("route", "-n", "delete", "-host", ip)
 	}
@@ -290,9 +297,7 @@ func (m *darwinRouteManager) Cleanup() {
 		_ = runSudo("route", "-n", "delete", "-host", ip)
 	}
 	// DNS bypass routes (may already be nil if RemoveDNSBypass was called)
-	for _, ip := range m.addedDNSBypass {
-		_ = runSudo("route", "-n", "delete", "-host", ip)
-	}
+	m.RemoveDNSBypass()
 	// Extra TUN routes
 	for _, ar := range m.addedExtra {
 		if ar.isHost {

@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/songgao/water"
@@ -142,24 +141,7 @@ func cmdVpn(ctx context.Context, cfg VPNConfig) error {
 
 	// DNS cache bootstrap: remove DNS bypass once the tunnel has traffic.
 	if cfg.DefaultRoute && cfg.DNSBootstrap == "cache" {
-		go func() {
-			deadline := time.After(3 * time.Second)
-			ticker := time.NewTicker(200 * time.Millisecond)
-			defer ticker.Stop()
-		loop:
-			for {
-				select {
-				case <-deadline:
-					break loop
-				case <-ticker.C:
-					if atomic.LoadUint64(&pktsIn) > 0 && atomic.LoadUint64(&pktsOut) > 0 {
-						break loop
-					}
-				}
-			}
-			rm.RemoveDNSBypass()
-			logInfo("DNS bootstrap cache complete; DNS bypass removed\n")
-		}()
+		go removeDNSBypassWhenWarm(ctx, rm, &pktsIn, &pktsOut, 3*time.Second, 200*time.Millisecond)
 	}
 
 	// Run shared dataplane + SOCKS + stats.
