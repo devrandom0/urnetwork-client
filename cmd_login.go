@@ -7,6 +7,7 @@ import (
 	"github.com/docopt/docopt-go"
 
 	"github.com/devrandom0/urnetwork-client/internal/config"
+	"github.com/devrandom0/urnetwork-client/internal/urapi"
 )
 
 func cmdLogin(ctx context.Context, opts docopt.Opts) error {
@@ -14,7 +15,7 @@ func cmdLogin(ctx context.Context, opts docopt.Opts) error {
 	userAuth, _ := opts.String("--user_auth")
 	password, _ := opts.String("--password")
 
-	res, err := loginWithPassword(ctx, apiURL, userAuth, password)
+	res, err := urapi.LoginWithPassword(ctx, apiURL, userAuth, password)
 	if err != nil {
 		return fmt.Errorf("login error: %w", err)
 	}

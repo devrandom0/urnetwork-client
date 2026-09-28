@@ -1,4 +1,4 @@
-package main
+package urapi
 
 import (
 	"bytes"
@@ -69,7 +69,7 @@ type findLocationsHTTPArgs struct {
 	EnableMaxDistance   bool    `json:"enable_max_distance_fraction,omitempty"`
 }
 
-type findLocationsHTTPResult struct {
+type LocationsResult struct {
 	Specs  []*connect.ProviderSpec `json:"specs"`
 	Groups []struct {
 		LocationGroupID string `json:"location_group_id"`
@@ -90,7 +90,7 @@ type findLocationsHTTPResult struct {
 	} `json:"locations"`
 }
 
-func httpFindLocations(ctx context.Context, apiURL, jwt, q string) (*findLocationsHTTPResult, error) {
+func FindLocations(ctx context.Context, apiURL, jwt, q string) (*LocationsResult, error) {
 	body := findLocationsHTTPArgs{Query: q}
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(apiURL, "/")+"/network/find-locations", bytes.NewReader(b))
@@ -101,14 +101,14 @@ func httpFindLocations(ctx context.Context, apiURL, jwt, q string) (*findLocatio
 	if strings.TrimSpace(jwt) != "" {
 		req.Header.Set("Authorization", "Bearer "+jwt)
 	}
-	var out findLocationsHTTPResult
+	var out LocationsResult
 	if err := doAPIRequest(req, &out, "find-locations"); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-func httpProviderLocations(ctx context.Context, apiURL, jwt string) (*findLocationsHTTPResult, error) {
+func ProviderLocations(ctx context.Context, apiURL, jwt string) (*LocationsResult, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(apiURL, "/")+"/network/provider-locations", nil)
 	if err != nil {
 		return nil, err
@@ -116,7 +116,7 @@ func httpProviderLocations(ctx context.Context, apiURL, jwt string) (*findLocati
 	if strings.TrimSpace(jwt) != "" {
 		req.Header.Set("Authorization", "Bearer "+jwt)
 	}
-	var out findLocationsHTTPResult
+	var out LocationsResult
 	if err := doAPIRequest(req, &out, "provider-locations"); err != nil {
 		return nil, err
 	}

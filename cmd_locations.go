@@ -8,6 +8,7 @@ import (
 	"github.com/docopt/docopt-go"
 
 	"github.com/devrandom0/urnetwork-client/internal/config"
+	"github.com/devrandom0/urnetwork-client/internal/urapi"
 )
 
 func cmdLocations(ctx context.Context, opts docopt.Opts) error {
@@ -22,23 +23,23 @@ func cmdLocations(ctx context.Context, opts docopt.Opts) error {
 	qCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
-	var res *findLocationsHTTPResult
+	var res *urapi.LocationsResult
 	if q == "" || q == "*" || q == "country:*" || q == "region:*" || q == "group:*" {
-		httpRes, err := httpProviderLocations(qCtx, apiURL, jwt)
+		httpRes, err := urapi.ProviderLocations(qCtx, apiURL, jwt)
 		if err != nil {
 			return err
 		}
 		res = httpRes
 	} else {
-		if httpRes, err := httpFindLocations(qCtx, apiURL, jwt, q); err == nil && httpRes != nil {
+		if httpRes, err := urapi.FindLocations(qCtx, apiURL, jwt, q); err == nil && httpRes != nil {
 			res = httpRes
 		}
 		if res == nil || (len(res.Groups) == 0 && len(res.Locations) == 0) {
-			fbSpecs, fbRes := filterLocationsFallback(qCtx, apiURL, jwt, q)
+			hasSpecs, fbRes := urapi.LocationsFallback(qCtx, apiURL, jwt, q)
 			if fbRes != nil {
 				res = fbRes
 			}
-			if len(fbSpecs) == 0 && (res == nil || (len(res.Groups) == 0 && len(res.Locations) == 0)) {
+			if !hasSpecs && (res == nil || (len(res.Groups) == 0 && len(res.Locations) == 0)) {
 				fmt.Println("no results")
 				return nil
 			}

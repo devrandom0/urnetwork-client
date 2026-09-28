@@ -1,4 +1,4 @@
-package main
+package urapi
 
 import (
 	"context"
@@ -35,7 +35,7 @@ func buildProviderSpecs(ctx context.Context, apiURL, jwt string, loc config.Loca
 		if q := loc.LocationQuery; q != "" {
 			lookupCtx, cancel := context.WithTimeout(ctx, providerLookupTimeout)
 			defer cancel()
-			if httpRes, err := httpFindLocations(lookupCtx, apiURL, jwt, q); err == nil && httpRes != nil && len(httpRes.Specs) > 0 {
+			if httpRes, err := FindLocations(lookupCtx, apiURL, jwt, q); err == nil && httpRes != nil && len(httpRes.Specs) > 0 {
 				specs = httpRes.Specs
 				logx.Info("using %d specs from location query: %s\n", len(specs), q)
 			}
@@ -115,8 +115,8 @@ func findSpecsByQueryFallback(ctx context.Context, apiURL, jwt, q string) []*con
 
 // filterLocationsFallback fetches /network/provider-locations and returns a filtered result
 // plus convenience ProviderSpecs for the given query q.
-func filterLocationsFallback(ctx context.Context, apiURL, jwt, q string) ([]*connect.ProviderSpec, *findLocationsHTTPResult) {
-	res, err := httpProviderLocations(ctx, apiURL, jwt)
+func filterLocationsFallback(ctx context.Context, apiURL, jwt, q string) ([]*connect.ProviderSpec, *LocationsResult) {
+	res, err := ProviderLocations(ctx, apiURL, jwt)
 	if err != nil || res == nil {
 		return nil, nil
 	}
@@ -128,7 +128,7 @@ func filterLocationsFallback(ctx context.Context, apiURL, jwt, q string) ([]*con
 	key = strings.ToLower(strings.TrimSpace(key))
 	valNorm := strings.ToLower(strings.TrimSpace(val))
 
-	out := &findLocationsHTTPResult{}
+	out := &LocationsResult{}
 	if key == "group" || key == "name" {
 		for _, g := range res.Groups {
 			if matchValueFold(g.Name, valNorm) {

@@ -8,6 +8,7 @@ import (
 	"github.com/docopt/docopt-go"
 
 	"github.com/devrandom0/urnetwork-client/internal/config"
+	"github.com/devrandom0/urnetwork-client/internal/urapi"
 )
 
 func cmdSaveJWT(opts docopt.Opts) error {
@@ -27,7 +28,7 @@ func cmdVerify(ctx context.Context, opts docopt.Opts) error {
 	userAuth, _ := opts.String("--user_auth")
 	code, _ := opts.String("--code")
 
-	byJwt, err := verifyCode(ctx, apiURL, userAuth, code)
+	byJwt, err := urapi.VerifyCode(ctx, apiURL, userAuth, code)
 	if err != nil {
 		return fmt.Errorf("verify error: %w", err)
 	}
@@ -46,7 +47,7 @@ func cmdMintClient(ctx context.Context, opts docopt.Opts) error {
 		return err
 	}
 
-	clientJwt, err := mintClientJWT(ctx, apiURL, jwt)
+	clientJwt, err := urapi.MintClientJWT(ctx, apiURL, jwt)
 	if err != nil {
 		return err
 	}

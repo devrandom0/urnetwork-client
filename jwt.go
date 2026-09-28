@@ -1,15 +1,12 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	gojwt "github.com/golang-jwt/jwt/v5"
-	"github.com/urnetwork/connect"
 )
 
 func jwtPath() string {
@@ -51,15 +48,4 @@ func parseClientID(jwt string) string {
 		}
 	}
 	return ""
-}
-
-// validateClientJWT performs a lightweight authenticated API call to confirm the JWT is
-// accepted by the backend. Returns true if the call succeeds.
-func validateClientJWT(ctx context.Context, apiURL, clientJwt string) bool {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	api := newByAPI(ctx, apiURL, clientJwt)
-	specs := []*connect.ProviderSpec{{BestAvailable: true}}
-	_, err := api.FindProviders2Sync(&connect.FindProviders2Args{Specs: specs, Count: 1, RankMode: "quality"})
-	return err == nil
 }

@@ -1,4 +1,4 @@
-package main
+package urapi
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 
 func TestFilterLocationsFallback_CountryMatch(t *testing.T) {
 	// Build a fake response mimicking /provider-locations
-	res := &findLocationsHTTPResult{
+	res := &LocationsResult{
 		Groups: []struct {
 			LocationGroupID string `json:"location_group_id"`
 			Name            string `json:"name"`
@@ -33,7 +33,7 @@ func TestFilterLocationsFallback_CountryMatch(t *testing.T) {
 	}
 
 	// Inject a minimal strat and jwt; since we bypass HTTP by passing res directly to the fallback’s inner logic,
-	// we call findSpecsByQueryFallback by stubbing httpProviderLocations via a local wrapper.
+	// we call findSpecsByQueryFallback by stubbing ProviderLocations via a local wrapper.
 	// For a pure unit test, we directly test matchValueFold and parseKV sanity.
 	if k, v, ok := parseKV("country:Germany"); !ok || k != "country" || v != "Germany" {
 		t.Fatalf("parseKV failed")
