@@ -46,10 +46,13 @@ func applySecretEnvFallbacks(opts docopt.Opts, getenv func(string) string) {
 	}
 }
 
-// scrubSecretArgs drops the program name, --background and every secret flag from argv,
-// and returns env entries that carry the secret values instead. Matching requires the
-// value too, because docopt accepts unambiguous prefixes (--pass) and --socks is itself
-// a prefix of --socks_pass.
+// scrubSecretArgs drops the program name and --background from argv and redacts every
+// secret flag to an empty value, returning env entries that carry the real values
+// instead. A matched flag is redacted rather than removed outright because docopt usage
+// groups require it to appear alongside another flag (e.g. --user_auth needs --password);
+// dropping it entirely would fail docopt parsing in the re-exec'd child. Matching requires
+// the value too, because docopt accepts unambiguous prefixes (--pass) and --socks is
+// itself a prefix of --socks_pass.
 func scrubSecretArgs(argv []string, secrets []secretArg) (args, env []string) {
 	for _, s := range secrets {
 		if s.Value != "" {
@@ -62,22 +65,24 @@ func scrubSecretArgs(argv []string, secrets []secretArg) (args, env []string) {
 			continue
 		}
 		name, val, hasEq := strings.Cut(a, "=")
-		dropped := false
+		redacted := false
 		for _, s := range secrets {
 			if s.Value == "" || len(name) <= 2 || !strings.HasPrefix(name, "--") || !strings.HasPrefix(s.Flag, name) {
 				continue
 			}
 			if hasEq && val == s.Value {
-				dropped = true
+				redacted = true
 				break
 			}
 			if !hasEq && i+1 < len(argv) && argv[i+1] == s.Value {
 				i++
-				dropped = true
+				redacted = true
 				break
 			}
 		}
-		if !dropped {
+		if redacted {
+			args = append(args, name+"=")
+		} else {
 			args = append(args, a)
 		}
 	}
