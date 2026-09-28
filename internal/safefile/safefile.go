@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -47,9 +48,76 @@ type dir struct {
 
 func (d *dir) close() { _ = d.root.Close() }
 
-func symlinkedPathErr(cleaned, actual string, euid int) error {
-	if euid == 0 && actual != cleaned {
-		return fmt.Errorf("%s resolves through a symlink to %s; refusing to follow it as root", cleaned, actual)
+const maxSymlinkHops = 40
+
+// rootSymlinkErr resolves path one component at a time and refuses any symlink on the way that
+// someone other than root could have created or replaced. Root-owned system links such as
+// macOS /tmp and /var pass.
+func rootSymlinkErr(path string, lstat func(string) (fs.FileInfo, error), readlink func(string) (string, error)) error {
+	resolved := "/"
+	rest := splitPath(path)
+	for hops := 0; len(rest) > 0; {
+		comp := rest[0]
+		rest = rest[1:]
+		if comp == ".." {
+			resolved = filepath.Dir(resolved)
+			continue
+		}
+		next := filepath.Join(resolved, comp)
+		fi, err := lstat(next)
+		if err != nil {
+			return err
+		}
+		if fi.Mode()&fs.ModeSymlink == 0 {
+			resolved = next
+			continue
+		}
+		if hops++; hops > maxSymlinkHops {
+			return fmt.Errorf("%s: too many levels of symbolic links", path)
+		}
+		if err := trustedSymlinkErr(path, next, fi, resolved, lstat); err != nil {
+			return err
+		}
+		target, err := readlink(next)
+		if err != nil {
+			return err
+		}
+		if filepath.IsAbs(target) {
+			resolved = "/"
+		}
+		rest = append(splitPath(target), rest...)
+	}
+	return nil
+}
+
+func splitPath(p string) []string {
+	var parts []string
+	for _, s := range strings.Split(p, "/") {
+		if s != "" && s != "." {
+			parts = append(parts, s)
+		}
+	}
+	return parts
+}
+
+func trustedSymlinkErr(path, link string, fi fs.FileInfo, dir string, lstat func(string) (fs.FileInfo, error)) error {
+	uid, _, err := ownerOf(fi, link)
+	if err != nil {
+		return err
+	}
+	if uid != 0 {
+		return fmt.Errorf("%s goes through symlink %s owned by uid %d; refusing to follow it as root", path, link, uid)
+	}
+	dfi, err := lstat(dir)
+	if err != nil {
+		return err
+	}
+	duid, _, err := ownerOf(dfi, dir)
+	if err != nil {
+		return err
+	}
+	if duid != 0 || (dfi.Mode().Perm()&0o022 != 0 && dfi.Mode()&fs.ModeSticky == 0) {
+		return fmt.Errorf("%s goes through symlink %s in %s, which is not root-owned or is writable by group or others; refusing to follow it as root", path, link, dir)
 	}
 	return nil
 }
@@ -113,12 +181,14 @@ func openDir(path string) (*dir, error) {
 	if err != nil {
 		return nil, err
 	}
+	euid := geteuid()
+	if euid == 0 {
+		if err := rootSymlinkErr(cleaned, os.Lstat, os.Readlink); err != nil {
+			return nil, err
+		}
+	}
 	resolved, err := filepath.EvalSymlinks(cleaned)
 	if err != nil {
-		return nil, err
-	}
-	euid := geteuid()
-	if err := symlinkedPathErr(cleaned, resolved, euid); err != nil {
 		return nil, err
 	}
 	root, err := os.OpenRoot(resolved)
@@ -283,14 +353,29 @@ func checkOpened(f *os.File, path, name string, d *dir, created bool) error {
 	if err != nil {
 		return err
 	}
-	if int(uid) != geteuid() && uid != d.uid {
-		return fmt.Errorf("%s is owned by uid %d; refusing to append to it", path, uid)
+	if err := appendOwnerErr(path, uid, d.uid, geteuid(), parseSudoUID(os.Getenv("SUDO_UID"))); err != nil {
+		return err
 	}
 	if err := syscall.SetNonblock(int(f.Fd()), false); err != nil {
 		return err
 	}
 	if created {
 		return chownForRoot(f, d)
+	}
+	return nil
+}
+
+// appendOwnerErr keeps root from appending to a file another user planted for it; only root's
+// own files and the sudo user's are trusted.
+func appendOwnerErr(path string, fileUID, dirUID uint32, euid, sudoUID int) error {
+	var trusted bool
+	if euid == 0 {
+		trusted = fileUID == 0 || (sudoUID >= 0 && int(fileUID) == sudoUID)
+	} else {
+		trusted = int(fileUID) == euid || fileUID == dirUID
+	}
+	if !trusted {
+		return fmt.Errorf("%s is owned by uid %d; refusing to append to it", path, fileUID)
 	}
 	return nil
 }
@@ -306,9 +391,18 @@ func checkRegular(f *os.File, path string) (fs.FileInfo, error) {
 	return fi, nil
 }
 
-// ReadFile reads path, refusing symlinks, special files and files larger than limit bytes.
+// ReadFile reads path, refusing special files and files larger than limit bytes. As root it
+// also refuses a symlink at path; other users may point their config at a dotfile manager's link.
 func ReadFile(path string, limit int64) ([]byte, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	flags := os.O_RDONLY | syscall.O_NONBLOCK
+	root := geteuid() == 0
+	if root {
+		flags |= syscall.O_NOFOLLOW
+	}
+	f, err := os.OpenFile(path, flags, 0)
+	if root && errors.Is(err, syscall.ELOOP) {
+		return nil, fmt.Errorf("%s is a symlink; refusing to follow it as root", path)
+	}
 	if err != nil {
 		return nil, err
 	}
