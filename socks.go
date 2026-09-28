@@ -74,10 +74,14 @@ func StartSocks5(ctx context.Context, opts SocksOptions) (func() error, error) {
 		opts.UDPIdleTimeout = defaultSocksUDPIdleTimeout
 	}
 	srv := &socksServer{
-		opts:     opts,
-		resolver: newSocksResolver(opts.DNSServers),
-		slots:    make(chan struct{}, opts.MaxConns),
-		warns:    newLogRateLimiter(socksWarnInterval),
+		opts:  opts,
+		slots: make(chan struct{}, opts.MaxConns),
+		warns: newLogRateLimiter(socksWarnInterval),
+	}
+	srv.sysResolver = newSocksResolver(opts.DNSServers, nil)
+	srv.vpnResolver = srv.sysResolver
+	if opts.BindIf != "" {
+		srv.vpnResolver = newSocksResolver(opts.DNSServers, srv.bindControl)
 	}
 	ln, err := net.Listen("tcp", opts.ListenAddr)
 	if err != nil {
@@ -104,10 +108,11 @@ func socksExposedWithoutAuth(addr net.Addr, auth SocksAuth) bool {
 }
 
 type socksServer struct {
-	opts     SocksOptions
-	resolver *net.Resolver
-	slots    chan struct{} // one token per live client connection
-	warns    *logRateLimiter
+	opts        SocksOptions
+	vpnResolver *net.Resolver // DNS bound to BindIf, for names routed through the VPN
+	sysResolver *net.Resolver // DNS for names that bypass the VPN
+	slots       chan struct{} // one token per live client connection
+	warns       *logRateLimiter
 }
 
 // admit serves conn only while under MaxConns; over the cap it is closed before any
@@ -159,19 +164,28 @@ func acceptLoop(ctx context.Context, ln net.Listener, maxBackoff time.Duration, 
 	}
 }
 
-func newSocksResolver(dnsServers []string) *net.Resolver {
-	if len(dnsServers) == 0 {
+// newSocksResolver returns a resolver whose DNS sockets go through control. With
+// dnsServers set, the first entry replaces the system resolver's servers. Any control
+// error fails the lookup; there is deliberately no fallback to an unbound socket.
+func newSocksResolver(dnsServers []string, control func(network, address string, c syscall.RawConn) error) *net.Resolver {
+	if len(dnsServers) == 0 && control == nil {
 		return net.DefaultResolver
 	}
-	addr := dnsServers[0]
-	if _, _, err := net.SplitHostPort(addr); err != nil {
-		addr = net.JoinHostPort(addr, "53")
+	var fixed string
+	if len(dnsServers) > 0 {
+		fixed = dnsServers[0]
+		if _, _, err := net.SplitHostPort(fixed); err != nil {
+			fixed = net.JoinHostPort(fixed, "53")
+		}
 	}
 	return &net.Resolver{
 		PreferGo: true,
-		Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			d := net.Dialer{Timeout: 5 * time.Second}
-			return d.DialContext(ctx, "udp", addr)
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			if fixed != "" {
+				address = fixed
+			}
+			d := net.Dialer{Timeout: 5 * time.Second, Control: control}
+			return d.DialContext(ctx, network, address)
 		},
 	}
 }
@@ -289,16 +303,18 @@ func readSocksAddr(r io.Reader) (socksAddr, error) {
 
 func (s *socksServer) handleConnect(ctx context.Context, c net.Conn, dst socksAddr) {
 	var domain string
-	ip := net.ParseIP(dst.host)
 	if dst.atyp == socksATYPDomain {
 		domain = strings.ToLower(dst.host)
-		if ip = s.resolve(ctx, dst.host); ip == nil {
+	}
+	useVPN := s.routeViaVPN(domain)
+	ip := net.ParseIP(dst.host)
+	if domain != "" {
+		if ip = s.resolve(ctx, dst.host, useVPN); ip == nil {
 			_ = writeSocksReply(c, socksRepHostUnreachable, nil)
 			return
 		}
 	}
 	target := net.JoinHostPort(ip.String(), strconv.Itoa(dst.port))
-	useVPN := s.routeViaVPN(domain)
 	if s.opts.Debug {
 		fmt.Printf("[socks] CONNECT %s (ip=%s) bindIf=%s useVPN=%v\n", dst, ip, s.opts.BindIf, useVPN)
 	}
@@ -358,8 +374,12 @@ func (s *socksServer) bindControl(network, _ string, rc syscall.RawConn) error {
 }
 
 // resolve prefers IPv4 because the tunnel drops IPv6 unless --enable_ipv6 is set.
-func (s *socksServer) resolve(ctx context.Context, host string) net.IP {
-	addrs, _ := s.resolver.LookupIP(ctx, "ip", host)
+func (s *socksServer) resolve(ctx context.Context, host string, viaVPN bool) net.IP {
+	r := s.sysResolver
+	if viaVPN {
+		r = s.vpnResolver
+	}
+	addrs, _ := r.LookupIP(ctx, "ip", host)
 	var pick net.IP
 	for _, ip := range addrs {
 		if ip.To4() != nil {
@@ -621,15 +641,18 @@ func (s *socksServer) relayFromClient(ctx context.Context, pcClient, pcVPN, pcSy
 		}
 		payload := buf[n-r.Len() : n]
 		var domain string
-		ip := net.ParseIP(dst.host)
 		if dst.atyp == socksATYPDomain {
 			domain = strings.ToLower(dst.host)
-			if ip = s.resolve(ctx, dst.host); ip == nil {
+		}
+		useVPN := s.opts.BindIf != "" && s.routeViaVPN(domain)
+		ip := net.ParseIP(dst.host)
+		if domain != "" {
+			if ip = s.resolve(ctx, dst.host, useVPN); ip == nil {
 				continue
 			}
 		}
 		pc := pcSys
-		if s.opts.BindIf != "" && s.routeViaVPN(domain) {
+		if useVPN {
 			pc = pcVPN
 		}
 		if s.opts.Debug {
