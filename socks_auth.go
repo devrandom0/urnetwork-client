@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // SocksAuth holds RFC 1929 credentials. The zero value disables authentication.
@@ -84,4 +85,22 @@ func socksUserPassAuth(rw io.ReadWriter, want SocksAuth) error {
 	}
 	_, err := rw.Write([]byte{socksUserPassVersion, socksUserPassOK})
 	return err
+}
+
+const (
+	envSocksUser = "URNETWORK_SOCKS_USER"
+	envSocksPass = "URNETWORK_SOCKS_PASS"
+)
+
+// resolveSocksAuth prefers flags and falls back to the environment so the password can
+// stay off the command line, where every local user can read it.
+func resolveSocksAuth(flagUser, flagPass string, getenv func(string) string) SocksAuth {
+	a := SocksAuth{User: strings.TrimSpace(flagUser), Pass: flagPass}
+	if a.User == "" {
+		a.User = strings.TrimSpace(getenv(envSocksUser))
+	}
+	if a.Pass == "" {
+		a.Pass = getenv(envSocksPass)
+	}
+	return a
 }

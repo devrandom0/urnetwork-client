@@ -20,6 +20,7 @@ func cmdSocks(ctx context.Context, opts docopt.Opts) error {
 
 	stopSocks, err := StartSocks5(ctx, SocksOptions{
 		ListenAddr:     cfg.ListenAddr,
+		Auth:           cfg.Auth,
 		Debug:          cfg.Debug,
 		AllowDomains:   cfg.AllowDomains,
 		ExcludeDomains: cfg.ExcludeDomains,

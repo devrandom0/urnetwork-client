@@ -31,6 +31,7 @@ type VPNConfig struct {
 	DNSService          string
 	DNSBootstrap        string
 	SOCKSListen         string
+	SOCKSAuth           SocksAuth
 	AllowDomains        []string
 	ExcludeDomains      []string
 	AllowInboundSrcList string
@@ -50,6 +51,7 @@ type SOCKSConfig struct {
 	ExtenderPort   string
 	ExtenderSNI    string
 	ExtenderSecret string
+	Auth           SocksAuth
 	AllowDomains   []string
 	ExcludeDomains []string
 	Debug          bool
@@ -86,6 +88,7 @@ func parseVPNConfig(opts docopt.Opts, jwt string) VPNConfig {
 		DNSService:          strings.TrimSpace(getStringOr(opts, "--dns_service", "")),
 		DNSBootstrap:        strings.TrimSpace(getStringOr(opts, "--dns_bootstrap", "bypass")),
 		SOCKSListen:         socksListen,
+		SOCKSAuth:           resolveSocksAuth(getStringOr(opts, "--socks_user", ""), getStringOr(opts, "--socks_pass", ""), os.Getenv),
 		AllowDomains:        splitCSV(getStringOr(opts, "--domain", "")),
 		ExcludeDomains:      splitCSV(getStringOr(opts, "--exclude_domain", "")),
 		AllowInboundSrcList: strings.TrimSpace(getStringOr(opts, "--allow_inbound_src", "")),
@@ -113,6 +116,7 @@ func parseSOCKSConfig(opts docopt.Opts) SOCKSConfig {
 		ExtenderPort:   strings.TrimSpace(extPort),
 		ExtenderSNI:    strings.TrimSpace(extSNI),
 		ExtenderSecret: strings.TrimSpace(extSec),
+		Auth:           resolveSocksAuth(getStringOr(opts, "--socks_user", ""), getStringOr(opts, "--socks_pass", ""), os.Getenv),
 		AllowDomains:   splitCSV(getStringOr(opts, "--domain", "")),
 		ExcludeDomains: splitCSV(getStringOr(opts, "--exclude_domain", "")),
 		Debug:          dbg,

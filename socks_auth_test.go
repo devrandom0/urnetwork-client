@@ -6,6 +6,8 @@ import (
 	"net"
 	"strings"
 	"testing"
+
+	"github.com/docopt/docopt-go"
 )
 
 func TestSelectSocksMethod(t *testing.T) {
@@ -118,5 +120,44 @@ func TestStartSocks5_RejectsHalfConfiguredAuth(t *testing.T) {
 	_, err := StartSocks5(context.Background(), SocksOptions{ListenAddr: "127.0.0.1:0", Auth: SocksAuth{User: "alice"}})
 	if err == nil {
 		t.Fatal("want error for a username without a password")
+	}
+}
+
+func TestResolveSocksAuth(t *testing.T) {
+	env := map[string]string{envSocksUser: "envuser", envSocksPass: "envpass"}
+	withEnv := func(k string) string { return env[k] }
+	noEnv := func(string) string { return "" }
+	cases := []struct {
+		name, flagUser, flagPass string
+		getenv                   func(string) string
+		want                     SocksAuth
+	}{
+		{"flags win", "cli", "clipass", withEnv, SocksAuth{User: "cli", Pass: "clipass"}},
+		{"env fallback", "", "", withEnv, SocksAuth{User: "envuser", Pass: "envpass"}},
+		{"mixed", "cli", "", withEnv, SocksAuth{User: "cli", Pass: "envpass"}},
+		{"nothing set", "", "", noEnv, SocksAuth{}},
+		{"password keeps spaces", "u", " p w ", noEnv, SocksAuth{User: "u", Pass: " p w "}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveSocksAuth(tc.flagUser, tc.flagPass, tc.getenv); got != tc.want {
+				t.Fatalf("got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseConfigs_SocksAuthFromFlagsAndEnv(t *testing.T) {
+	t.Setenv(envSocksUser, "")
+	t.Setenv(envSocksPass, "from-env")
+	opts := docopt.Opts{"--socks_user": "alice"}
+	if got := parseVPNConfig(opts, "").SOCKSAuth; got != (SocksAuth{User: "alice", Pass: "from-env"}) {
+		t.Fatalf("vpn SOCKSAuth = %+v", got)
+	}
+	if got := parseSOCKSConfig(opts).Auth; got != (SocksAuth{User: "alice", Pass: "from-env"}) {
+		t.Fatalf("socks Auth = %+v", got)
+	}
+	if got := socksOptionsFromVPN(VPNConfig{SOCKSAuth: SocksAuth{User: "a", Pass: "b"}}, "").Auth; got.User != "a" {
+		t.Fatalf("socksOptionsFromVPN dropped auth: %+v", got)
 	}
 }
