@@ -96,6 +96,15 @@ Detailed documentation is in [docs/README.md](docs/README.md):
 - [Docker Guide](docs/docker.md)
 - [Platform Notes](docs/platform-notes.md)
 
+## Development
+
+`make test`, `make test-race` and `make lint` already pass `-tags safefiletest`, which builds the
+`internal/safefile` test seam (`SetEUIDForTesting`) that `internal/auth` and `internal/config`
+tests use to exercise root-only behavior; it is excluded from `go build` so release binaries never
+carry it. Running `go test`/`go vet` directly, or the phase1 gate scripts outside this repo, needs
+the same flag (or `GOFLAGS=-tags=safefiletest` in the environment) to exercise those tests; without
+it they are skipped, not failed.
+
 ## Security note
 
 Prefer environment variables over secret flags: `URNETWORK_PASSWORD` instead of `--password`, `URNETWORK_JWT` instead of `--jwt`, `URNETWORK_SOCKS_PASS` instead of `--socks_pass`. Command-line arguments appear in shell history and in `ps` for every local user. With `--background`, these three flags stay on the child's command line only as empty placeholders (`--password=`), and their values are handed over through its environment. Once read, the variables are removed from the process environment so the `route`, `ip`, `ifconfig` and `networksetup` commands it runs do not inherit them.

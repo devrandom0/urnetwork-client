@@ -136,7 +136,7 @@ jobs:
         with:
           version: v2.14.0
       - name: Test
-        run: go test -race -count=1 ./...
+        run: go test -tags safefiletest -race -count=1 ./...
 
   get-jwt:
     runs-on: ubuntu-latest
