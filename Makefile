@@ -12,6 +12,7 @@ IMAGE ?= $(IMAGE_BASENAME):local
 # Try to derive a version; fallback to dev
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X 'main.Version=$(VERSION)'
+PKG := ./cmd/urnet-client
 
 .PHONY: help
 help:
@@ -21,6 +22,7 @@ help:
 	@echo "  test-race             Run Go tests with -race"
 	@echo "  version-check         Verify -ldflags -X main.Version reaches the binary"
 	@echo "  lint                  Run formatting and vet checks"
+	@echo "  arch-check            Verify only internal/urapi imports github.com/urnetwork/connect"
 	@echo "  ci-docker-build       Build Docker image (amd64) for CI validation (no push)"
 	@echo "  test-integration      Run integration tests (requires URNETWORK_TEST_INTEGRATION=1 and JWT)"
 	@echo "  build-linux-amd64     Build Linux/amd64 -> $(DIST)/linux_amd64/$(BINARY)"
@@ -45,12 +47,12 @@ $(DIST):
 
 .PHONY: build
 build: $(DIST)
-	GOFLAGS=-trimpath go build -ldflags "$(LDFLAGS)" -o $(DIST)/$(BINARY) ./
+	GOFLAGS=-trimpath go build -ldflags "$(LDFLAGS)" -o $(DIST)/$(BINARY) $(PKG)
 
 .PHONY: version-check
 version-check:
 	@tmp=$$(mktemp -d); \
-	go build -ldflags "-X main.Version=9.9.9" -o $$tmp/$(BINARY) . || { rm -rf $$tmp; exit 1; }; \
+	go build -ldflags "-X main.Version=9.9.9" -o $$tmp/$(BINARY) $(PKG) || { rm -rf $$tmp; exit 1; }; \
 	out=$$($$tmp/$(BINARY) --version); rm -rf $$tmp; \
 	if [ "$$out" != "9.9.9" ]; then echo "version-check: got '$$out', want 9.9.9"; exit 1; fi; \
 	echo "version-check: ok"
@@ -74,6 +76,16 @@ lint:
 	GOOS=linux go vet ./...
 	GOOS=darwin go vet ./...
 	golangci-lint run ./...
+	$(MAKE) arch-check
+
+.PHONY: arch-check
+arch-check:
+	@for os in darwin linux; do \
+	  bad=$$(CGO_ENABLED=0 GOOS=$$os go list -f '{{.ImportPath}}: {{join .Imports " "}} {{join .TestImports " "}} {{join .XTestImports " "}}' ./... \
+	    | grep 'github.com/urnetwork/connect' | grep -v '^github.com/devrandom0/urnetwork-client/internal/urapi:'); \
+	  if [ -n "$$bad" ]; then echo "arch-check ($$os): only internal/urapi may import github.com/urnetwork/connect:"; echo "$$bad"; exit 1; fi; \
+	done; \
+	echo "arch-check: ok"
 
 .PHONY: hooks-install
 hooks-install:
@@ -82,31 +94,31 @@ hooks-install:
 .PHONY: test-integration
 test-integration:
 	# Run integration tests by name; they will self-skip without env/JWT
-	URNETWORK_TEST_INTEGRATION=1 go test -v -run '^TestIntegration_' ./
+	URNETWORK_TEST_INTEGRATION=1 go test -v -run '^TestIntegration_' ./internal/urapi/
 
 .PHONY: build-linux-amd64
 build-linux-amd64:
 	@mkdir -p $(DIST)/linux_amd64
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
-		go build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/linux_amd64/$(BINARY) .
+		go build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/linux_amd64/$(BINARY) $(PKG)
 
 .PHONY: build-linux-arm64
 build-linux-arm64:
 	@mkdir -p $(DIST)/linux_arm64
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
-		go build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/linux_arm64/$(BINARY) .
+		go build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/linux_arm64/$(BINARY) $(PKG)
 
 .PHONY: build-darwin-amd64
 build-darwin-amd64:
 	@mkdir -p $(DIST)/darwin_amd64
 	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 \
-		go build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/darwin_amd64/$(BINARY) .
+		go build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/darwin_amd64/$(BINARY) $(PKG)
 
 .PHONY: build-darwin-arm64
 build-darwin-arm64:
 	@mkdir -p $(DIST)/darwin_arm64
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
-		go build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/darwin_arm64/$(BINARY) .
+		go build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/darwin_arm64/$(BINARY) $(PKG)
 
 .PHONY: build-all
 build-all: build-linux-amd64 build-linux-arm64 build-darwin-amd64 build-darwin-arm64

@@ -3,7 +3,7 @@
 ## 1) Build
 
 ```bash
-go build -o dist/urnet-client ./
+go build -o dist/urnet-client ./cmd/urnet-client
 ```
 
 ## 2) Login
