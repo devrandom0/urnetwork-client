@@ -153,3 +153,22 @@ func TestResolveVPNConfig_AppliesFileLogLevel(t *testing.T) {
 		t.Fatal("--log_level must beat the file")
 	}
 }
+
+func TestResolveVPNConfig_RejectsHalfConfiguredSocksAuth(t *testing.T) {
+	t.Cleanup(func() { setLogLevel("info", false) })
+	t.Setenv("URNETWORK_SOCKS_USER", "")
+	t.Setenv("URNETWORK_SOCKS_PASS", "")
+	opts := vpnTestOpts(map[string]interface{}{"--tun": "urnet0", "--socks": "127.0.0.1:1080", "--socks_user": "alice"})
+	if _, err := resolveVPNConfig(opts); err == nil {
+		t.Fatal("resolveVPNConfig accepted --socks_user without a password; the proxy would start unauthenticated or not at all")
+	}
+}
+
+func TestResolveVPNConfig_IgnoresSocksAuthWithoutSocks(t *testing.T) {
+	t.Cleanup(func() { setLogLevel("info", false) })
+	t.Setenv("URNETWORK_SOCKS_USER", "alice")
+	t.Setenv("URNETWORK_SOCKS_PASS", "")
+	if _, err := resolveVPNConfig(vpnTestOpts(map[string]interface{}{"--tun": "urnet0"})); err != nil {
+		t.Fatalf("resolveVPNConfig = %v; SOCKS auth only matters when --socks is set", err)
+	}
+}
