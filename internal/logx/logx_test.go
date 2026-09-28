@@ -1,6 +1,10 @@
 package logx
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestSetLogLevel(t *testing.T) {
 	SetLogLevel("info", false)
@@ -27,5 +31,24 @@ func TestSetLogLevel(t *testing.T) {
 	SetLogLevel("", true)
 	if !IsDebugEnabled() {
 		t.Fatalf("debug flag should imply debug level when no level is set")
+	}
+}
+
+func TestSetupLogFile_RefusesSymlink(t *testing.T) {
+	origOut, origErr := os.Stdout, os.Stderr
+	t.Cleanup(func() { os.Stdout, os.Stderr = origOut, origErr })
+	victim := filepath.Join(t.TempDir(), "victim")
+	if err := os.WriteFile(victim, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "urnet.log")
+	if err := os.Symlink(victim, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetupLogFile(link); err == nil {
+		t.Fatal("SetupLogFile opened a symlinked log path")
+	}
+	if os.Stdout != origOut {
+		t.Fatal("stdout redirected despite the error")
 	}
 }

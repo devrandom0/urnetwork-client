@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/devrandom0/urnetwork-client/internal/safefile"
 )
 
 type LogLevel int32
@@ -96,7 +98,7 @@ func SetupLogFile(path string) error {
 			return err
 		}
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	f, err := safefile.OpenAppend(path)
 	if err != nil {
 		return err
 	}
