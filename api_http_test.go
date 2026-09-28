@@ -97,3 +97,35 @@ func TestHttpFindLocations_DecodesSmallBody(t *testing.T) {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 }
+
+func redirectingServer(t *testing.T, location string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/final" {
+			_ = json.NewEncoder(w).Encode(findLocationsHTTPResult{})
+			return
+		}
+		http.Redirect(w, r, location, http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestDefaultHTTPClient_RejectsCleartextRedirect(t *testing.T) {
+	srv := redirectingServer(t, "http://api.example.com/network/provider-locations")
+	_, err := httpProviderLocations(context.Background(), srv.URL, "token")
+	if err == nil || !strings.Contains(err.Error(), "redirect") {
+		t.Fatalf("err = %v; want a refused redirect to a cleartext non-loopback URL", err)
+	}
+}
+
+func TestDefaultHTTPClient_AllowsLoopbackAndHTTPSRedirects(t *testing.T) {
+	srv := redirectingServer(t, "/final")
+	if _, err := httpProviderLocations(context.Background(), srv.URL, "token"); err != nil {
+		t.Fatalf("loopback redirect refused: %v", err)
+	}
+	req, _ := http.NewRequest(http.MethodGet, "https://api.example.com/x", nil)
+	if err := checkAPIRedirect(req, nil); err != nil {
+		t.Fatalf("https redirect refused: %v", err)
+	}
+}
