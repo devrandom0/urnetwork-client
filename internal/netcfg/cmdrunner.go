@@ -28,27 +28,46 @@ type execRunner struct{}
 // tool cannot stall startup or the cleanup that restores DNS.
 var commandTimeout = 5 * time.Second
 
+// boundCmd is a command killed at commandTimeout.
+type boundCmd struct {
+	*exec.Cmd
+	ctx     context.Context
+	cancel  context.CancelFunc
+	name    string
+	timeout time.Duration
+}
+
 // command also bounds the wait for pipes a tool's own children might keep open.
-func command(name string, args ...string) (*exec.Cmd, context.CancelFunc, error) {
+func command(name string, args ...string) (*boundCmd, error) {
 	path, err := tools.resolve(name)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.WaitDelay = time.Second
-	return cmd, cancel, nil
+	return &boundCmd{Cmd: cmd, ctx: ctx, cancel: cancel, name: name, timeout: commandTimeout}, nil
+}
+
+// explain turns the bare "signal: killed" of a command stopped at its deadline into an
+// error that says which tool hung and for how long.
+func (c *boundCmd) explain(err error) error {
+	if err != nil && errors.Is(c.ctx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("%s timed out after %s: %w", c.name, c.timeout, err)
+	}
+	return err
 }
 
 // Run captures the tool's output instead of sharing the process's stdout and stderr: a
 // terminal or pipe that stops reading would block the tool, and with it the caller.
 func (execRunner) Run(name string, args ...string) error {
-	cmd, cancel, err := command(name, args...)
+	cmd, err := command(name, args...)
 	if err != nil {
 		return err
 	}
-	defer cancel()
+	defer cmd.cancel()
 	out, err := cmd.CombinedOutput()
+	err = cmd.explain(err)
 	text := strings.TrimSpace(string(out))
 	if err != nil && text != "" {
 		return fmt.Errorf("%w: %s", err, text)
@@ -60,32 +79,32 @@ func (execRunner) Run(name string, args ...string) error {
 }
 
 func (execRunner) Capture(name string, args ...string) (string, error) {
-	cmd, cancel, err := command(name, args...)
+	cmd, err := command(name, args...)
 	if err != nil {
 		return "", err
 	}
-	defer cancel()
+	defer cmd.cancel()
 	out, err := cmd.CombinedOutput()
-	return string(out), err
+	return string(out), cmd.explain(err)
 }
 
 func (execRunner) RunInput(stdin, name string, args ...string) (string, error) {
-	cmd, cancel, err := command(name, args...)
+	cmd, err := command(name, args...)
 	if err != nil {
 		return "", err
 	}
-	defer cancel()
+	defer cmd.cancel()
 	cmd.Stdin = strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()
-	return string(out), err
+	return string(out), cmd.explain(err)
 }
 
 func (execRunner) CaptureStdout(name string, args ...string) (string, error) {
-	cmd, cancel, err := command(name, args...)
+	cmd, err := command(name, args...)
 	if err != nil {
 		return "", err
 	}
-	defer cancel()
+	defer cmd.cancel()
 	out, err := cmd.Output()
 	// Output() doesn't parse stdout, but on failure its ExitError carries no stderr text at
 	// all by default; fold it into the error so a route/ip/ifconfig failure stays diagnosable.
@@ -95,7 +114,7 @@ func (execRunner) CaptureStdout(name string, args ...string) (string, error) {
 			err = fmt.Errorf("%w: %s", err, stderr)
 		}
 	}
-	return string(out), err
+	return string(out), cmd.explain(err)
 }
 
 var cmdRunner commandRunner = execRunner{}

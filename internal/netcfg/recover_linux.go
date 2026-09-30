@@ -5,6 +5,8 @@ package netcfg
 import (
 	"fmt"
 	"strings"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 // Recover undoes what a run that died without cleanup left behind: resolv.conf or the
@@ -55,8 +57,9 @@ func removeOrphanSplitRoutes() ([]string, error) {
 	return actions, nil
 }
 
-// exactRoutes returns the fields of each `ip route show exact` line. A failed lookup, such
-// as with IPv6 off in the kernel, yields none: there is nothing to remove.
+// exactRoutes returns the fields of each `ip route show exact` line. A failed lookup yields
+// none, with a warning, so "nothing to recover" is not trusted; with IPv6 off in the kernel
+// the warning is expected and there is indeed nothing to remove.
 func exactRoutes(family, dst string) [][]string {
 	args := []string{"route", "show", "exact", dst}
 	if family == "-6" {
@@ -64,6 +67,7 @@ func exactRoutes(family, dst string) [][]string {
 	}
 	out, err := runCaptureStdout("ip", args...)
 	if err != nil {
+		logx.Warn("recover: could not list routes with `ip %s`: %v; leftover routes, if any, were not checked\n", strings.Join(args, " "), err)
 		return nil
 	}
 	var rows [][]string

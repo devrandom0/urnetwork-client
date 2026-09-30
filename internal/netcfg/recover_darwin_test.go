@@ -237,3 +237,20 @@ func TestScutilDNS_FailedRollbackPointsAtRecover(t *testing.T) {
 		t.Fatalf("Apply = %v; the entry stayed published, so the error must name the recover command", err)
 	}
 }
+
+// A route listing that failed must not read as a clean host: the user would be told there
+// is nothing to recover while the reject routes may still be there.
+func TestRecover_WarnsWhenItCannotListRoutes(t *testing.T) {
+	f := recoverFake(t, "  No such key\n")
+	f.failOn("netstat -rn -f inet6", "")
+
+	var actions []string
+	var err error
+	logs := captureStderr(t, func() { actions, err = Recover(RecoverOptions{}) })
+	if err != nil || len(actions) != 0 {
+		t.Fatalf("Recover = %q, %v", actions, err)
+	}
+	if !strings.Contains(logs, "WARN") || !strings.Contains(logs, "netstat -rn -f inet6") || !strings.Contains(logs, "exit status 2") {
+		t.Fatalf("logs = %q; want a WARN naming the failed netstat and its error", logs)
+	}
+}

@@ -208,3 +208,23 @@ func TestResolvedDNS_RestoreFailurePointsAtRecover(t *testing.T) {
 		t.Fatalf("Restore = %v; want the recover command named", err)
 	}
 }
+
+// A route listing that failed must not read as a clean host: the user would be told there
+// is nothing to recover while the reject routes may still be there.
+func TestRecover_WarnsWhenItCannotListRoutesOnLinux(t *testing.T) {
+	f := linuxRecoverFake(t)
+	if err := os.WriteFile(resolvConfPath, []byte("nameserver 192.168.1.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.failOn("ip -6 route show exact ::/1", "")
+
+	var actions []string
+	var err error
+	logs := captureStderr(t, func() { actions, err = Recover(RecoverOptions{}) })
+	if err != nil || len(actions) != 0 {
+		t.Fatalf("Recover = %q, %v", actions, err)
+	}
+	if !strings.Contains(logs, "WARN") || !strings.Contains(logs, "ip -6 route show exact ::/1") || !strings.Contains(logs, "exit status 2") {
+		t.Fatalf("logs = %q; want a WARN naming the failed ip command and its error", logs)
+	}
+}

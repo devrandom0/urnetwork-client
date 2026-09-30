@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 // Recover undoes what a run that died without cleanup left behind: the scutil DNS entry
@@ -56,10 +58,11 @@ func removeOrphanSplitRoutes() ([]string, error) {
 type netstatRoute struct{ dest, flags, netif string }
 
 // netstatRoutes lists the `netstat -rn` rows of one family whose destination is in dests.
-// A failed netstat yields no rows: there is nothing it could show us to remove.
+// A failed netstat yields no rows, with a warning, so "nothing to recover" is not trusted.
 func netstatRoutes(family string, dests ...string) []netstatRoute {
 	out, err := runCaptureStdout("netstat", "-rn", "-f", family)
 	if err != nil {
+		logx.Warn("recover: could not list routes with `netstat -rn -f %s`: %v; leftover routes, if any, were not checked\n", family, err)
 		return nil
 	}
 	var rows []netstatRoute

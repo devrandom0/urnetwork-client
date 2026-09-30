@@ -164,7 +164,17 @@ func TestExecRunner_HungCommandTimesOut(t *testing.T) {
 			if err == nil || time.Since(start) > 3*time.Second {
 				t.Fatalf("%s = %v after %v; a hung tool must be killed at the timeout", name, err, time.Since(start))
 			}
+			if !strings.Contains(err.Error(), "sleep timed out after 100ms") {
+				t.Fatalf("%s = %q; want it to name the tool and say it timed out, not a bare kill signal", name, err)
+			}
 		})
+	}
+}
+
+func TestExecRunner_FailureWithinTheTimeoutIsNotCalledATimeout(t *testing.T) {
+	err := execRunner{}.Run("sh", "-c", "exit 3")
+	if err == nil || strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("Run = %v; want a plain exit error", err)
 	}
 }
 
