@@ -16,6 +16,7 @@
 - `--exclude_route` uses original default path when known.
 - Some environments may need policy routing for strict interface binding.
 - With `--default_route`, DNS goes to the client's stub through systemd-resolved when `/etc/resolv.conf` is its stub file, otherwise by rewriting `/etc/resolv.conf` (backup in `/etc/resolv.conf.urnet-client.bak`).
+- With systemd-resolved, names under other links' search or routing domains (such as a DHCP search domain) and single-label LLMNR/mDNS names still resolve outside the tunnel; startup logs a WARN naming those domains.
 
 ## Windows
 
@@ -79,9 +80,21 @@ sudo ./urnet-client vpn \
 
 ## Crash recovery
 
-If the client is killed (for example `kill -9` or a power cut) it cannot undo its changes. DNS then fails instead of leaking, and IPv6 stays blocked. The next start of the client cleans DNS up by itself. To restore by hand:
+If the client is killed (for example `kill -9` or a power cut) it cannot undo its changes. The next start of the client cleans DNS up by itself. Until then:
 
-On macOS this fails safe for IPv6 but not for DNS: if the client crashes while its `scutil` entry is still published and the stub is no longer answering, macOS falls back to querying the primary LAN resolver until the entry is removed, which leaks DNS until the next start (or the manual removal below). Closing this fully needs a packet-filter firewall kill switch (deferred).
+- Without `--kill_switch` the split routes vanish with the TUN, so all traffic, not only DNS, leaves through your normal connection.
+- macOS: while the `scutil` entry is published and the stub is gone, macOS falls back to the primary LAN resolver, so lookups leak until the next start or the manual removal below.
+- Linux with `/etc/resolv.conf` rewritten: it keeps pointing at the stub address. Without a kill switch that address now follows the default route out the LAN gateway, so the names leave the host even though nothing answers them. With the kill switch they hit the blackhole.
+- Linux with systemd-resolved: the link settings vanish with the TUN and resolved falls back to the LAN servers, as on macOS. The kill switch does not stop this when the LAN resolver is on-link.
+- The IPv6 reject routes stay, so IPv6 remains blocked, until a later `--default_route` run takes them over and removes them on exit, or until you delete them with the commands below. A run without `--default_route` leaves them alone.
+
+Closing the DNS fallback fully needs a packet-filter firewall kill switch (deferred). Until then these resolver paths are not covered either:
+
+- Docker containers on bridge networks of a systemd-resolved host, which get the host's upstream servers copied into their own `resolv.conf` instead of `127.0.0.53`.
+- Apps with hardcoded LAN resolvers, and on macOS sockets scoped to an interface (`IP_BOUND_IF`, scoped `scutil` resolvers), which skip the stub and the split routes.
+- IPv6 resolvers on the local link (for example announced by router advertisements), since connected and link-local prefixes are not rejected.
+
+To restore by hand:
 
 macOS:
 
@@ -99,7 +112,7 @@ sudo ip -6 route del unreachable ::/1
 sudo ip -6 route del unreachable 8000::/1
 ```
 
-With systemd-resolved nothing is needed for DNS: the settings disappear with the TUN interface. With `--enable_ipv6` the IPv6 routes also disappear with the TUN.
+With systemd-resolved nothing is needed for DNS: the settings disappear with the TUN interface, and the next start removes `/run/urnet-client-dns.owner` (or `sudo rm` it). With `--enable_ipv6` the IPv6 routes also disappear with the TUN.
 
 ## Privileged tools
 

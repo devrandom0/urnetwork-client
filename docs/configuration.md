@@ -60,13 +60,16 @@ With `--default_route`, DNS and IPv6 follow the tunnel. Without `--default_route
   - macOS: a `scutil` dynamic-store entry, `State:/Network/Service/urnet-client`. Saved network settings are not changed and the entry is gone after a reboot. At startup the client checks that `scutil --dns` lists the stub first, and refuses to start otherwise.
   - Linux with systemd-resolved (`/etc/resolv.conf` is resolved's `stub-resolv.conf`): `resolvectl dns`, `resolvectl domain <tun> '~.'` and `resolvectl default-route <tun> true` on the TUN link, reverted on exit.
   - Other Linux, including containers: `/etc/resolv.conf` is copied to `/etc/resolv.conf.urnet-client.bak`, replaced with `nameserver <stub>`, and restored on exit. If `/etc/resolv.conf` is a symlink managed by another tool (NetworkManager, resolvconf, resolved without its stub file), the client refuses to start.
+- The process that points system DNS at its stub records its pid: the `UrnetPID` key in the `scutil` entry, a `# urnet-client pid=<pid>` line in `/etc/resolv.conf`, or `/run/urnet-client-dns.owner` with systemd-resolved. While that process is alive, a second `--default_route` run refuses to start with "another urnet-client (pid N) owns system DNS". Leftovers of a process that is gone are cleaned up at the next start, in every mode.
+- With systemd-resolved, `~.` only catches names no other link claims. Search and routing domains on other links (for example a DHCP search domain such as `lan`) still go to that link's DNS servers outside the tunnel, and so do single-label names resolved over LLMNR or mDNS. Startup logs a WARN naming the links and domains `resolvectl domain` reports.
 - The stub forwards to `--dns`, or to `1.1.1.1` and `9.9.9.9` when `--dns` is not set. UDP queries go upstream over UDP, TCP queries over TCP, so truncated answers still work. It does not cache.
 - `--dns_bootstrap` picks the path of the stub's upstream queries:
   - `none` (default): upstream sockets are bound to the TUN. If binding fails, the query fails; nothing goes out your normal connection.
   - `cache`: outside the tunnel through host routes until the tunnel carries traffic both ways or 3 seconds pass, then bound to the TUN.
-  - `bypass`: outside the tunnel for the whole session. Your network sees every lookup; startup logs a WARN.
+  - `bypass`: outside the tunnel for the whole session. The host routes carry all traffic to the upstream IPs, not only port 53, so DNS over HTTPS to them leaves outside the tunnel too. Your network sees every lookup; startup logs a WARN.
 - The API and connect hostnames are answered by the stub with the addresses resolved at startup, which are routed around the tunnel. Reconnecting never depends on the tunnel it is rebuilding.
-- The stub only answers queries from this machine.
+- If no upstream answers within 1 second in total, the stub answers SERVFAIL, so macOS keeps asking the stub instead of falling back to the LAN resolver while the tunnel is down.
+- The stub only answers queries from this machine. Queries from other hosts are dropped without a reply, their TCP connections are closed at once, and at most 64 TCP connections are open at a time.
 - With `--socks` and `--default_route`, SOCKS hostname lookups go to the stub too. SOCKS-only mode (no `--tun`) keeps its own resolver.
 - `--dns_service` is ignored; setting it logs a WARN.
 - Browsers with DNS over HTTPS resolve names themselves. That traffic goes through the tunnel like any other HTTPS, but the stub cannot filter it.
@@ -74,14 +77,15 @@ With `--default_route`, DNS and IPv6 follow the tunnel. Without `--default_route
 ### IPv6
 
 - IPv6 is off by default. In every TUN mode the TUN gets no IPv6 address and IPv6 packets are never sent into the tunnel.
-- With `--default_route`, reject routes for `::/1` and `8000::/1` make IPv6 connections fail at once with "no route to host", so apps use IPv4 right away. Link-local and connected LAN IPv6 prefixes keep working. AAAA queries get an empty answer, and SOCKS resolves A records only.
-- If the Linux kernel has IPv6 disabled (common in containers), there is nothing to block and no reject routes are installed.
+- With `--default_route`, reject routes for `::/1` and `8000::/1` make IPv6 connections fail at once with "no route to host", so apps use IPv4 right away. Link-local and connected LAN IPv6 prefixes keep working. AAAA queries get an empty answer, AAAA records and the `ipv6hint` of HTTPS and SVCB records are removed from other answers, and SOCKS resolves A records only.
+- The reject routes are always attempted. If the Linux kernel refuses them because IPv6 is disabled (common in containers), there is nothing to block and startup goes on.
+- An existing `::/1` or `8000::/1` route from another tool is replaced, and startup logs a WARN naming it. More specific IPv6 routes that already exist, for example a `/64` from another VPN, still win over the `/1` reject routes.
 - `--enable_ipv6` (or `enable_ipv6: true`) gives the TUN `fd00::2/120`, routes `::/1` and `8000::/1` into the TUN and passes AAAA answers.
 - `--kill_switch` also installs an IPv6 blackhole default and keeps it after exit, like the IPv4 one.
 
 ### Failing closed
 
-The VPN does not start, and whatever was already applied is undone, when the stub cannot bind its port, when system DNS cannot be pointed at the stub, or when an IPv6 reject, IPv6 tunnel or IPv6 kill switch route cannot be installed. After a crash, system DNS keeps pointing at the stopped stub, so lookups fail instead of leaking; the next start cleans this up. `docs/platform-notes.md` lists the manual commands.
+The VPN does not start, and whatever was already applied is undone, when the stub cannot bind its port, when system DNS cannot be pointed at the stub, or when an IPv6 reject, IPv6 tunnel or IPv6 kill switch route cannot be installed. After a crash, system DNS keeps pointing at the stopped stub and the next start cleans this up. Whether lookups then fail or leak depends on the platform; `docs/platform-notes.md` has the details and the manual commands.
 
 ## Environment variables
 
