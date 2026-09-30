@@ -233,8 +233,10 @@ func TestLeakPolicy_BypassRoutesUpstreamsAndWarns(t *testing.T) {
 	if got := f.stub.opts.Upstreams[1].String(); got != "149.112.112.112:5353" {
 		t.Fatalf("upstream = %s; want the port from --dns kept", got)
 	}
-	if !strings.Contains(logged, "leave outside the tunnel") {
-		t.Fatalf("stderr = %q; bypass mode must warn that DNS leaks", logged)
+	for _, want := range []string{"all traffic to 9.9.9.9, 149.112.112.112", "DNS over HTTPS", "outside the tunnel"} {
+		if !strings.Contains(logged, want) {
+			t.Fatalf("stderr = %q; missing %q: bypass routes carry every protocol to those IPs, not only DNS", logged, want)
+		}
 	}
 }
 
@@ -310,5 +312,57 @@ func TestEndpointPins_Add(t *testing.T) {
 	pins.add("", ips)
 	if len(pins) != 1 || pins["api.example.test"][0] != ips[0] {
 		t.Fatalf("pins = %v; want only the named host with addresses", pins)
+	}
+}
+
+func TestPreflight_RejectsBadDNSPlanBeforeAnyChange(t *testing.T) {
+	for name, cfg := range map[string]config.VPNConfig{
+		"ipv6 upstream while blocked": {IPCIDR: "10.255.0.2/24", DefaultRoute: true, DNSList: "2606:4700::1111"},
+		"bad ip_cidr":                 {IPCIDR: "10.255.0.2", DefaultRoute: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			recovered := false
+			err := preflight(cfg, true, func() error { recovered = true; return nil })
+			if err == nil {
+				t.Fatal("preflight = nil; the bad config would only fail after routes and the kill switch changed")
+			}
+			if recovered {
+				t.Fatal("recovery ran before validation failed")
+			}
+		})
+	}
+}
+
+func TestPreflight_SkipsDNSPlanWithoutDefaultRoute(t *testing.T) {
+	cfg := config.VPNConfig{IPCIDR: "10.255.0.2", DNSList: "2606:4700::1111"}
+	if err := preflight(cfg, true, func() error { return nil }); err != nil {
+		t.Fatalf("preflight = %v; without --default_route the stub is not used", err)
+	}
+}
+
+func TestPreflight_RecoversStaleDNSInEveryMode(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		tun, defRt  bool
+		wantErrBack bool
+	}{
+		{"socks only", false, false, false},
+		{"tun without default route", true, false, false},
+		{"tun with default route", true, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			recoverErr := errors.New("another urnet-client (pid 42) owns system DNS")
+			cfg := config.VPNConfig{IPCIDR: "10.255.0.2/24", DefaultRoute: tc.defRt}
+
+			err := preflight(cfg, tc.tun, func() error { calls++; return recoverErr })
+
+			if calls != 1 {
+				t.Fatalf("recovery calls = %d, want 1", calls)
+			}
+			if got := err != nil; got != tc.wantErrBack {
+				t.Fatalf("preflight = %v; only a run that points system DNS at its stub needs recovery to succeed", err)
+			}
+		})
 	}
 }

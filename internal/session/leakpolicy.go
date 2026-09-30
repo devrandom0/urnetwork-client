@@ -86,6 +86,26 @@ func parseUpstream(s string) (netip.AddrPort, error) {
 	return netip.AddrPortFrom(a.Unmap(), 53), nil
 }
 
+// preflight runs before the first route or kill-switch change: a config the DNS stub cannot
+// use must fail while the host is untouched, and stale DNS from a crashed run is recovered
+// in every mode. Only a run that points system DNS at its own stub (tunMode with
+// --default_route) needs that recovery to succeed; the others only warn.
+func preflight(cfg config.VPNConfig, tunMode bool, recoverStaleDNS func() error) error {
+	ownsDNS := tunMode && cfg.DefaultRoute
+	if ownsDNS {
+		if _, err := planDNS(cfg); err != nil {
+			return err
+		}
+	}
+	if err := recoverStaleDNS(); err != nil {
+		if ownsDNS {
+			return err
+		}
+		logx.Warn("system DNS: %v\n", err)
+	}
+	return nil
+}
+
 // leakGuard undoes the DNS part of the leak policy; the route manager's Cleanup owns routes.
 type leakGuard struct {
 	stub   stubServer
@@ -125,7 +145,7 @@ func applyLeakPolicy(ctx context.Context, cfg config.VPNConfig, pinned map[strin
 		d.routes.AddDNSServerRoutes(addrStrings(plan.upstreams), true)
 	}
 	if plan.mode == "bypass" {
-		logx.Warn("--dns_bootstrap=bypass: DNS queries to %s leave outside the tunnel for the whole session\n", strings.Join(addrStrings(plan.upstreams), ", "))
+		logx.Warn("--dns_bootstrap=bypass: all traffic to %s, DNS and anything else such as DNS over HTTPS, goes outside the tunnel for the whole session\n", strings.Join(addrStrings(plan.upstreams), ", "))
 	}
 	stub, err := d.startStub(dnsstub.Options{
 		Listen:       plan.listen,

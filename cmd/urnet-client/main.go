@@ -16,6 +16,10 @@ import (
 
 var Version = "dev"
 
+// shutdownSignals end a run through context cancellation so the deferred route, DNS and TUN
+// cleanup runs; SIGHUP arrives when the controlling terminal closes.
+var shutdownSignals = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT}
+
 func usageText() string {
 	return fmt.Sprintf(`urnet-client (experimental)
 
@@ -125,7 +129,7 @@ func main() {
 		}
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals...)
 	defer stop()
 
 	var runErr error

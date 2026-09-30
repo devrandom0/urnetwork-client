@@ -3,6 +3,7 @@
 package netcfg
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -91,5 +92,19 @@ func TestDarwinSplitDefault_ErrorsWhenAHalfFails(t *testing.T) {
 
 	if err := m.AddSplitDefault(); err == nil {
 		t.Fatal("AddSplitDefault = nil with 128.0.0.0/1 failing; want an error")
+	}
+}
+
+func TestDarwinBypassEndpoint_PinsOnlyRoutedAddresses(t *testing.T) {
+	f := useFakeRunner(t)
+	fakeLookup(t, "203.0.113.1", "203.0.113.2", "203.0.113.3")
+	f.failOn("route -n add -host 203.0.113.2 192.168.1.1", "route: writing to routing socket: File exists")
+	f.failOn("route -n add -host 203.0.113.3 192.168.1.1", "route: writing to routing socket: Network is unreachable")
+	m := NewDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
+
+	host, ips := m.AddBypassEndpoint("https://api.example.test")
+
+	if host != "api.example.test" || fmt.Sprint(ips) != "[203.0.113.1 203.0.113.2]" {
+		t.Fatalf("AddBypassEndpoint = %q %v; an address without a bypass route would be pinned into a tunnel that is down", host, ips)
 	}
 }

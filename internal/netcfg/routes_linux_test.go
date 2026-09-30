@@ -3,6 +3,7 @@
 package netcfg
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -153,5 +154,23 @@ func TestLinuxSplitDefault_NilWhenBothHalvesAdded(t *testing.T) {
 	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
 	if err := m.AddSplitDefault(); err != nil {
 		t.Fatalf("AddSplitDefault = %v; want nil", err)
+	}
+}
+
+func TestLinuxBypassEndpoint_PinsOnlyRoutedAddresses(t *testing.T) {
+	f := useFakeRunner(t)
+	fakeLookup(t, "203.0.113.1", "203.0.113.2", "203.0.113.3")
+	f.failOn("ip route add 203.0.113.2 via 192.168.1.1 dev eth0", "RTNETLINK answers: File exists")
+	f.failOn("ip route add 203.0.113.3 via 192.168.1.1 dev eth0", "RTNETLINK answers: Network is unreachable")
+	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+
+	host, ips := m.AddBypassEndpoint("https://api.example.test")
+
+	if host != "api.example.test" || fmt.Sprint(ips) != "[203.0.113.1 203.0.113.2]" {
+		t.Fatalf("AddBypassEndpoint = %q %v; an address without a bypass route would be pinned into a tunnel that is down", host, ips)
+	}
+	m.Cleanup()
+	if f.count("ip route del 203.0.113.2") != 0 {
+		t.Fatal("the pre-existing route for 203.0.113.2 is not ours to delete")
 	}
 }

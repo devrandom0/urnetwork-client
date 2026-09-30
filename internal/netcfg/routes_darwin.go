@@ -60,8 +60,8 @@ func NewDarwinRouteManager(tunName, peerIP, defGw string) *DarwinRouteManager {
 }
 
 // AddBypassEndpoint routes the IPv4 addresses of rawURL's host around the tunnel via the
-// original gateway and returns the host and those addresses, so the DNS stub can answer for
-// it without the tunnel.
+// original gateway and returns the host and the addresses that have such a route, so the DNS
+// stub can answer for it without the tunnel.
 func (m *DarwinRouteManager) AddBypassEndpoint(rawURL string) (string, []netip.Addr) {
 	if m.defGw == "" {
 		return "", nil
@@ -77,14 +77,17 @@ func (m *DarwinRouteManager) AddBypassEndpoint(rawURL string) (string, []netip.A
 		if v4 == nil {
 			continue
 		}
+		ipStr := v4.String()
+		out, err := runCapture("route", "-n", "add", "-host", ipStr, m.defGw)
+		if err != nil && !strings.Contains(out, "File exists") {
+			logx.Warn("bypass route for %s not installed: %v\n", ipStr, err)
+			continue
+		}
+		if err == nil {
+			m.addedCtrlBypass = append(m.addedCtrlBypass, ipStr)
+		}
 		addr, _ := netip.AddrFromSlice(v4)
 		routed = append(routed, addr)
-		ipStr := v4.String()
-		if out, err := runCapture("route", "-n", "add", "-host", ipStr, m.defGw); err == nil || strings.Contains(out, "File exists") {
-			if err == nil {
-				m.addedCtrlBypass = append(m.addedCtrlBypass, ipStr)
-			}
-		}
 	}
 	return host, routed
 }

@@ -54,8 +54,9 @@ func (m *LinuxRouteManager) addRoute(args ...string) bool {
 	return true
 }
 
-// AddBypassEndpoint routes the IPv4 addresses of rawURL's host around the tunnel and
-// returns the host and those addresses, so the DNS stub can answer for it without the tunnel.
+// AddBypassEndpoint routes the IPv4 addresses of rawURL's host around the tunnel and returns
+// the host and the addresses that have such a route, so the DNS stub can answer for it
+// without the tunnel. A route that already exists counts but stays out of Cleanup.
 func (m *LinuxRouteManager) AddBypassEndpoint(rawURL string) (string, []netip.Addr) {
 	host := extractHost(rawURL)
 	if host == "" || m.origDev == "" {
@@ -68,18 +69,21 @@ func (m *LinuxRouteManager) AddBypassEndpoint(rawURL string) (string, []netip.Ad
 		if v4 == nil {
 			continue
 		}
-		addr, _ := netip.AddrFromSlice(v4)
-		routed = append(routed, addr)
 		ipStr := v4.String()
-		var ok bool
+		args := []string{"route", "add", ipStr, "dev", m.origDev}
 		if m.origGw != "" {
-			ok = m.addRoute(ipStr, "via", m.origGw, "dev", m.origDev)
-		} else {
-			ok = m.addRoute(ipStr, "dev", m.origDev)
+			args = []string{"route", "add", ipStr, "via", m.origGw, "dev", m.origDev}
 		}
-		if ok {
+		out, err := runCapture("ip", args...)
+		if err != nil && !strings.Contains(out, "File exists") {
+			logx.Warn("bypass route for %s not installed: %v %s\n", ipStr, err, strings.TrimSpace(out))
+			continue
+		}
+		if err == nil {
 			m.addedBypass = append(m.addedBypass, ipStr)
 		}
+		addr, _ := netip.AddrFromSlice(v4)
+		routed = append(routed, addr)
 	}
 	return host, routed
 }

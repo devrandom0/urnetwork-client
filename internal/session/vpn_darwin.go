@@ -27,12 +27,12 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 	}
 
 	// If TUN is disabled or not specified (and not a missing-arg case), run SOCKS-only.
-	if IsTUNDisabled(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
-		return runSocksOnly(ctx, cfg)
-	}
-
-	if err := netcfg.RecoverStaleDNS(); err != nil {
+	socksOnly := IsTUNDisabled(tunName) || (rawTun == "" && !tunLikelyMissingArg)
+	if err := preflight(cfg, !socksOnly, netcfg.RecoverStaleDNS); err != nil {
 		return err
+	}
+	if socksOnly {
+		return runSocksOnly(ctx, cfg)
 	}
 
 	devName := tunName
