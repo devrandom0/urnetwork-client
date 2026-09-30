@@ -9,3 +9,8 @@ import "syscall"
 func detachedProcAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{Setsid: true}
 }
+
+// backgroundSupported: --background detaches via Setsid, which unix always has.
+func backgroundSupported() error {
+	return nil
+}

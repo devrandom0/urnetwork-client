@@ -122,6 +122,9 @@ func startBackground(opts docopt.Opts, argv []string, spawn func([]string, []sec
 
 // spawnBackground detaches a child copy of this process (dropping --background) and returns its PID.
 func spawnBackground(argv []string, secrets []secretArg) (int, error) {
+	if err := backgroundSupported(); err != nil {
+		return 0, err
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return 0, err
