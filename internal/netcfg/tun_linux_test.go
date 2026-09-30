@@ -23,13 +23,29 @@ func TestConfigureLinuxTUN_FailsFastOnAddressError(t *testing.T) {
 	}
 }
 
-func TestConfigureLinuxTUN_IPv6AddressOptionalUnlessEnabled(t *testing.T) {
+func TestConfigureLinuxTUN_NoIPv6AddressWhenDisabled(t *testing.T) {
 	f := useFakeRunner(t)
-	f.failOn("ip addr add fd00::2/120 dev urnet0", "RTNETLINK answers: Permission denied")
 
 	if err := ConfigureLinuxTUN("urnet0", "10.255.0.2/24", 1420, false); err != nil {
-		t.Fatalf("IPv6 disabled: got %v, want nil (hosts with IPv6 off must still work)", err)
+		t.Fatalf("IPv6 disabled: %v", err)
 	}
+	for _, c := range f.Calls() {
+		if strings.Contains(c, "fd00::") {
+			t.Fatalf("ran %q with --enable_ipv6 off; the TUN must get no IPv6 address", c)
+		}
+	}
+}
+
+func TestConfigureLinuxTUN_IPv6AddressRequiredWhenEnabled(t *testing.T) {
+	f := useFakeRunner(t)
+	if err := ConfigureLinuxTUN("urnet0", "10.255.0.2/24", 1420, true); err != nil {
+		t.Fatalf("IPv6 enabled: %v", err)
+	}
+	if f.count("ip addr add fd00::2/120 dev urnet0") != 1 {
+		t.Fatalf("calls = %v; want the IPv6 address assigned", f.Calls())
+	}
+
+	f.failOn("ip addr add fd00::2/120 dev urnet0", "RTNETLINK answers: Permission denied")
 	if err := ConfigureLinuxTUN("urnet0", "10.255.0.2/24", 1420, true); err == nil {
 		t.Fatal("IPv6 enabled: want error when the IPv6 address cannot be set")
 	}

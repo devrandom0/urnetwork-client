@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 func run(name string, args ...string) error {
@@ -27,11 +25,10 @@ func ConfigureLinuxTUN(name, ipCIDR string, mtu int, enableIPv6 bool) error {
 			return fmt.Errorf("configure TUN %s (%s): %w", name, strings.Join(s, " "), err)
 		}
 	}
-	if err := run("ip", "addr", "add", "fd00::2/120", "dev", name); err != nil {
-		if enableIPv6 {
+	if enableIPv6 {
+		if err := run("ip", "addr", "add", tunIPv6CIDR, "dev", name); err != nil {
 			return fmt.Errorf("configure TUN %s IPv6 address: %w", name, err)
 		}
-		logx.Debug("IPv6 address on %s not set (%v); continuing because --enable_ipv6 is off\n", name, err)
 	}
 	return nil
 }
