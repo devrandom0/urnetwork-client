@@ -113,24 +113,27 @@ func trustedSymlinkErr(path, link string, fi fs.FileInfo, dir string, lstat func
 	return nil
 }
 
-// parentDirErr refuses an ancestor whose owner could swap the directory below it.
+// parentDirErr refuses an ancestor whose owner could swap the directory below it. It guards
+// both writes and, as root, reads, so its wording must not name either operation specifically.
 func parentDirErr(path string, uid uint32, mode fs.FileMode, euid, sudoUID int) error {
 	trusted := uid == 0 || int(uid) == euid || (euid == 0 && sudoUID >= 0 && int(uid) == sudoUID)
 	if !trusted {
-		return fmt.Errorf("%s is owned by uid %d, not root or the current user; refusing to write below it", path, uid)
+		return fmt.Errorf("%s is owned by uid %d, not root or the current user; refusing to use paths below it", path, uid)
 	}
 	if mode.Perm()&0o022 != 0 && (uid != 0 || mode&fs.ModeSticky == 0) {
-		return fmt.Errorf("%s is writable by group or others; refusing to write below it", path)
+		return fmt.Errorf("%s is writable by group or others; refusing to use paths below it", path)
 	}
 	return nil
 }
 
+// leafDirErr is the same rule as parentDirErr for the target directory itself, shared by the
+// same read and write callers.
 func leafDirErr(path string, uid uint32, mode fs.FileMode, euid int) error {
 	if euid != 0 && uid != 0 && int(uid) != euid {
-		return fmt.Errorf("%s is owned by uid %d, not the current user (uid %d); refusing to write there", path, uid, euid)
+		return fmt.Errorf("%s is owned by uid %d, not the current user (uid %d); refusing to use it", path, uid, euid)
 	}
 	if mode.Perm()&0o022 != 0 && (uid != 0 || mode&fs.ModeSticky == 0) {
-		return fmt.Errorf("%s is writable by group or others; refusing to write there", path)
+		return fmt.Errorf("%s is writable by group or others; refusing to use it", path)
 	}
 	return nil
 }

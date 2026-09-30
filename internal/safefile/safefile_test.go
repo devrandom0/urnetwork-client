@@ -716,8 +716,13 @@ func TestReadFile_RootRefusesUntrustedAncestorOwner(t *testing.T) {
 	if err := os.WriteFile(path, []byte("secret"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadFile(path, 16); err == nil {
+	_, err := ReadFile(path, 16)
+	if err == nil {
 		t.Fatal("root read through a directory owned by an untrusted non-root, non-sudo user")
+	}
+	// parentDirErr is shared with WriteFile; its wording must not claim a read is a write.
+	if strings.Contains(err.Error(), "write") {
+		t.Fatalf("err = %q, a read failure must not say \"write\"", err)
 	}
 }
 
