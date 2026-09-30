@@ -3,7 +3,6 @@
 package safefile
 
 import (
-	"errors"
 	"io/fs"
 	"os"
 )
@@ -14,8 +13,6 @@ const (
 	noFollowFlag = 0
 	nonblockFlag = 0
 )
-
-var errSymlinkLoop = errors.New("safefile: symlink loop (unused on windows)")
 
 func statOwner(fs.FileInfo) (uid, gid uint32, ok bool) {
 	return 0, 0, false

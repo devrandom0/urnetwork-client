@@ -383,27 +383,48 @@ func checkRegular(f *os.File, path string) (fs.FileInfo, error) {
 }
 
 // ReadFile reads path, refusing special files and files larger than limit bytes. As root it
-// also refuses a symlink at path; other users may point their config at a dotfile manager's link.
+// also pins path's directory the way WriteFile does (refusing an untrusted symlink or
+// ancestor owner) and refuses a symlink at path itself; other users may point their config at
+// a dotfile manager's link, so non-root always follows.
 func ReadFile(path string, limit int64) ([]byte, error) {
 	cleaned, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
 	}
-	flags := os.O_RDONLY | nonblockFlag
-	root := geteuid() == 0
-	if root {
-		if err := rootSymlinkErr(filepath.Dir(cleaned), os.Lstat, os.Readlink); err != nil {
-			return nil, err
-		}
-		flags |= noFollowFlag
+	if geteuid() == 0 {
+		return readFileAsRoot(cleaned, limit)
 	}
-	// Open the same cleaned path the check above just validated: filepath.Abs lexically
-	// cancels out a "link/.." component, so opening the raw path here would let the kernel
-	// walk through a symlink the check never saw.
-	f, err := os.OpenFile(cleaned, flags, 0)
-	if root && errors.Is(err, errSymlinkLoop) {
+	f, err := os.OpenFile(cleaned, os.O_RDONLY|nonblockFlag, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	fi, err := checkRegular(f, cleaned)
+	if err != nil {
+		return nil, err
+	}
+	return readLimited(f, fi, cleaned, limit)
+}
+
+// readFileAsRoot pins path's directory the same way WriteFile's openDir does (refusing an
+// untrusted symlink or ancestor owner in the chain, closing the check-then-open race a plain
+// symlink check leaves open), then opens the leaf through that pinned directory.
+func readFileAsRoot(path string, limit int64) ([]byte, error) {
+	d, err := openDir(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	defer d.close()
+	name := filepath.Base(path)
+	// os.Root.OpenFile reports a symlink leaf as an unexported "path escapes from parent"
+	// error rather than syscall.ELOOP, so check the entry first for a message that names the
+	// problem; the SameFile check below still catches one planted after this Lstat.
+	if fi, err := d.root.Lstat(name); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
 		return nil, fmt.Errorf("%s is a symlink; refusing to follow it as root", path)
+	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
 	}
+	f, err := d.root.OpenFile(name, os.O_RDONLY|noFollowFlag|nonblockFlag, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -412,6 +433,15 @@ func ReadFile(path string, limit int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// os.Root follows symlinks that stay inside the directory even with O_NOFOLLOW, so the
+	// opened file must be the entry itself (mirrors checkOpened on the append path).
+	if entry, err := d.root.Lstat(name); err != nil || !os.SameFile(fi, entry) {
+		return nil, fmt.Errorf("%s is a symlink or was replaced while opening; refusing to read it", path)
+	}
+	return readLimited(f, fi, path, limit)
+}
+
+func readLimited(f *os.File, fi fs.FileInfo, path string, limit int64) ([]byte, error) {
 	if fi.Size() > limit {
 		return nil, fmt.Errorf("%s is larger than %d bytes", path, limit)
 	}

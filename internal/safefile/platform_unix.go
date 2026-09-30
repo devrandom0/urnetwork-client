@@ -13,8 +13,6 @@ const (
 	nonblockFlag = syscall.O_NONBLOCK
 )
 
-var errSymlinkLoop error = syscall.ELOOP
-
 func statOwner(fi fs.FileInfo) (uid, gid uint32, ok bool) {
 	st, ok := fi.Sys().(*syscall.Stat_t)
 	if !ok {
