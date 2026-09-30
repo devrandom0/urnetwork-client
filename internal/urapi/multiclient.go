@@ -3,6 +3,7 @@ package urapi
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/urnetwork/connect"
@@ -41,7 +42,8 @@ type packetSender interface {
 
 // MultiClient carries IP packets to and from the selected providers.
 type MultiClient struct {
-	mc packetSender
+	mc       packetSender
+	slowWarn warnLimiter
 }
 
 func NewMultiClient(ctx context.Context, gen *Generator, receive func(packet []byte)) *MultiClient {
@@ -58,15 +60,54 @@ const sendTimeout = 2 * time.Second
 
 var slowSendWarning = time.Second
 
+// slowSendWarnEvery caps the slow-send WARN: in an outage every send is slow for as long as
+// it lasts.
+const slowSendWarnEvery = 30 * time.Second
+
 func (m *MultiClient) SendPacket(packet []byte) {
 	start := time.Now()
 	ok := m.mc.SendPacket(connect.TransferPath{}, protocol.ProvideMode_Network, packet, sendTimeout)
-	if waited := time.Since(start); waited > slowSendWarning {
-		logx.Warn("sending a packet waited %s for a provider window\n", waited.Round(time.Millisecond))
+	waited := time.Since(start)
+	if waited > slowSendWarning {
+		m.warnSlowSend(waited)
 	}
 	if !ok {
-		logx.Debug("dropped outbound packet len=%d: no provider took it within %s\n", len(packet), sendTimeout)
+		if waited >= sendTimeout {
+			logx.Debug("dropped outbound packet len=%d: no provider window within %s\n", len(packet), sendTimeout)
+		} else {
+			logx.Debug("dropped outbound packet len=%d: the connect client refused it (unparseable, ICMP, or blocked by its egress policy)\n", len(packet))
+		}
 	}
+}
+
+func (m *MultiClient) warnSlowSend(waited time.Duration) {
+	ok, suppressed := m.slowWarn.allow(time.Now())
+	if !ok {
+		return
+	}
+	more := ""
+	if suppressed > 0 {
+		more = fmt.Sprintf(" (%d more slow sends since the last warning)", suppressed)
+	}
+	logx.Warn("sending a packet waited %s for a provider window%s\n", waited.Round(time.Millisecond), more)
+}
+
+// warnLimiter lets one warning through per slowSendWarnEvery and counts the rest.
+type warnLimiter struct {
+	mu         sync.Mutex
+	last       time.Time
+	suppressed int
+}
+
+func (l *warnLimiter) allow(now time.Time) (ok bool, suppressed int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.last.IsZero() && now.Sub(l.last) < slowSendWarnEvery {
+		l.suppressed++
+		return false, 0
+	}
+	suppressed, l.suppressed, l.last = l.suppressed, 0, now
+	return true, suppressed
 }
 
 // Close stops the client's transports and provider windows.
