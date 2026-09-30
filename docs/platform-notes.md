@@ -88,6 +88,12 @@ With `--default_route` the client starts a small watchdog process before it chan
 
 Stop the client with Ctrl-C or `kill` (SIGTERM), never `kill -9`: SIGKILL skips the client's own cleanup and leaves everything to the watchdog. If you did use `kill -9`, or DNS does not work after the client is gone, run `sudo urnet-client recover`.
 
+Known gaps:
+
+- A client killed during its own cleanup, after DNS is restored, leaves the routes it had not removed yet. The watchdog only acts while DNS still names the client, so it leaves them too; `sudo urnet-client recover` removes them.
+- Recovery racing a new start: `recover` removes IPv6 reject routes even with no DNS marker, so it can remove those of a `--default_route` run that is starting and has not recorded its pid yet. The watchdog can likewise act on the old pid's settings just as a new run takes them over. Let the watchdog exit (a few seconds after the crash) and `recover` finish before starting the client again.
+- Linux: if NetworkManager or another tool rewrites `/etc/resolv.conf` while the client runs, the `# urnet-client pid=` line goes with it, so neither the watchdog nor `recover` treats the file as the client's. The rewritten file is usually fine; `/etc/resolv.conf.urnet-client.bak` stays behind and can be deleted.
+
 If the changes are still there, for example after a power cut, run:
 
 ```bash

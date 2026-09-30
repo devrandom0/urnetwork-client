@@ -39,7 +39,7 @@ SOCKS credentials are not read from the file. Use `--socks_user` and `URNETWORK_
 
 ### Log level
 
-The effective level is the first one set among: `--log_level`, `--debug`, `log_level` in the file, `debug: true` in the file. The default is `info`.
+The effective level is the first one set among: `--log_level`, `--debug`, `log_level` in the file, `debug: true` in the file. The default is `info`. At `debug` the DNS stub logs the source address, name and record type of every query, so a debug log is a list of the names you looked up.
 
 ### Known limitations
 

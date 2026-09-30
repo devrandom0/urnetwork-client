@@ -110,7 +110,7 @@ Standalone proxy without TUN/VPN: `./urnet-client socks --listen=... --extender_
 ### Diagnostics
 
 - `--log_level=quiet|error|warn|info|debug`
-- `--debug`
+- `--debug`: per-packet logs. With `--default_route` they also hold one line per DNS query the stub handles: the asking address, the name and record type, and the path it took. They stay in the terminal or `--log_file` (created 0600) and carry no secrets, but they are a list of the names you looked up.
 - `--stats_interval=<sec>`
 - `--log_file=<path>`
 - `--background`
