@@ -4,7 +4,7 @@ package netcfg
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 	"strings"
 
 	"github.com/devrandom0/urnetwork-client/internal/logx"
@@ -47,17 +47,22 @@ func (m *LinuxRouteManager) addRoute(args ...string) bool {
 	return true
 }
 
-func (m *LinuxRouteManager) AddBypassEndpoint(rawURL string) {
+// AddBypassEndpoint routes the IPv4 addresses of rawURL's host around the tunnel and
+// returns the host and those addresses, so the DNS stub can answer for it without the tunnel.
+func (m *LinuxRouteManager) AddBypassEndpoint(rawURL string) (string, []netip.Addr) {
 	host := extractHost(rawURL)
 	if host == "" || m.origDev == "" {
-		return
+		return "", nil
 	}
-	ips, _ := net.LookupIP(host)
+	ips, _ := lookupIP(host)
+	var routed []netip.Addr
 	for _, ip := range ips {
 		v4 := ip.To4()
 		if v4 == nil {
 			continue
 		}
+		addr, _ := netip.AddrFromSlice(v4)
+		routed = append(routed, addr)
 		ipStr := v4.String()
 		var ok bool
 		if m.origGw != "" {
@@ -69,6 +74,7 @@ func (m *LinuxRouteManager) AddBypassEndpoint(rawURL string) {
 			m.addedBypass = append(m.addedBypass, ipStr)
 		}
 	}
+	return host, routed
 }
 
 func (m *LinuxRouteManager) AddSplitDefault() error {

@@ -4,7 +4,7 @@ package netcfg
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 	"os"
 	"strings"
 	"sync"
@@ -59,22 +59,26 @@ func NewDarwinRouteManager(tunName, peerIP, defGw string) *DarwinRouteManager {
 	}
 }
 
-// AddBypassEndpoint resolves the hostname in rawURL and installs bypass host routes
-// for each resolved IPv4 address via the original default gateway.
-func (m *DarwinRouteManager) AddBypassEndpoint(rawURL string) {
+// AddBypassEndpoint routes the IPv4 addresses of rawURL's host around the tunnel via the
+// original gateway and returns the host and those addresses, so the DNS stub can answer for
+// it without the tunnel.
+func (m *DarwinRouteManager) AddBypassEndpoint(rawURL string) (string, []netip.Addr) {
 	if m.defGw == "" {
-		return
+		return "", nil
 	}
 	host := extractHost(rawURL)
 	if host == "" {
-		return
+		return "", nil
 	}
-	ips, _ := net.LookupIP(host)
+	ips, _ := lookupIP(host)
+	var routed []netip.Addr
 	for _, ip := range ips {
 		v4 := ip.To4()
 		if v4 == nil {
 			continue
 		}
+		addr, _ := netip.AddrFromSlice(v4)
+		routed = append(routed, addr)
 		ipStr := v4.String()
 		if out, err := runCapture("route", "-n", "add", "-host", ipStr, m.defGw); err == nil || strings.Contains(out, "File exists") {
 			if err == nil {
@@ -82,6 +86,7 @@ func (m *DarwinRouteManager) AddBypassEndpoint(rawURL string) {
 			}
 		}
 	}
+	return host, routed
 }
 
 // AddSplitDefault installs 0.0.0.0/1 and 128.0.0.0/1 through the TUN.
