@@ -49,6 +49,14 @@ docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d
 docker compose -f docker-compose.yml -f docker-compose.macos.yml up -d
 ```
 
+## DNS and IPv6 in containers
+
+With `--default_route` the client rewrites the container's `/etc/resolv.conf` to point at its DNS stub and restores it on exit (Docker bind-mounts this file, so it is rewritten in place). If the container is killed, the next start restores it.
+
+- `docker-compose.linux.yml` uses host networking: the routes are the host's, but `/etc/resolv.conf` is still the container's own. Only lookups made inside the container, including SOCKS, use the stub; programs on the host keep the host's resolver. To send host DNS through the tunnel too, run the client on the host instead.
+- Containers usually run with IPv6 disabled in the kernel; then no IPv6 reject routes are needed and none are installed.
+- The compose files no longer pass `--exclude_route` and `--dns` set to `8.8.8.8`, which sent DNS outside the tunnel.
+
 ## Multi-arch buildx
 
 ```bash

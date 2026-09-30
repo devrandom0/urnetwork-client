@@ -43,18 +43,19 @@ curl --socks5 127.0.0.1:1080 https://example.com
 sudo ./urnet-client vpn \
   --tun utun10 \
   --default_route \
-  --dns=1.1.1.1,1.0.0.1 \
-  --dns_service="Wi-Fi" \
-  --dns_bootstrap=cache
+  --dns=1.1.1.1,9.9.9.9
 ```
+
+DNS goes through the tunnel by default. `--dns_bootstrap=cache` resolves outside the tunnel for the first seconds; `--dns_bootstrap=bypass` keeps DNS outside the tunnel and leaks it.
 
 ## IPv6 routing
 
-By default, IPv6 traffic is dropped to ensure compatibility with providers lacking IPv6 support. To enable IPv6:
+IPv6 is blocked by default so it cannot leak around the tunnel. To route it through the VPN:
 
 ```bash
 sudo ./urnet-client vpn \
   --tun utun10 \
+  --default_route \
   --enable_ipv6 \
   --location_query="country:Germany"
 ```
