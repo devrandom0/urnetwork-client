@@ -71,7 +71,10 @@ func TestCommand_PassesNoSecretsAndOnlyThePipe(t *testing.T) {
 	r, w, _ := os.Pipe()
 	defer func() { _ = r.Close(); _ = w.Close() }()
 
-	cmd := command("/usr/local/bin/urnet-client", 4242, r)
+	out, _ := os.CreateTemp(t.TempDir(), "log")
+	defer func() { _ = out.Close() }()
+
+	cmd := command("/usr/local/bin/urnet-client", 4242, r, out)
 
 	if !slices.Equal(cmd.Args, []string{"/usr/local/bin/urnet-client", Subcommand, "--owner", "4242"}) {
 		t.Fatalf("argv = %q; want only the subcommand and the owner pid", cmd.Args)
@@ -82,8 +85,11 @@ func TestCommand_PassesNoSecretsAndOnlyThePipe(t *testing.T) {
 	if len(cmd.ExtraFiles) != 1 || cmd.ExtraFiles[0] != r {
 		t.Fatal("the pipe must be the child's only extra file (fd 3)")
 	}
-	if cmd.Stderr != os.Stderr || cmd.Stdout != os.Stderr {
-		t.Fatal("the watchdog must log where this process logs")
+	if cmd.Stderr != out || cmd.Stdout != out {
+		t.Fatal("the watchdog must log to the output Start chose for it")
+	}
+	if none := command("/usr/local/bin/urnet-client", 4242, r, nil); none.Stdout != nil || none.Stderr != nil {
+		t.Fatal("no output must leave stdout and stderr unset, which os/exec maps to the null device")
 	}
 }
 

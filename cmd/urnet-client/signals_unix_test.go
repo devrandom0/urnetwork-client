@@ -12,6 +12,10 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/docopt/docopt-go"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 func TestShutdownSignalsCancelContext(t *testing.T) {
@@ -39,11 +43,22 @@ func TestShutdownSignalsLeaveSIGQUITForGoroutineDumps(t *testing.T) {
 	}
 }
 
-const signalHelperEnv = "URNET_TEST_SIGNAL_HELPER"
+const (
+	signalHelperEnv     = "URNET_TEST_SIGNAL_HELPER"
+	brokenPipeHelperEnv = "URNET_TEST_BROKEN_PIPE_HELPER"
+)
 
 // TestMain lets TestSecondSignalGetsDefaultDisposition run this binary as a process that
 // catches its first signal and then hangs, like a run stuck in cleanup.
 func TestMain(m *testing.M) {
+	if c := os.Getenv(brokenPipeHelperEnv); c != "" {
+		ignoreBrokenPipeFor(docopt.Opts{c: true})
+		for i := 0; i < 3; i++ {
+			logx.Warn("cleanup step %d\n", i)
+			logx.Info("cleanup step %d\n", i)
+		}
+		os.Exit(0)
+	}
 	if os.Getenv(signalHelperEnv) == "1" {
 		ctx, stop := notifyShutdown(context.Background())
 		defer stop()
@@ -96,5 +111,41 @@ func TestSecondSignalGetsDefaultDisposition(t *testing.T) {
 		case <-timeout:
 			t.Fatal("a second SIGTERM did not end a process stuck after the first")
 		}
+	}
+}
+
+// runWithDeadOutput runs the helper for command with stdout and stderr on a pipe nobody reads.
+func runWithDeadOutput(t *testing.T, command string) error {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = r.Close()
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), brokenPipeHelperEnv+"="+command)
+	cmd.Stdout, cmd.Stderr = w, w
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	_ = w.Close()
+	return cmd.Wait()
+}
+
+func TestCommandsThatChangeSystemStateSurviveADeadLogReader(t *testing.T) {
+	for _, c := range []string{"vpn", "quick-connect", "recover"} {
+		t.Run(c, func(t *testing.T) {
+			if err := runWithDeadOutput(t, c); err != nil {
+				t.Fatalf("%s ended with %v on a broken log pipe; DNS cleanup would stop half way", c, err)
+			}
+		})
+	}
+}
+
+func TestOtherCommandsKeepTheDefaultBrokenPipeExit(t *testing.T) {
+	err := runWithDeadOutput(t, "locations")
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.Sys().(syscall.WaitStatus).Signal() != syscall.SIGPIPE {
+		t.Fatalf("locations ended with %v; want the default SIGPIPE exit, like `| head`", err)
 	}
 }

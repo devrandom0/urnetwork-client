@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/docopt/docopt-go"
 
@@ -30,6 +31,20 @@ func notifyShutdown(parent context.Context) (context.Context, context.CancelFunc
 		stop()
 	}()
 	return ctx, stop
+}
+
+// ignoreBrokenPipeFor keeps commands that change system DNS or routes alive when whatever
+// reads their logs goes away (a `| tee` that exits): by default Go dies of SIGPIPE on the next
+// write to stdout or stderr, which would stop cleanup with DNS still pointing at the stub.
+// logx drops write errors, so ignoring it is safe. Other commands keep the default, so
+// `urnet-client locations | head` still stops early.
+func ignoreBrokenPipeFor(opts docopt.Opts) {
+	for _, c := range []string{"vpn", "quick-connect", "recover"} {
+		if config.MustBool(opts, c) {
+			signal.Ignore(syscall.SIGPIPE)
+			return
+		}
+	}
 }
 
 func usageText() string {
@@ -110,6 +125,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2)
 	}
+	ignoreBrokenPipeFor(opts)
 	secretsFromEnv := loadSecretEnv(opts)
 
 	if v, _ := opts.Bool("--version"); v {

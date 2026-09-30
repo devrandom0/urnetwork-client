@@ -35,7 +35,7 @@ func Start(owner int) (*Handle, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := command(exe, owner, r)
+	cmd := command(exe, owner, r, outputFor(os.Stderr))
 	err = cmd.Start()
 	_ = r.Close()
 	if err != nil {
@@ -47,15 +47,31 @@ func Start(owner int) (*Handle, error) {
 }
 
 // command gives the watchdog an empty environment: it needs nothing from it, and the VPN's
-// may still carry URNETWORK_* secrets. Its output goes where this process logs.
-func command(exe string, owner int, pipe *os.File) *exec.Cmd {
+// may still carry URNETWORK_* secrets. A nil out sends its output to the null device.
+func command(exe string, owner int, pipe *os.File, out *os.File) *exec.Cmd {
 	cmd := exec.Command(exe, Subcommand, "--owner", strconv.Itoa(owner))
 	cmd.Env = []string{}
 	cmd.ExtraFiles = []*os.File{pipe}
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
+	if out != nil {
+		cmd.Stdout = out
+		cmd.Stderr = out
+	}
 	cmd.SysProcAttr = detachedProcAttr()
 	return cmd
+}
+
+// outputFor picks where the watchdog logs: the VPN's own stderr when that is a --log_file or
+// a terminal, which cannot raise SIGPIPE, and nowhere (nil) when it is a pipe or socket whose
+// reader may already be gone by the time the watchdog has something to say.
+func outputFor(stderr *os.File) *os.File {
+	fi, err := stderr.Stat()
+	if err != nil {
+		return nil
+	}
+	if fi.Mode().IsRegular() || fi.Mode()&os.ModeCharDevice != 0 {
+		return stderr
+	}
+	return nil
 }
 
 // Release tells the watchdog that cleanup is done, so it exits without acting.
@@ -81,6 +97,9 @@ func Main(args []string, recover func(owner int) error) int {
 		return 2
 	}
 	signal.Ignore(ignoredSignals...)
+	// Its output may be a pipe whose reader has exited; without this the warning logged just
+	// before recovery would kill it and leave DNS pointing at the dead VPN's stub.
+	signal.Ignore(syscall.SIGPIPE)
 	pipe := os.NewFile(3, "watchdog-pipe")
 	if err := Serve(pipe, *owner, recover); err != nil {
 		logx.Error("watchdog: %v\n", err)
