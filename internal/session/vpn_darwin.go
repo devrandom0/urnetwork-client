@@ -128,6 +128,6 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 	}
 
 	// Run shared dataplane + SOCKS + stats.
-	runCore(ctx, dev, actualName, cfg, appVersion, &counters, func() {})
+	runCore(ctx, dev, actualName, cfg, appVersion, &counters, "", func() {})
 	return nil
 }

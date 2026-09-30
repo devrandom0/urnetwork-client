@@ -14,7 +14,7 @@ import (
 )
 
 func TestSocksOptionsFromVPN_KeepsAuth(t *testing.T) {
-	if got := socksOptionsFromVPN(config.VPNConfig{SOCKSAuth: socks.SocksAuth{User: "a", Pass: "b"}}, "").Auth; got.User != "a" {
+	if got := socksOptionsFromVPN(config.VPNConfig{SOCKSAuth: socks.SocksAuth{User: "a", Pass: "b"}}, "", "").Auth; got.User != "a" {
 		t.Fatalf("socksOptionsFromVPN dropped auth: %+v", got)
 	}
 }
@@ -49,7 +49,7 @@ func TestSocksOptionsFromVPN(t *testing.T) {
 		DNSList:        "1.1.1.1, 9.9.9.9",
 		Debug:          true,
 	}
-	got := socksOptionsFromVPN(cfg, "utun9")
+	got := socksOptionsFromVPN(cfg, "utun9", "")
 	if got.ListenAddr != "127.0.0.1:1080" || got.BindIf != "utun9" || !got.Debug {
 		t.Fatalf("unexpected options: %+v", got)
 	}
@@ -64,7 +64,7 @@ func TestSocksOptionsFromVPN(t *testing.T) {
 func TestWarnIfSocksDNSUnset_WarnsWhenBoundWithoutDNS(t *testing.T) {
 	logx.SetLogLevel("info", false)
 	logged := captureStderr(t, func() {
-		warnIfSocksDNSUnset("utun9", "")
+		warnIfSocksDNSUnset("utun9", "", "")
 	})
 	if !strings.Contains(logged, "fail closed") {
 		t.Fatalf("stderr = %q; want the SOCKS DNS warning", logged)
@@ -74,7 +74,7 @@ func TestWarnIfSocksDNSUnset_WarnsWhenBoundWithoutDNS(t *testing.T) {
 func TestWarnIfSocksDNSUnset_SilentWithDNSConfigured(t *testing.T) {
 	logx.SetLogLevel("info", false)
 	logged := captureStderr(t, func() {
-		warnIfSocksDNSUnset("utun9", "1.1.1.1")
+		warnIfSocksDNSUnset("utun9", "1.1.1.1", "")
 	})
 	if logged != "" {
 		t.Fatalf("stderr = %q; want no warning when --dns is set", logged)
@@ -84,10 +84,38 @@ func TestWarnIfSocksDNSUnset_SilentWithDNSConfigured(t *testing.T) {
 func TestWarnIfSocksDNSUnset_SilentWhenNotBoundToVPNInterface(t *testing.T) {
 	logx.SetLogLevel("info", false)
 	logged := captureStderr(t, func() {
-		warnIfSocksDNSUnset("", "")
+		warnIfSocksDNSUnset("", "", "")
 	})
 	if logged != "" {
 		t.Fatalf("stderr = %q; want no warning when not bound to a VPN interface", logged)
+	}
+}
+
+func TestSocksOptionsFromVPN_UsesStubAndIPv4OnlyWithTUN(t *testing.T) {
+	got := socksOptionsFromVPN(config.VPNConfig{DNSList: "1.1.1.1"}, "utun9", "10.255.0.2:53")
+	if got.DNSStub != "10.255.0.2:53" || !got.IPv4Only {
+		t.Fatalf("options = %+v; want lookups sent to the stub and A records only while IPv6 is off", got)
+	}
+	if socksOptionsFromVPN(config.VPNConfig{EnableIPv6: true}, "utun9", "").IPv4Only {
+		t.Fatal("IPv4Only set although --enable_ipv6 is on")
+	}
+	if socksOptionsFromVPN(config.VPNConfig{}, "", "").IPv4Only {
+		t.Fatal("SOCKS-only mode (no TUN) keeps its own resolver behavior")
+	}
+}
+
+func TestWarnIfSocksDNSUnset_SilentWithStub(t *testing.T) {
+	logx.SetLogLevel("info", false)
+	if logged := captureStderr(t, func() { warnIfSocksDNSUnset("utun9", "", "10.255.0.2:53") }); logged != "" {
+		t.Fatalf("stderr = %q; the stub answers SOCKS lookups, so there is nothing to warn about", logged)
+	}
+}
+
+func TestLogStartupConfig_WarnsDNSServiceIgnored(t *testing.T) {
+	logx.SetLogLevel("info", false)
+	logged := captureStderr(t, func() { logStartupConfig(config.VPNConfig{DNSService: "Wi-Fi"}) })
+	if !strings.Contains(logged, "--dns_service is ignored") {
+		t.Fatalf("stderr = %q; want the ignored-flag WARN", logged)
 	}
 }
 

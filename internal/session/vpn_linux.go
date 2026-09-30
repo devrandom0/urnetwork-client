@@ -88,6 +88,6 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 
 	// Run shared dataplane + SOCKS + stats.
 	var counters tunnel.Counters
-	runCore(ctx, dev, tunName, cfg, appVersion, &counters, func() {})
+	runCore(ctx, dev, tunName, cfg, appVersion, &counters, "", func() {})
 	return nil
 }

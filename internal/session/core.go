@@ -23,6 +23,7 @@ func runCore(
 	cfg config.VPNConfig,
 	appVersion string,
 	counters *tunnel.Counters,
+	stubAddr string,
 	onBeforeExit func(),
 ) {
 	gen := urapi.NewGenerator(ctx, urapi.GeneratorConfig{
@@ -44,8 +45,8 @@ func runCore(
 	// Optional SOCKS5 proxy bound to the VPN interface
 	var stopSocks func() error
 	if cfg.SOCKSListen != "" {
-		warnIfSocksDNSUnset(tunIfName, cfg.DNSList)
-		if s, err := socks.StartSocks5(ctx, socksOptionsFromVPN(cfg, tunIfName)); err != nil {
+		warnIfSocksDNSUnset(tunIfName, cfg.DNSList, stubAddr)
+		if s, err := socks.StartSocks5(ctx, socksOptionsFromVPN(cfg, tunIfName, stubAddr)); err != nil {
 			logx.Warn("failed to start socks at %s: %v\n", cfg.SOCKSListen, err)
 		} else {
 			stopSocks = s
@@ -70,16 +71,16 @@ func runCore(
 }
 
 // warnIfSocksDNSUnset logs once at startup when SOCKS hostname lookups will be resolved
-// through the VPN interface with no explicit --dns override: a LAN or Docker (127.0.0.11)
-// resolver is unreachable from inside the tunnel, so lookups fail closed silently otherwise.
-func warnIfSocksDNSUnset(bindIf string, dnsList string) {
-	if bindIf == "" || strings.TrimSpace(dnsList) != "" {
+// through the VPN interface with no explicit --dns override and no DNS stub: a LAN or Docker
+// (127.0.0.11) resolver is unreachable from inside the tunnel, so lookups fail closed silently.
+func warnIfSocksDNSUnset(bindIf, dnsList, stubAddr string) {
+	if bindIf == "" || stubAddr != "" || strings.TrimSpace(dnsList) != "" {
 		return
 	}
 	logx.Warn("SOCKS hostname lookups go through the VPN interface and fail closed; if the system resolver is on the LAN or is Docker's 127.0.0.11, set --dns=<public resolver> (e.g. 1.1.1.1)\n")
 }
 
-func socksOptionsFromVPN(cfg config.VPNConfig, bindIf string) socks.SocksOptions {
+func socksOptionsFromVPN(cfg config.VPNConfig, bindIf, stubAddr string) socks.SocksOptions {
 	return socks.SocksOptions{
 		ListenAddr:     cfg.SOCKSListen,
 		BindIf:         bindIf,
@@ -88,6 +89,8 @@ func socksOptionsFromVPN(cfg config.VPNConfig, bindIf string) socks.SocksOptions
 		AllowDomains:   cfg.AllowDomains,
 		ExcludeDomains: cfg.ExcludeDomains,
 		DNSServers:     config.SplitCSV(cfg.DNSList),
+		DNSStub:        stubAddr,
+		IPv4Only:       bindIf != "" && !cfg.EnableIPv6,
 	}
 }
 
@@ -96,7 +99,7 @@ func runSocksOnly(ctx context.Context, cfg config.VPNConfig) error {
 	if cfg.SOCKSListen == "" {
 		return errors.New("no TUN and no --socks given; nothing to do (set --tun=<name> and/or --socks=<addr>)")
 	}
-	stop, err := socks.StartSocks5(ctx, socksOptionsFromVPN(cfg, ""))
+	stop, err := socks.StartSocks5(ctx, socksOptionsFromVPN(cfg, "", ""))
 	if err != nil {
 		return fmt.Errorf("start socks failed: %w", err)
 	}
@@ -136,9 +139,6 @@ func logStartupConfig(cfg config.VPNConfig) {
 	if strings.TrimSpace(cfg.DNSList) != "" {
 		configItems = append(configItems, fmt.Sprintf("dns=%s", strings.TrimSpace(cfg.DNSList)))
 	}
-	if cfg.DNSService != "" {
-		configItems = append(configItems, fmt.Sprintf("dns_service=%s", cfg.DNSService))
-	}
 	if cfg.DNSBootstrap != "" {
 		configItems = append(configItems, fmt.Sprintf("dns_bootstrap=%s", cfg.DNSBootstrap))
 	}
@@ -164,6 +164,9 @@ func logStartupConfig(cfg config.VPNConfig) {
 		configItems = append(configItems, "jwt=missing")
 	}
 	logx.Info("startup: %s\n", strings.Join(configItems, " "))
+	if cfg.DNSService != "" {
+		logx.Warn("--dns_service is ignored; with --default_route the client points system DNS at its own stub\n")
+	}
 }
 
 // (removed legacy userspace filtering helpers)
