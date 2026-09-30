@@ -75,6 +75,8 @@ sudo ./urnet-client vpn \
 
 If the client is killed (for example `kill -9` or a power cut) it cannot undo its changes. DNS then fails instead of leaking, and IPv6 stays blocked. The next start of the client cleans DNS up by itself. To restore by hand:
 
+On macOS this fails safe for IPv6 but not for DNS: if the client crashes while its `scutil` entry is still published and the stub is no longer answering, macOS falls back to querying the primary LAN resolver until the entry is removed, which leaks DNS until the next start (or the manual removal below). Closing this fully needs a packet-filter firewall kill switch (deferred).
+
 macOS:
 
 ```bash
