@@ -56,6 +56,8 @@ type SocksOptions struct {
 	AllowDomains     []string
 	ExcludeDomains   []string
 	DNSServers       []string      // first entry replaces the system resolver for hostname lookups
+	DNSStub          string        // local DNS stub; when set, every lookup goes there and DNSServers is ignored
+	IPv4Only         bool          // resolve A records only; set while IPv6 is blocked
 	HandshakeTimeout time.Duration // zero means defaultSocksHandshakeTimeout
 	Auth             SocksAuth
 	MaxConns         int           // concurrent client connections; zero means defaultSocksMaxConns
@@ -81,11 +83,7 @@ func StartSocks5(ctx context.Context, opts SocksOptions) (func() error, error) {
 		slots: make(chan struct{}, opts.MaxConns),
 		warns: newLogRateLimiter(socksWarnInterval),
 	}
-	srv.sysResolver = newSocksResolver(opts.DNSServers, nil)
-	srv.vpnResolver = srv.sysResolver
-	if opts.BindIf != "" {
-		srv.vpnResolver = newSocksResolver(opts.DNSServers, srv.bindControl)
-	}
+	srv.initResolvers()
 	ln, err := net.Listen("tcp", opts.ListenAddr)
 	if err != nil {
 		return nil, err
@@ -366,12 +364,35 @@ func relayTCP(dst, src net.Conn) {
 	}
 }
 
-func (s *socksServer) bindControl(network, _ string, rc syscall.RawConn) error {
-	var bindErr error
-	if err := rc.Control(func(fd uintptr) { bindErr = bindFDToInterface(int(fd), network, s.opts.BindIf) }); err != nil {
-		return err
+func (s *socksServer) bindControl(network, address string, rc syscall.RawConn) error {
+	return InterfaceControl(s.opts.BindIf)(network, address, rc)
+}
+
+// InterfaceControl returns a net.Dialer Control that pins each socket to ifName. It fails
+// the dial when pinning fails, so traffic never falls back to the physical interface.
+func InterfaceControl(ifName string) func(network, address string, rc syscall.RawConn) error {
+	return func(network, _ string, rc syscall.RawConn) error {
+		var bindErr error
+		if err := rc.Control(func(fd uintptr) { bindErr = bindFDToInterface(int(fd), network, ifName) }); err != nil {
+			return err
+		}
+		return bindErr
 	}
-	return bindErr
+}
+
+// initResolvers sends every lookup to the DNS stub when there is one; the stub runs on this
+// host and applies the tunnel binding itself, so its socket must not be pinned to the TUN.
+func (s *socksServer) initResolvers() {
+	if s.opts.DNSStub != "" {
+		s.sysResolver = newSocksResolver([]string{s.opts.DNSStub}, nil)
+		s.vpnResolver = s.sysResolver
+		return
+	}
+	s.sysResolver = newSocksResolver(s.opts.DNSServers, nil)
+	s.vpnResolver = s.sysResolver
+	if s.opts.BindIf != "" {
+		s.vpnResolver = newSocksResolver(s.opts.DNSServers, s.bindControl)
+	}
 }
 
 // resolve prefers IPv4 because the tunnel drops IPv6 unless --enable_ipv6 is set.
@@ -380,7 +401,11 @@ func (s *socksServer) resolve(ctx context.Context, host string, viaVPN bool) net
 	if viaVPN {
 		r = s.vpnResolver
 	}
-	addrs, _ := r.LookupIP(ctx, "ip", host)
+	network := "ip"
+	if s.opts.IPv4Only {
+		network = "ip4"
+	}
+	addrs, _ := r.LookupIP(ctx, network, host)
 	var pick net.IP
 	for _, ip := range addrs {
 		if ip.To4() != nil {
