@@ -385,19 +385,22 @@ func checkRegular(f *os.File, path string) (fs.FileInfo, error) {
 // ReadFile reads path, refusing special files and files larger than limit bytes. As root it
 // also refuses a symlink at path; other users may point their config at a dotfile manager's link.
 func ReadFile(path string, limit int64) ([]byte, error) {
+	cleaned, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
 	flags := os.O_RDONLY | nonblockFlag
 	root := geteuid() == 0
 	if root {
-		cleaned, err := filepath.Abs(path)
-		if err != nil {
-			return nil, err
-		}
 		if err := rootSymlinkErr(filepath.Dir(cleaned), os.Lstat, os.Readlink); err != nil {
 			return nil, err
 		}
 		flags |= noFollowFlag
 	}
-	f, err := os.OpenFile(path, flags, 0)
+	// Open the same cleaned path the check above just validated: filepath.Abs lexically
+	// cancels out a "link/.." component, so opening the raw path here would let the kernel
+	// walk through a symlink the check never saw.
+	f, err := os.OpenFile(cleaned, flags, 0)
 	if root && errors.Is(err, errSymlinkLoop) {
 		return nil, fmt.Errorf("%s is a symlink; refusing to follow it as root", path)
 	}

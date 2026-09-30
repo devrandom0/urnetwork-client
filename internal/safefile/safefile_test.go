@@ -673,6 +673,38 @@ func TestReadFile_FollowsSymlinkedParentDirWhenNotRoot(t *testing.T) {
 	}
 }
 
+// TestReadFile_RootChecksSamePathItOpens guards against the symlink check running on
+// filepath.Abs(path) (which lexically cancels out "link/..") while the actual open used the
+// raw, uncleaned path: the kernel still walks through the untrusted symlink that the lexical
+// cleanup made invisible to the check.
+func TestReadFile_RootChecksSamePathItOpens(t *testing.T) {
+	useEUID(t, 0)
+	useOwner(t, func(fi fs.FileInfo) (uint32, uint32, bool) {
+		if fi.Mode()&fs.ModeSymlink != 0 {
+			return 4343, 4343, true
+		}
+		return 0, 0, true
+	})
+	home := realTempDir(t)
+	outside := realTempDir(t)
+	if err := os.WriteFile(filepath.Join(outside, "jwt"), []byte("evil-secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	trap := filepath.Join(outside, "trap")
+	if err := os.Mkdir(trap, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(trap, filepath.Join(home, "link")); err != nil {
+		t.Fatal(err)
+	}
+	// Not filepath.Join: it would lexically clean away "link/..", hiding the exact bug this
+	// guards against (the check ran on the cleaned path while the kernel opened the raw one).
+	raw := home + "/link/../jwt"
+	if b, err := ReadFile(raw, 16); err == nil {
+		t.Fatalf("ReadFile returned %q through an untrusted symlink via a link/.. path", b)
+	}
+}
+
 func nonblocking(t *testing.T, f *os.File) bool {
 	t.Helper()
 	rc, err := f.SyscallConn()
