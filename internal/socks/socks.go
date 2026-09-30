@@ -369,9 +369,14 @@ func (s *socksServer) bindControl(network, address string, rc syscall.RawConn) e
 }
 
 // InterfaceControl returns a net.Dialer Control that pins each socket to ifName. It fails
-// the dial when pinning fails, so traffic never falls back to the physical interface.
+// the dial when pinning fails, so traffic never falls back to the physical interface. Unlike
+// bindFDToInterface, an empty ifName is rejected rather than treated as "no binding needed";
+// callers that legitimately want unbound sockets must not use InterfaceControl at all.
 func InterfaceControl(ifName string) func(network, address string, rc syscall.RawConn) error {
 	return func(network, _ string, rc syscall.RawConn) error {
+		if strings.TrimSpace(ifName) == "" {
+			return fmt.Errorf("%w: empty interface name", errBindInterface)
+		}
 		var bindErr error
 		if err := rc.Control(func(fd uintptr) { bindErr = bindFDToInterface(int(fd), network, ifName) }); err != nil {
 			return err

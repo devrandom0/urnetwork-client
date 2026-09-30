@@ -119,3 +119,21 @@ func TestInterfaceControl_FailsDialForMissingInterface(t *testing.T) {
 		t.Fatalf("err = %v, want errBindInterface", err)
 	}
 }
+
+func TestInterfaceControl_FailsDialForEmptyInterface(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	d := net.Dialer{Timeout: time.Second, Control: InterfaceControl("")}
+
+	c, err := d.Dial("tcp4", ln.Addr().String())
+	if err == nil {
+		_ = c.Close()
+		t.Fatal("dial succeeded unbound although InterfaceControl was given an empty interface name")
+	}
+	if !errors.Is(err, errBindInterface) {
+		t.Fatalf("err = %v, want errBindInterface", err)
+	}
+}
