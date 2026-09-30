@@ -20,7 +20,7 @@ func vpnTestOpts(overrides map[string]interface{}) docopt.Opts {
 		"--connect_url":         DefaultConnectURL,
 		"--ip_cidr":             "10.255.0.2/24",
 		"--mtu":                 "1420",
-		"--dns_bootstrap":       "bypass",
+		"--dns_bootstrap":       "none",
 		"--stats_interval":      "5",
 		"--default_route":       false,
 		"--debug":               false,
@@ -71,6 +71,21 @@ func TestResolveVPNConfig(t *testing.T) {
 				t.Fatalf("socks_listen alias ignored: %q", cfg.SOCKSListen)
 			}
 		}},
+		{"dns_bootstrap defaults to none", "", nil, func(t *testing.T, cfg VPNConfig) {
+			if cfg.DNSBootstrap != "none" {
+				t.Fatalf("dns_bootstrap = %q, want none", cfg.DNSBootstrap)
+			}
+		}},
+		{"file dns_bootstrap applies over the default", "dns_bootstrap: cache\n", nil, func(t *testing.T, cfg VPNConfig) {
+			if cfg.DNSBootstrap != "cache" {
+				t.Fatalf("dns_bootstrap = %q, want cache from the file", cfg.DNSBootstrap)
+			}
+		}},
+		{"enable_ipv6 from file", "enable_ipv6: true\n", nil, func(t *testing.T, cfg VPNConfig) {
+			if !cfg.EnableIPv6 {
+				t.Fatal("enable_ipv6: true in the file was ignored")
+			}
+		}},
 		{"socks beats socks_listen", "socks: 127.0.0.1:1083\nsocks_listen: 127.0.0.1:1084\n", nil, func(t *testing.T, cfg VPNConfig) {
 			if cfg.SOCKSListen != "127.0.0.1:1083" {
 				t.Fatalf("socks = %q, want the canonical key to win", cfg.SOCKSListen)
@@ -92,6 +107,17 @@ func TestResolveVPNConfig(t *testing.T) {
 			}
 			tc.check(t, cfg)
 		})
+	}
+}
+
+func TestResolveVPNConfig_RejectsUnknownDNSBootstrap(t *testing.T) {
+	t.Cleanup(func() { logx.SetLogLevel("info", false) })
+	if _, err := ResolveVPNConfig(vpnTestOpts(map[string]interface{}{"--dns_bootstrap": "bypas"})); err == nil {
+		t.Fatal("a mistyped --dns_bootstrap must be rejected, not treated as a mode")
+	}
+	path := writeTempConfig(t, "dns_bootstrap: sometimes\n")
+	if _, err := ResolveVPNConfig(vpnTestOpts(map[string]interface{}{"--config": path})); err == nil {
+		t.Fatal("a mistyped dns_bootstrap in the file must be rejected")
 	}
 }
 

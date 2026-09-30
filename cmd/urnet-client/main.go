@@ -44,9 +44,9 @@ Options:
     --default_route              Route all traffic via TUN (disabled by default)
     --route=<list>               Comma-separated extra routes (IP or CIDR) via TUN
         --exclude_route=<list>       Comma-separated routes to keep off the TUN when --default_route is set
-    --dns=<list>                 Comma-separated DNS servers to prefer while VPN is up
-        --dns_service=<name>         macOS only: Network Service name to modify DNS (e.g., "Wi-Fi"); optional
-    --dns_bootstrap=<mode>       How to keep DNS working during default-route switch: bypass|cache|none [default: bypass]
+    --dns=<list>                 Comma-separated upstream DNS servers. With --default_route the local DNS stub forwards to them (default 1.1.1.1,9.9.9.9); otherwise they are routed via TUN
+        --dns_service=<name>         Ignored; with --default_route the client points system DNS at its stub itself
+    --dns_bootstrap=<mode>       Path of the DNS stub's upstream queries: none (through the tunnel)|cache (outside for the first seconds)|bypass (outside the tunnel, leaks DNS) [default: none]
     --location_query=<q>         Search for locations (e.g., "country:Germany" or "region:Europe") to select providers
     --location_id=<id>           Select providers in a specific location id (use with find-locations)
     --location_group_id=<id>     Select providers in a specific location group id
@@ -63,7 +63,7 @@ Options:
     --socks_pass=<pass>          SOCKS5 password; env fallback URNETWORK_SOCKS_PASS (prefer env, argv is visible in ps)
 	--allow_inbound_src=<list>   Comma-separated CIDRs to allow for new inbound connections (e.g., 10.0.0.0/8,192.168.0.0/16)
 	--allow_inbound_local        Also allow from local ranges (RFC1918, loopback, CGNAT, link-local) and the TUN subnet from --ip_cidr
-	--enable_ipv6                Allow IPv6 traffic; disabled by default. When disabled, IPv6 packets are dropped. Enable only if your VPN provider supports IPv6.
+	--enable_ipv6                Route IPv6 through the VPN. Off by default: with --default_route IPv6 is blocked (reject routes, AAAA answers filtered), and IPv6 packets are never sent into the tunnel
 	--kill_switch                Block all traffic if the VPN connection drops. Requires --default_route. WARNING: on graceful exit the block remains until you reboot or manually remove routes.
     --background                 Run vpn in the background and print the child process id
     --log_file=<path>            If set, write logs to this file (default: console)

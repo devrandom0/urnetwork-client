@@ -18,6 +18,9 @@ import (
 const DefaultAPIURL = "https://api.bringyour.com"
 const DefaultConnectURL = "wss://connect.bringyour.com"
 
+// DefaultDNSBootstrap sends the DNS stub's upstream queries through the tunnel from the start.
+const DefaultDNSBootstrap = "none"
+
 // LocationConfig holds provider location selection options.
 type LocationConfig struct {
 	LocationID      string
@@ -94,7 +97,7 @@ func ParseVPNConfig(opts docopt.Opts, jwt string) VPNConfig {
 		ExcludeRoutes:       StringOr(opts, "--exclude_route", ""),
 		DNSList:             StringOr(opts, "--dns", ""),
 		DNSService:          strings.TrimSpace(StringOr(opts, "--dns_service", "")),
-		DNSBootstrap:        strings.TrimSpace(StringOr(opts, "--dns_bootstrap", "bypass")),
+		DNSBootstrap:        strings.TrimSpace(StringOr(opts, "--dns_bootstrap", DefaultDNSBootstrap)),
 		SOCKSListen:         socksListen,
 		SOCKSAuth:           socks.ResolveSocksAuth(StringOr(opts, "--socks_user", ""), StringOr(opts, "--socks_pass", ""), os.Getenv),
 		AllowDomains:        SplitCSV(StringOr(opts, "--domain", "")),
@@ -149,9 +152,9 @@ func ParseSOCKSConfig(opts docopt.Opts) SOCKSConfig {
 //	default_route: false
 //	dns:
 //	  - "1.1.1.1"
-//	  - "8.8.8.8"
-//	dns_service: "Wi-Fi"
-//	dns_bootstrap: bypass
+//	  - "9.9.9.9"
+//	dns_bootstrap: none
+//	enable_ipv6: false
 //	location_query: "country:Germany"
 //	log_level: info
 //	stats_interval: 5
@@ -173,6 +176,7 @@ type ConfigFile struct {
 	ExcludeDomains    []string `yaml:"exclude_domain"`
 	AllowInboundSrc   string   `yaml:"allow_inbound_src"`
 	AllowInboundLocal bool     `yaml:"allow_inbound_local"`
+	EnableIPv6        bool     `yaml:"enable_ipv6"`
 	LocationQuery     string   `yaml:"location_query"`
 	LocationID        string   `yaml:"location_id"`
 	LocationGroupID   string   `yaml:"location_group_id"`
@@ -240,7 +244,7 @@ func applyConfigFile(cfg VPNConfig, cf ConfigFile) VPNConfig {
 	if cfg.DNSService == "" && cf.DNSService != "" {
 		cfg.DNSService = cf.DNSService
 	}
-	if (cfg.DNSBootstrap == "" || cfg.DNSBootstrap == "bypass") && cf.DNSBootstrap != "" {
+	if (cfg.DNSBootstrap == "" || cfg.DNSBootstrap == DefaultDNSBootstrap) && cf.DNSBootstrap != "" {
 		cfg.DNSBootstrap = cf.DNSBootstrap
 	}
 	if cfg.SOCKSListen == "" && cf.SOCKSListen != "" {
@@ -257,6 +261,9 @@ func applyConfigFile(cfg VPNConfig, cf ConfigFile) VPNConfig {
 	}
 	if !cfg.AllowInboundLocal && cf.AllowInboundLocal {
 		cfg.AllowInboundLocal = true
+	}
+	if !cfg.EnableIPv6 && cf.EnableIPv6 {
+		cfg.EnableIPv6 = true
 	}
 	if cfg.Location.LocationQuery == "" && cf.LocationQuery != "" {
 		cfg.Location.LocationQuery = cf.LocationQuery
@@ -302,6 +309,9 @@ func ResolveVPNConfig(opts docopt.Opts) (VPNConfig, error) {
 	if err := ValidateEndpointURL("connect_url", cfg.ConnectURL, "wss", "ws"); err != nil {
 		return VPNConfig{}, err
 	}
+	if err := validateDNSBootstrap(cfg.DNSBootstrap); err != nil {
+		return VPNConfig{}, err
+	}
 	if cfg.SOCKSListen != "" {
 		if err := cfg.SOCKSAuth.Validate(); err != nil {
 			return VPNConfig{}, fmt.Errorf("socks: %w", err)
@@ -309,4 +319,12 @@ func ResolveVPNConfig(opts docopt.Opts) (VPNConfig, error) {
 	}
 	logx.SetLogLevel(resolveLogLevel(StringOr(opts, "--log_level", ""), MustBool(opts, "--debug"), cf.LogLevel, cf.Debug))
 	return cfg, nil
+}
+
+func validateDNSBootstrap(mode string) error {
+	switch mode {
+	case "none", "bypass", "cache":
+		return nil
+	}
+	return fmt.Errorf("dns_bootstrap: %q is not one of none, bypass, cache", mode)
 }
