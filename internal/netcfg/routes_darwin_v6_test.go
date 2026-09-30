@@ -4,6 +4,7 @@ package netcfg
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -30,5 +31,107 @@ func TestDarwinBypassEndpoint_NoGatewayReturnsNothing(t *testing.T) {
 	m := NewDarwinRouteManager("utun9", "10.255.0.1", "")
 	if host, ips := m.AddBypassEndpoint("https://api.example.test"); host != "" || ips != nil {
 		t.Fatalf("got %q %v; nothing is routed around the tunnel, so nothing may be pinned", host, ips)
+	}
+}
+
+func TestDarwinIPv6Reject_InstallsRejectHalvesAndCleansUp(t *testing.T) {
+	f := useFakeRunner(t)
+	m := NewDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
+
+	if err := m.AddIPv6Reject(); err != nil {
+		t.Fatalf("AddIPv6Reject: %v", err)
+	}
+	m.Cleanup()
+
+	for _, dst := range []string{"::/1", "8000::/1"} {
+		if f.count("route -n add -inet6 -reject "+dst+" ::1") != 1 || f.count("route -n delete -inet6 "+dst) != 1 {
+			t.Fatalf("calls = %v; want %s installed once and removed once", f.Calls(), dst)
+		}
+	}
+}
+
+func TestDarwinIPv6Reject_TakesOverLeftoverRoute(t *testing.T) {
+	f := useFakeRunner(t)
+	f.failOn("route -n add -inet6 -reject ::/1 ::1", "route: writing to routing socket: File exists")
+	m := NewDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
+
+	if err := m.AddIPv6Reject(); err != nil {
+		t.Fatalf("AddIPv6Reject = %v; a reject route left by a crash must not block startup", err)
+	}
+	if f.count("route -n change -inet6 -reject ::/1 ::1") != 1 {
+		t.Fatalf("calls = %v; want the existing route changed", f.Calls())
+	}
+}
+
+func TestDarwinIPv6Reject_FailureIsError(t *testing.T) {
+	f := useFakeRunner(t)
+	f.failOn("route -n add -inet6 -reject 8000::/1 ::1", "route: writing to routing socket: Invalid argument")
+	m := NewDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
+
+	if err := m.AddIPv6Reject(); err == nil || !strings.Contains(err.Error(), "leak") {
+		t.Fatalf("AddIPv6Reject = %v; want an error so startup aborts", err)
+	}
+	m.Cleanup()
+	if f.count("route -n delete -inet6 8000::/1") != 0 {
+		t.Fatalf("calls = %v; a route that was never installed must not be deleted", f.Calls())
+	}
+}
+
+func TestDarwinIPv6SplitDefault_RoutesHalvesIntoTUN(t *testing.T) {
+	f := useFakeRunner(t)
+	m := NewDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
+
+	if err := m.AddIPv6SplitDefault(); err != nil {
+		t.Fatalf("AddIPv6SplitDefault: %v", err)
+	}
+	m.Cleanup()
+
+	for _, dst := range []string{"::/1", "8000::/1"} {
+		if f.count("route -n add -inet6 "+dst+" -interface utun9") != 1 || f.count("route -n delete -inet6 "+dst) != 1 {
+			t.Fatalf("calls = %v; want %s routed into utun9 and removed on cleanup", f.Calls(), dst)
+		}
+	}
+}
+
+func TestDarwinKillSwitch_InstallsIPv6BlackholeFirstAndKeepsIt(t *testing.T) {
+	f := useFakeRunner(t)
+	m := NewDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
+
+	if err := m.AddKillSwitchRoute(); err != nil {
+		t.Fatalf("AddKillSwitchRoute: %v", err)
+	}
+	m.Cleanup()
+
+	calls := f.Calls()
+	if len(calls) == 0 || calls[0] != "route -n add -inet6 -blackhole default ::1" {
+		t.Fatalf("calls = %v; want the IPv6 blackhole before any IPv4 change", calls)
+	}
+	if f.count("route -n delete -inet6 default") != 0 {
+		t.Fatalf("calls = %v; the kill switch keeps IPv6 blocked after exit", calls)
+	}
+}
+
+func TestDarwinKillSwitch_IPv6FileExistsReplacesDefault(t *testing.T) {
+	f := useFakeRunner(t)
+	f.failOn("route -n add -inet6 -blackhole default ::1", "route: writing to routing socket: File exists")
+	m := NewDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
+
+	_ = m.AddKillSwitchRoute()
+
+	if f.count("route -n delete -inet6 default") != 1 || f.count("route -n add -inet6 -blackhole default ::1") != 2 {
+		t.Fatalf("calls = %v; want the router default deleted and the blackhole retried", f.Calls())
+	}
+}
+
+func TestDarwinKillSwitch_IPv6FailureAbortsBeforeIPv4(t *testing.T) {
+	f := useFakeRunner(t)
+	f.failOn("route -n add -inet6 -blackhole default ::1", "route: writing to routing socket: Network is unreachable")
+	m := NewDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
+
+	if err := m.AddKillSwitchRoute(); err == nil {
+		t.Fatal("AddKillSwitchRoute = nil; want an error")
+	}
+	if f.count("route -n delete default") != 0 {
+		t.Fatalf("calls = %v; the IPv4 default must stay untouched after the IPv6 step failed", f.Calls())
 	}
 }

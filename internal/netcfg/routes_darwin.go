@@ -40,9 +40,11 @@ type DarwinRouteManager struct {
 	addedSplits      []darwinSplitRoute // split-default routes that were successfully added
 	addedExtra       []darwinAddedRoute // explicit routes through TUN from --route
 	addedDNSTun      []darwinAddedRoute // DNS server routes through TUN (!defRoute mode)
+	addedV6          []string           // IPv6 halves (::/1, 8000::/1) we installed, reject or via TUN
 
-	killSwitch      bool // whether kill-switch mode is active
-	killSwitchAdded bool // whether the blackhole default was successfully installed
+	killSwitch        bool // whether kill-switch mode is active
+	killSwitchAdded   bool // whether the blackhole default was successfully installed
+	killSwitchV6Added bool // whether the IPv6 blackhole default was installed
 
 	dnsConfigured bool   // whether SetDNS changed the system DNS
 	dnsService    string // network service name passed to networksetup
@@ -257,6 +259,9 @@ func (m *DarwinRouteManager) RemoveDNSBypass() {
 // The route is left in place on Cleanup when kill-switch mode is active.
 func (m *DarwinRouteManager) AddKillSwitchRoute() error {
 	m.killSwitch = true
+	if err := m.addKillSwitchV6(); err != nil {
+		return err
+	}
 	// Replace the existing default with a blackhole so traffic is blocked
 	// when the VPN split routes are absent. The /1 split routes are more
 	// specific and will supersede this while the VPN is running.
@@ -278,6 +283,51 @@ func (m *DarwinRouteManager) AddKillSwitchRoute() error {
 		return fmt.Errorf("kill switch: install blackhole default route: %w; restoring the default route also failed, run: sudo route add default %s", err, m.defGw)
 	}
 	return fmt.Errorf("kill switch: install blackhole default route: %w; original default route restored", err)
+}
+
+// addKillSwitchV6 replaces the IPv6 default with a blackhole. macOS keeps one default route
+// per family, so an existing router default has to go first; a later router advertisement,
+// or turning the interface off and on, brings it back after the blackhole is removed.
+func (m *DarwinRouteManager) addKillSwitchV6() error {
+	add := []string{"-n", "add", "-inet6", "-blackhole", "default", "::1"}
+	out, err := runCapture("route", add...)
+	if err != nil && strings.Contains(out, "File exists") {
+		_ = runSudo("route", "-n", "delete", "-inet6", "default")
+		_, err = runCapture("route", add...)
+	}
+	if err != nil {
+		return fmt.Errorf("kill switch: install IPv6 blackhole default route: %w", err)
+	}
+	m.killSwitchV6Added = true
+	return nil
+}
+
+// AddIPv6Reject makes every IPv6 destination outside connected and link-local prefixes fail
+// at once with "no route to host", so apps fall back to IPv4 without waiting.
+func (m *DarwinRouteManager) AddIPv6Reject() error {
+	return m.addV6Halves(func(dst string) []string { return []string{"-inet6", "-reject", dst, "::1"} })
+}
+
+// AddIPv6SplitDefault routes all of IPv6 into the TUN (--enable_ipv6).
+func (m *DarwinRouteManager) AddIPv6SplitDefault() error {
+	return m.addV6Halves(func(dst string) []string { return []string{"-inet6", dst, "-interface", m.tunName} })
+}
+
+// addV6Halves falls back to `route change` on "File exists", so a reject route left by a
+// crashed run does not block startup.
+func (m *DarwinRouteManager) addV6Halves(spec func(dst string) []string) error {
+	for _, dst := range []string{"::/1", "8000::/1"} {
+		args := spec(dst)
+		out, err := runCapture("route", append([]string{"-n", "add"}, args...)...)
+		if err != nil && strings.Contains(out, "File exists") {
+			_, err = runCapture("route", append([]string{"-n", "change"}, args...)...)
+		}
+		if err != nil {
+			return fmt.Errorf("IPv6 route %s not installed; IPv6 traffic would leak outside the tunnel: %w", strings.Join(args, " "), err)
+		}
+		m.addedV6 = append(m.addedV6, dst)
+	}
+	return nil
 }
 
 // Cleanup removes all routes and DNS configuration applied by this manager
@@ -331,6 +381,10 @@ func (m *DarwinRouteManager) Cleanup() {
 			_ = runSudo("route", "-n", "delete", "-net", ar.dest)
 		}
 	}
+	// IPv6 reject/split-default routes
+	for _, dst := range m.addedV6 {
+		_ = runSudo("route", "-n", "delete", "-inet6", dst)
+	}
 	// DNS service
 	if m.dnsConfigured {
 		if err := runSudo("networksetup", "-setdnsservers", m.dnsService, "Empty"); err != nil {
@@ -350,6 +404,11 @@ func (m *DarwinRouteManager) Cleanup() {
 				_ = runSudo("route", "-n", "add", "default", m.defGw)
 			}
 		}
+	}
+	// Logged independent of killSwitchAdded: the IPv6 blackhole is installed before the IPv4
+	// one, so it can be up even when the IPv4 blackhole install then fails.
+	if m.killSwitchV6Added {
+		logx.Info("kill switch: IPv6 blackhole default preserved; to unblock IPv6 run: sudo route delete -inet6 default, then turn the network interface off and on\n")
 	}
 }
 
