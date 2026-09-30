@@ -17,7 +17,10 @@ import (
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
-const defaultTimeout = 2 * time.Second
+const (
+	defaultTimeout = 2 * time.Second
+	pinnedTTL      = 60
+)
 
 // Options configures Start.
 type Options struct {
@@ -26,15 +29,21 @@ type Options struct {
 	Control      func(network, address string, c syscall.RawConn) error
 	BindUpstream bool          // pass every upstream socket through Control from the start
 	Timeout      time.Duration // per upstream exchange; zero means defaultTimeout
+	FilterAAAA   bool          // answer AAAA with an empty NOERROR while IPv6 is blocked
+	// Pinned answers A queries for the control-plane hosts with the addresses resolved at
+	// startup, so reconnecting never depends on the tunnel it is trying to rebuild.
+	Pinned     map[string][]netip.Addr
+	LocalAddrs func() ([]net.Addr, error) // nil means net.InterfaceAddrs
 }
 
 // Server is a running stub. Close stops it.
 type Server struct {
-	opts  Options
-	addr  netip.AddrPort
-	bound atomic.Bool
-	udp   *dns.Server
-	tcp   *dns.Server
+	opts   Options
+	pinned map[string][]netip.Addr
+	addr   netip.AddrPort
+	bound  atomic.Bool
+	udp    *dns.Server
+	tcp    *dns.Server
 }
 
 // Start binds UDP and TCP on opts.Listen before it returns, so a port conflict fails startup.
@@ -48,11 +57,14 @@ func Start(opts Options) (*Server, error) {
 	if opts.Timeout <= 0 {
 		opts.Timeout = defaultTimeout
 	}
+	if opts.LocalAddrs == nil {
+		opts.LocalAddrs = net.InterfaceAddrs
+	}
 	pc, ln, err := listenUDPTCP(opts.Listen)
 	if err != nil {
 		return nil, fmt.Errorf("dnsstub: listen on %s: %w", opts.Listen, err)
 	}
-	s := &Server{opts: opts, addr: unmapped(pc.LocalAddr().(*net.UDPAddr).AddrPort())}
+	s := &Server{opts: opts, pinned: normalizePinned(opts.Pinned), addr: unmapped(pc.LocalAddr().(*net.UDPAddr).AddrPort())}
 	s.bound.Store(opts.BindUpstream)
 	s.udp = &dns.Server{PacketConn: pc, Handler: dns.HandlerFunc(s.serve)}
 	s.tcp = &dns.Server{Listener: ln, Handler: dns.HandlerFunc(s.serve)}
@@ -100,6 +112,11 @@ func (s *Server) activate() error {
 }
 
 func (s *Server) serve(w dns.ResponseWriter, req *dns.Msg) {
+	if !sourceAllowed(addrIP(w.RemoteAddr()), s.opts.LocalAddrs) {
+		logx.Debug("dnsstub: refused query from %s\n", w.RemoteAddr())
+		_ = w.WriteMsg(new(dns.Msg).SetRcode(req, dns.RcodeRefused))
+		return
+	}
 	_, overTCP := w.RemoteAddr().(*net.TCPAddr)
 	resp := s.answer(req, overTCP)
 	if !overTCP {
@@ -111,12 +128,45 @@ func (s *Server) serve(w dns.ResponseWriter, req *dns.Msg) {
 }
 
 func (s *Server) answer(req *dns.Msg, overTCP bool) *dns.Msg {
+	if resp := s.local(req); resp != nil {
+		return resp
+	}
 	resp, err := s.forward(req, overTCP)
 	if err != nil {
 		logx.Debug("dnsstub: no upstream answered: %v\n", err)
 		return new(dns.Msg).SetRcode(req, dns.RcodeServerFailure)
 	}
 	return resp
+}
+
+// local answers without asking upstream: pinned control-plane names, and an empty AAAA
+// answer while IPv6 is blocked so apps go straight to IPv4 instead of waiting on a v6 attempt.
+func (s *Server) local(req *dns.Msg) *dns.Msg {
+	if len(req.Question) != 1 || req.Question[0].Qclass != dns.ClassINET {
+		return nil
+	}
+	q := req.Question[0]
+	ips, pinned := s.pinned[dns.CanonicalName(q.Name)]
+	switch {
+	case q.Qtype == dns.TypeAAAA && (pinned || s.opts.FilterAAAA):
+		return localReply(req)
+	case q.Qtype == dns.TypeA && pinned:
+		m := localReply(req)
+		for _, ip := range ips {
+			m.Answer = append(m.Answer, &dns.A{
+				Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: pinnedTTL},
+				A:   ip.AsSlice(),
+			})
+		}
+		return m
+	}
+	return nil
+}
+
+func localReply(req *dns.Msg) *dns.Msg {
+	m := new(dns.Msg).SetReply(req)
+	m.RecursionAvailable = true
+	return m
 }
 
 // forward keeps the client's transport: the TCP retry after a truncated UDP answer has to
@@ -170,6 +220,56 @@ func listenUDPTCP(addr netip.AddrPort) (net.PacketConn, net.Listener, error) {
 			return nil, nil, err
 		}
 	}
+}
+
+// normalizePinned keeps IPv4 only: the control-plane bypass routes are IPv4 host routes.
+func normalizePinned(in map[string][]netip.Addr) map[string][]netip.Addr {
+	out := make(map[string][]netip.Addr, len(in))
+	for name, ips := range in {
+		var v4 []netip.Addr
+		for _, ip := range ips {
+			if ip = ip.Unmap(); ip.Is4() {
+				v4 = append(v4, ip)
+			}
+		}
+		if len(v4) > 0 {
+			out[dns.CanonicalName(name)] = v4
+		}
+	}
+	return out
+}
+
+// sourceAllowed keeps the stub from serving other hosts that can reach the TUN address,
+// for example through IP forwarding on a router.
+func sourceAllowed(ip netip.Addr, localAddrs func() ([]net.Addr, error)) bool {
+	ip = ip.Unmap()
+	if ip.IsLoopback() {
+		return true
+	}
+	addrs, err := localAddrs()
+	if err != nil {
+		return false
+	}
+	for _, a := range addrs {
+		n, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		if la, ok := netip.AddrFromSlice(n.IP); ok && la.Unmap() == ip {
+			return true
+		}
+	}
+	return false
+}
+
+func addrIP(a net.Addr) netip.Addr {
+	switch v := a.(type) {
+	case *net.UDPAddr:
+		return v.AddrPort().Addr()
+	case *net.TCPAddr:
+		return v.AddrPort().Addr()
+	}
+	return netip.Addr{}
 }
 
 func unmapped(ap netip.AddrPort) netip.AddrPort {
