@@ -82,3 +82,37 @@ func TestDataplane_PumpOutboundForwardsUntilReadFails(t *testing.T) {
 		t.Fatalf("sent=%d counters=%+v", len(sent), &c)
 	}
 }
+
+func pumpAll(t *testing.T, enableIPv6 bool, pkts ...[]byte) ([][]byte, *Counters) {
+	t.Helper()
+	dev := &fakeDev{reads: make(chan []byte, len(pkts))}
+	for _, p := range pkts {
+		dev.reads <- p
+	}
+	close(dev.reads)
+	var c Counters
+	var sent [][]byte
+	NewDataplane(dev, NewInboundPolicy("", false, ""), enableIPv6, &c).PumpOutbound(func(p []byte) { sent = append(sent, p) })
+	return sent, &c
+}
+
+func TestDataplane_PumpOutboundDropsIPv6WhenDisabled(t *testing.T) {
+	v6 := buildIPv6TCPPacket(net.ParseIP("fd00::2"), 0x02)
+	v4 := []byte{0x45, 1, 2, 3}
+
+	sent, c := pumpAll(t, false, v6, v4)
+
+	if len(sent) != 1 || sent[0][0]>>4 != 4 {
+		t.Fatalf("sent %d packets; only the IPv4 one may reach the provider with --enable_ipv6 off", len(sent))
+	}
+	if atomic.LoadUint64(&c.PktsOut) != 1 || atomic.LoadUint64(&c.BytesOut) != uint64(len(v4)) {
+		t.Fatalf("counters = %+v; dropped packets must not count as sent", c)
+	}
+}
+
+func TestDataplane_PumpOutboundForwardsIPv6WhenEnabled(t *testing.T) {
+	sent, _ := pumpAll(t, true, buildIPv6TCPPacket(net.ParseIP("fd00::2"), 0x02))
+	if len(sent) != 1 {
+		t.Fatalf("sent %d packets; IPv6 must pass with --enable_ipv6", len(sent))
+	}
+}

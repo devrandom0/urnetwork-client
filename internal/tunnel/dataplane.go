@@ -72,7 +72,8 @@ func logDroppedInbound(packet []byte) {
 	}
 }
 
-// PumpOutbound copies packets from the TUN to send until a device read fails.
+// PumpOutbound copies packets from the TUN to send until a device read fails. With IPv6 off
+// it drops IPv6 packets, in case something still routes IPv6 into the TUN.
 func (d *Dataplane) PumpOutbound(send func(packet []byte)) {
 	buf := make([]byte, 65536)
 	for {
@@ -81,6 +82,10 @@ func (d *Dataplane) PumpOutbound(send func(packet []byte)) {
 			return
 		}
 		if n <= 0 {
+			continue
+		}
+		if buf[0]>>4 == 6 && !d.enableIPv6 {
+			logx.Debug("dropped outbound IPv6 packet (--enable_ipv6 not set)\n")
 			continue
 		}
 		pkt := make([]byte, n)
