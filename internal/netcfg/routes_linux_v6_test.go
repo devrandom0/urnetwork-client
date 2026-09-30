@@ -4,6 +4,7 @@ package netcfg
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -191,5 +192,34 @@ func TestLinuxDNSBypass_RemoveKeepsControlPlaneRoutes(t *testing.T) {
 
 	if f.count("ip route del 1.1.1.1") != 1 || f.count("ip route del 203.0.113.7") != 0 {
 		t.Fatalf("calls = %v; RemoveDNSBypass must drop only DNS routes", f.Calls())
+	}
+}
+
+func TestLinuxKillSwitch_IPv6LogSurvivesIPv4Failure(t *testing.T) {
+	useIPv6Disabled(t, "0\n")
+	f := useFakeRunner(t)
+	f.failOn("ip route add blackhole default", "RTNETLINK answers: Operation not permitted")
+	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+
+	if err := m.AddKillSwitchRoute(); err == nil {
+		t.Fatal("AddKillSwitchRoute = nil; want an error when the IPv4 blackhole fails")
+	}
+	if !m.killSwitchV6Added {
+		t.Fatal("killSwitchV6Added must stay true; the IPv6 blackhole was installed before the IPv4 failure")
+	}
+
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	m.Cleanup()
+	_ = w.Close()
+	os.Stdout = origStdout
+	out, _ := io.ReadAll(r)
+
+	if !strings.Contains(string(out), "IPv6 blackhole default preserved") {
+		t.Fatalf("Cleanup log = %q; want the IPv6 hint logged even though the IPv4 blackhole never installed", out)
 	}
 }

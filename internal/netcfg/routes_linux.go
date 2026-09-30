@@ -282,14 +282,16 @@ func (m *LinuxRouteManager) Cleanup() {
 	if m.killSwitchAdded {
 		if m.killSwitch {
 			logx.Info("kill switch: blackhole default route preserved; all traffic is blocked until you run: ip route del blackhole default && ip route add default via <gateway>\n")
-			if m.killSwitchV6Added {
-				logx.Info("kill switch: IPv6 blackhole default preserved; to unblock IPv6 run: ip -6 route del blackhole default metric 1\n")
-			}
 		} else {
 			_ = run("ip", "route", "del", "blackhole", "default")
 			if m.origGw != "" && m.origDev != "" {
 				_ = run("ip", "route", "add", "default", "via", m.origGw, "dev", m.origDev)
 			}
 		}
+	}
+	// Logged independent of killSwitchAdded: the IPv6 blackhole is installed before the IPv4
+	// one, so it can be up even when the IPv4 blackhole install then fails.
+	if m.killSwitchV6Added {
+		logx.Info("kill switch: IPv6 blackhole default preserved; to unblock IPv6 run: ip -6 route del blackhole default metric 1\n")
 	}
 }
