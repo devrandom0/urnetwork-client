@@ -76,8 +76,19 @@ For full container usage (compose, multi-arch, macOS notes), see [docs/docker.md
 - `login`, `verify`, `save-jwt`, `mint-client`
 - `quick-connect`, `vpn`, `socks`
 - `find-providers`, `locations`, `open`
+- `recover`
 
 Run `./dist/urnet-client --help` for full command help.
+
+## Troubleshooting
+
+If DNS stops working after the VPN exited, for example because it was killed with `kill -9`, run:
+
+```bash
+sudo urnet-client recover
+```
+
+It removes the DNS settings and IPv6 reject routes the VPN left behind and prints what it changed, or `nothing to recover`. It refuses while the process that made the changes is still running; stop that process first, or add `--force` if that pid is not a running urnet-client. See "Crash recovery" in [docs/platform-notes.md](docs/platform-notes.md).
 
 ## Common Defaults
 

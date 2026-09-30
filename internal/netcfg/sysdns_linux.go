@@ -37,29 +37,56 @@ func NewSystemDNS(tunName string) SystemDNS {
 // RecoverStaleDNS undoes DNS changes left by a run that died before its cleanup, and refuses
 // while the run that made them is still alive.
 func RecoverStaleDNS() error {
-	if err := recoverStaleResolved(resolvedOwnerPath); err != nil {
+	markers, err := dnsMarkers()
+	if err != nil {
 		return err
 	}
-	return (&resolvConfDNS{path: resolvConfPath, backup: resolvConfBackupPath}).recoverStale()
+	actions, err := recoverState(RecoverOptions{}, markers)
+	for _, a := range actions {
+		logx.Warn("%s, left by an earlier urnet-client run\n", a)
+	}
+	return err
 }
 
-// recoverStaleResolved drops a dead run's owner file. Its per-link settings normally vanish
-// with its TUN; the revert covers a TUN that outlived it.
-func recoverStaleResolved(owner string) error {
+// dnsMarkers returns the resolved owner file and the resolv.conf backup that exist.
+func dnsMarkers() ([]dnsMarker, error) {
+	var markers []dnsMarker
+	m, err := resolvedMarker(resolvedOwnerPath)
+	if err != nil {
+		return nil, err
+	}
+	if m != nil {
+		markers = append(markers, *m)
+	}
+	if m := (&resolvConfDNS{path: resolvConfPath, backup: resolvConfBackupPath}).marker(); m != nil {
+		markers = append(markers, *m)
+	}
+	return markers, nil
+}
+
+// resolvedMarker reads a run's owner file. Its per-link settings normally vanish with its
+// TUN; the revert covers a TUN that outlived it.
+func resolvedMarker(owner string) (*dnsMarker, error) {
 	b, err := safefile.ReadFile(owner, 4<<10)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return fmt.Errorf("read %s: %w", owner, err)
+		return nil, fmt.Errorf("read %s: %w", owner, err)
 	}
-	if err := liveOwnerErr(parseOwnerPID(string(b))); err != nil {
-		return err
-	}
-	if tun := ownerTUN(string(b)); tun != "" {
-		_ = run("resolvectl", "revert", tun)
-	}
-	return os.Remove(owner)
+	tun := ownerTUN(string(b))
+	return &dnsMarker{pid: parseOwnerPID(string(b)), undo: func() (string, error) {
+		if tun != "" {
+			_ = run("resolvectl", "revert", tun)
+		}
+		if err := os.Remove(owner); err != nil {
+			return "", err
+		}
+		if tun == "" {
+			return "removed " + owner, nil
+		}
+		return fmt.Sprintf("reverted the systemd-resolved DNS settings of %s and removed %s", tun, owner), nil
+	}}, nil
 }
 
 func ownerTUN(s string) string {
@@ -149,5 +176,8 @@ func (r *resolvedDNS) Restore() error {
 	if rmErr := os.Remove(r.owner); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
 		err = errors.Join(err, rmErr)
 	}
-	return err
+	if err != nil {
+		return fmt.Errorf("%w; %s", err, RecoverHint)
+	}
+	return nil
 }

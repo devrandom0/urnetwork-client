@@ -4,7 +4,6 @@ package netcfg
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"syscall"
 )
@@ -23,5 +22,5 @@ func liveOwnerErr(pid int) error {
 	if pid <= 0 || pid == os.Getpid() || !pidAlive(pid) {
 		return nil
 	}
-	return fmt.Errorf("another urnet-client (pid %d) owns system DNS; stop it first", pid)
+	return &LiveOwnerError{PID: pid}
 }

@@ -32,18 +32,32 @@ const scutilOwnerKey = "UrnetPID"
 // it exists every lookup goes to a stub that is no longer running. It refuses while the
 // process that published the entry is still alive.
 func RecoverStaleDNS() error {
-	out, err := cmdRunner.RunInput("show "+scutilService+"/DNS\n", "scutil")
+	markers, err := dnsMarkers()
 	if err != nil {
-		return fmt.Errorf("scutil: %w", err)
-	}
-	if strings.Contains(out, "No such key") {
-		return nil
-	}
-	if err := liveOwnerErr(scutilOwnerPID(out)); err != nil {
 		return err
 	}
-	logx.Warn("removing DNS settings left by an earlier urnet-client run\n")
-	return removeScutilService()
+	actions, err := recoverState(RecoverOptions{}, markers)
+	for _, a := range actions {
+		logx.Warn("%s, left by an earlier urnet-client run\n", a)
+	}
+	return err
+}
+
+// dnsMarkers returns the scutil entry, if one is published.
+func dnsMarkers() ([]dnsMarker, error) {
+	out, err := cmdRunner.RunInput("show "+scutilService+"/DNS\n", "scutil")
+	if err != nil {
+		return nil, fmt.Errorf("scutil: %w", err)
+	}
+	if strings.Contains(out, "No such key") {
+		return nil, nil
+	}
+	return []dnsMarker{{pid: scutilOwnerPID(out), undo: func() (string, error) {
+		if err := removeScutilService(); err != nil {
+			return "", err
+		}
+		return "removed the DNS entry " + scutilService, nil
+	}}}, nil
 }
 
 type scutilDNS struct {
@@ -75,13 +89,11 @@ func (s *scutilDNS) Apply(stub netip.Addr) error {
 		err = scutilOutputErr(out, false)
 	}
 	if err != nil {
-		_ = removeScutilService()
-		return fmt.Errorf("scutil: publish DNS stub %s: %w", stub, err)
+		return errors.Join(fmt.Errorf("scutil: publish DNS stub %s: %w", stub, err), removeScutilService())
 	}
 	s.applied = true
 	if err := s.waitUntilDefault(stub); err != nil {
-		_ = s.Restore()
-		return err
+		return errors.Join(err, s.Restore())
 	}
 	logx.Info("DNS: system resolver points at the stub %s\n", stub)
 	return nil
@@ -156,7 +168,7 @@ func removeScutilService() error {
 		err = scutilOutputErr(out, true)
 	}
 	if err != nil {
-		return fmt.Errorf("scutil: remove %s: %w; remove it with: printf 'remove %s/DNS\\nremove %s/IPv4\\n' | sudo scutil", scutilService, err, scutilService, scutilService)
+		return fmt.Errorf("scutil: remove %s: %w; %s", scutilService, err, RecoverHint)
 	}
 	return nil
 }

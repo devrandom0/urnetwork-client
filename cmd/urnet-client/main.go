@@ -33,6 +33,7 @@ Usage:
     urnet-client find-providers [--count=<count>] [--rank_mode=<rank_mode>] [--api_url=<api_url>] [--jwt=<jwt>]
     urnet-client open [--transports=<n>] [--connect_url=<connect_url>] [--api_url=<api_url>] [--jwt=<jwt>]
     urnet-client locations [--query=<q>] [--api_url=<api_url>] [--jwt=<jwt>]
+    urnet-client recover [--force]
 			urnet-client vpn [--tun=<name>] [--connect_url=<connect_url>] [--api_url=<api_url>] [--jwt=<jwt>] [--ip_cidr=<cidr>] [--mtu=<mtu>] [--default_route] [--route=<list>] [--exclude_route=<list>] [--domain=<list>] [--exclude_domain=<list>] [--dns=<list>] [--dns_service=<name>] [--dns_bootstrap=<mode>] [--location_query=<q>] [--location_id=<id>] [--location_group_id=<id>] [--socks=<addr>] [--socks_listen=<addr>] [--socks_user=<user>] [--socks_pass=<pass>] [--allow_inbound_src=<list>] [--allow_inbound_local] [--enable_ipv6] [--kill_switch] [--background] [--log_file=<path>] [--log_level=<level>] [--debug] [--stats_interval=<sec>] [--config=<path>]
 
 Options:
@@ -82,6 +83,7 @@ Options:
     -h --help                    Show help
     --version                    Show version
     --config=<path>              Path to YAML config file; CLI flags take precedence
+    --force                      recover: undo DNS and route changes even while the process that made them is still running
 `, config.DefaultAPIURL, config.DefaultConnectURL)
 }
 
@@ -154,6 +156,8 @@ func main() {
 		runErr = cmdSocks(ctx, opts)
 	case config.MustBool(opts, "vpn"):
 		runErr = cmdVpnFromOpts(ctx, opts)
+	case config.MustBool(opts, "recover"):
+		runErr = cmdRecover(opts, defaultRecoverDeps())
 	default:
 		fmt.Println(usage)
 	}

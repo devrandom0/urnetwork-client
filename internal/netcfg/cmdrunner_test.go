@@ -19,11 +19,13 @@ type fakeRunner struct {
 	calls   []string
 	inputs  []string
 	results map[string]fakeResult
+	// byInput scripts RunInput by its stdin, for tools like scutil that take commands there.
+	byInput map[string]fakeResult
 }
 
 func useFakeRunner(t *testing.T) *fakeRunner {
 	t.Helper()
-	f := &fakeRunner{results: map[string]fakeResult{}}
+	f := &fakeRunner{results: map[string]fakeResult{}, byInput: map[string]fakeResult{}}
 	old := cmdRunner
 	cmdRunner = f
 	t.Cleanup(func() { cmdRunner = old })
@@ -78,7 +80,15 @@ func (f *fakeRunner) count(line string) int {
 func (f *fakeRunner) RunInput(stdin, name string, args ...string) (string, error) {
 	f.mu.Lock()
 	f.inputs = append(f.inputs, stdin)
+	r, ok := f.byInput[stdin]
 	f.mu.Unlock()
+	if ok {
+		line := strings.Join(append([]string{name}, args...), " ")
+		f.mu.Lock()
+		f.calls = append(f.calls, line)
+		f.mu.Unlock()
+		return r.out, r.err
+	}
 	return f.Capture(name, args...)
 }
 

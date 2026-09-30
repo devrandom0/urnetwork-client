@@ -29,7 +29,7 @@ type resolvConfDNS struct {
 
 func (r *resolvConfDNS) Apply(stub netip.Addr) error {
 	if _, err := os.Lstat(r.backup); err == nil {
-		return fmt.Errorf("%s exists from an earlier run; restore it with: sudo cp %s %s && sudo rm %s", r.backup, r.backup, r.path, r.backup)
+		return fmt.Errorf("%s exists from an earlier run; %s", r.backup, RecoverHint)
 	}
 	if target, err := os.Readlink(r.path); err == nil {
 		return fmt.Errorf("%s is a symlink to %s, managed by another DNS tool; urnet-client supports systemd-resolved (stub-resolv.conf) or a plain file", r.path, target)
@@ -56,7 +56,7 @@ func (r *resolvConfDNS) Apply(stub netip.Addr) error {
 // backup once that restore is confirmed, so a crash never leaves both r.path and the backup bad.
 func (r *resolvConfDNS) recoverFailedWrite(writeErr error, orig []byte) error {
 	if err := safefile.Overwrite(r.path, orig); err != nil {
-		return fmt.Errorf("point %s at the DNS stub: %w; the original is preserved in %s", r.path, writeErr, r.backup)
+		return fmt.Errorf("point %s at the DNS stub: %w; the original is preserved in %s; %s", r.path, writeErr, r.backup, RecoverHint)
 	}
 	_ = os.Remove(r.backup)
 	return fmt.Errorf("point %s at the DNS stub: %w", r.path, writeErr)
@@ -73,16 +73,32 @@ func (r *resolvConfDNS) Restore() error {
 // recoverStale restores a backup left by a run that died before Restore, unless the run that
 // wrote r.path is still alive.
 func (r *resolvConfDNS) recoverStale() error {
+	m := r.marker()
+	if m == nil {
+		return nil
+	}
+	actions, err := recoverState(RecoverOptions{}, []dnsMarker{*m})
+	for _, a := range actions {
+		logx.Warn("%s, left by an earlier urnet-client run\n", a)
+	}
+	return err
+}
+
+// marker is nil without a backup. The owner pid is in the file the run wrote, not in the backup.
+func (r *resolvConfDNS) marker() *dnsMarker {
 	if _, err := os.Lstat(r.backup); errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
+	pid := 0
 	if cur, err := safefile.ReadFile(r.path, maxResolvConfSize); err == nil {
-		if err := liveOwnerErr(parseOwnerPID(string(cur))); err != nil {
-			return err
-		}
+		pid = parseOwnerPID(string(cur))
 	}
-	logx.Warn("restoring %s from %s, left by an earlier urnet-client run\n", r.path, r.backup)
-	return r.restoreBackup()
+	return &dnsMarker{pid: pid, undo: func() (string, error) {
+		if err := r.restoreBackup(); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("restored %s from %s", r.path, r.backup), nil
+	}}
 }
 
 func (r *resolvConfDNS) restoreBackup() error {
@@ -91,7 +107,7 @@ func (r *resolvConfDNS) restoreBackup() error {
 		return fmt.Errorf("read %s: %w", r.backup, err)
 	}
 	if err := safefile.Overwrite(r.path, orig); err != nil {
-		return fmt.Errorf("restore %s from %s: %w; restore it with: sudo cp %s %s", r.path, r.backup, err, r.backup, r.path)
+		return fmt.Errorf("restore %s from %s: %w; %s", r.path, r.backup, err, RecoverHint)
 	}
 	return os.Remove(r.backup)
 }

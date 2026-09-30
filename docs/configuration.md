@@ -85,7 +85,7 @@ With `--default_route`, DNS and IPv6 follow the tunnel. Without `--default_route
 
 ### Failing closed
 
-The VPN does not start, and whatever was already applied is undone, when the stub cannot bind its port, when system DNS cannot be pointed at the stub, or when an IPv6 reject, IPv6 tunnel or IPv6 kill switch route cannot be installed. After a crash, system DNS keeps pointing at the stopped stub and the next start cleans this up. Whether lookups then fail or leak depends on the platform; `docs/platform-notes.md` has the details and the manual commands.
+The VPN does not start, and whatever was already applied is undone, when the stub cannot bind its port, when system DNS cannot be pointed at the stub, or when an IPv6 reject, IPv6 tunnel or IPv6 kill switch route cannot be installed. After a crash, system DNS keeps pointing at the stopped stub until the next start or `sudo urnet-client recover` cleans it up. Whether lookups then fail or leak depends on the platform; `docs/platform-notes.md` has the details and the manual commands.
 
 ## Environment variables
 

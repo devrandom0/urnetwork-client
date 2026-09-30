@@ -80,13 +80,19 @@ sudo ./urnet-client vpn \
 
 ## Crash recovery
 
-If the client is killed (for example `kill -9` or a power cut) it cannot undo its changes. The next start of the client cleans DNS up by itself. Until then:
+If the client is killed (for example `kill -9` or a power cut) it cannot undo its changes. Run:
+
+```bash
+sudo urnet-client recover
+```
+
+It restores system DNS first (the `scutil` entry on macOS, `/etc/resolv.conf` from its backup or `resolvectl revert` of the recorded link on Linux), then removes leftover IPv6 reject routes (`::/1`, `8000::/1`) and `/1` routes through a TUN that no longer exists. It prints each change, or `nothing to recover`. It refuses while the process recorded as the owner is still running; `--force` skips that check. The next VPN start also cleans up DNS by itself. Until one of them runs:
 
 - Without `--kill_switch` the split routes vanish with the TUN, so all traffic, not only DNS, leaves through your normal connection.
 - macOS: while the `scutil` entry is published and the stub is gone, macOS falls back to the primary LAN resolver, so lookups leak until the next start or the manual removal below.
 - Linux with `/etc/resolv.conf` rewritten: it keeps pointing at the stub address. Without a kill switch that address now follows the default route out the LAN gateway, so the names leave the host even though nothing answers them. With the kill switch they hit the blackhole.
 - Linux with systemd-resolved: the link settings vanish with the TUN and resolved falls back to the LAN servers, as on macOS. The kill switch does not stop this when the LAN resolver is on-link.
-- The IPv6 reject routes stay, so IPv6 remains blocked, until a later `--default_route` run takes them over and removes them on exit, or until you delete them with the commands below. A run without `--default_route` leaves them alone.
+- The IPv6 reject routes stay, so IPv6 remains blocked, until `sudo urnet-client recover` removes them, a later `--default_route` run takes them over and removes them on exit, or you delete them with the commands below. A run without `--default_route` leaves them alone.
 
 Closing the DNS fallback fully needs a packet-filter firewall kill switch (deferred). Until then these resolver paths are not covered either:
 
@@ -94,7 +100,7 @@ Closing the DNS fallback fully needs a packet-filter firewall kill switch (defer
 - Apps with hardcoded LAN resolvers, and on macOS sockets scoped to an interface (`IP_BOUND_IF`, scoped `scutil` resolvers), which skip the stub and the split routes.
 - IPv6 resolvers on the local link (for example announced by router advertisements), since connected and link-local prefixes are not rejected.
 
-To restore by hand:
+If `recover` itself fails, restore by hand:
 
 macOS:
 

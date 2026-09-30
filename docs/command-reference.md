@@ -14,6 +14,7 @@
 | `open` | Open control-plane transports (connectivity test) |
 | `vpn` | Start VPN dataplane (userspace TUN) |
 | `socks` | Start standalone SOCKS5 proxy (no TUN required) |
+| `recover` | Undo the DNS and route changes of a VPN run that died without cleaning up (needs root) |
 
 Global help:
 
@@ -101,6 +102,10 @@ Standalone proxy without TUN/VPN: `./urnet-client socks --listen=... --extender_
 ### Kill switch
 
 - `--kill_switch`: Block all traffic if the VPN connection drops. **Requires `--default_route`.** On graceful exit, the blackhole default route is preserved; traffic stays blocked until you manually restore your gateway. If startup fails after the blackhole route is installed, the host stays offline the same way: run the restore command printed in the error to bring connectivity back. It also installs an IPv6 blackhole default, kept after exit the same way.
+
+### Recover
+
+- `--force`: `recover` also undoes changes whose recorded owner process is still running. Without it, `recover` refuses and names that pid.
 
 ### Diagnostics
 
