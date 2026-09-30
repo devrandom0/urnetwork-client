@@ -383,9 +383,10 @@ func checkRegular(f *os.File, path string) (fs.FileInfo, error) {
 }
 
 // ReadFile reads path, refusing special files and files larger than limit bytes. As root it
-// also pins path's directory the way WriteFile does (refusing an untrusted symlink or
-// ancestor owner) and refuses a symlink at path itself; other users may point their config at
-// a dotfile manager's link, so non-root always follows.
+// also refuses a symlink anywhere in path's parent directory chain, or an ancestor directory
+// owned by anyone but root or the sudo-invoking user, the same rule WriteFile applies before
+// writing; it then refuses a symlink at path itself. Other users may point their config at a
+// dotfile manager's link, so non-root always follows both the parent chain and the leaf.
 func ReadFile(path string, limit int64) ([]byte, error) {
 	cleaned, err := filepath.Abs(path)
 	if err != nil {
