@@ -41,7 +41,8 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 		logx.Warn("--tun provided without a valid name (got %q); using auto utun\n", rawTun)
 	}
 	sd := newShutdown()
-	defer runShutdown(sd)
+	var wd releaser
+	defer func() { runShutdown(sd, wd) }()
 
 	dev, err := tunnel.Open(devName)
 	if err != nil {
@@ -110,6 +111,7 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 
 	var stubAddr string
 	if cfg.DefaultRoute {
+		wd = startDNSWatchdog()
 		guard, err := applyLeakPolicy(ctx, cfg, pinned, &counters, leakDeps{
 			routes:    rm,
 			sysDNS:    netcfg.NewSystemDNS(actualName),
@@ -117,6 +119,7 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 			control:   socks.InterfaceControl(actualName),
 		})
 		if err != nil {
+			wd = stayArmed{wd}
 			return err
 		}
 		guard.register(sd)

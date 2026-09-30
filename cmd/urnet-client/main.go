@@ -11,7 +11,9 @@ import (
 
 	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/logx"
+	"github.com/devrandom0/urnetwork-client/internal/netcfg"
 	"github.com/devrandom0/urnetwork-client/internal/session"
+	"github.com/devrandom0/urnetwork-client/internal/watchdog"
 )
 
 var Version = "dev"
@@ -98,6 +100,9 @@ Options:
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == watchdog.Subcommand {
+		os.Exit(watchdog.Main(os.Args[2:], watchdogRecovery(netcfg.Recover)))
+	}
 	usage := usageText()
 
 	opts, err := docopt.ParseArgs(usage, os.Args[1:], Version)

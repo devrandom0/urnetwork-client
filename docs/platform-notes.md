@@ -84,7 +84,9 @@ On Ctrl-C, SIGTERM or SIGHUP the client restores system DNS first, then stops SO
 
 ## Crash recovery
 
-If the client is killed (for example `kill -9` or a power cut) it cannot undo its changes. Run:
+With `--default_route` the client starts a small watchdog process before it changes system DNS: the same binary, shown in `ps` as `urnet-client __dns-watchdog --owner <pid>`. It gets no environment and no secrets, ignores Ctrl-C, SIGHUP and SIGTERM, and logs to the same place as the client. If the client dies without cleaning up, even from `kill -9`, the watchdog notices at once, restores system DNS and removes the IPv6 reject routes, then exits. It only acts while the DNS settings still name its client's pid, so it never touches a newer run. After a normal exit the client tells it to quit without doing anything. A power cut or `kill -9` of both processes still leaves the changes behind.
+
+If the changes are still there, for example after a power cut, run:
 
 ```bash
 sudo urnet-client recover

@@ -118,3 +118,26 @@ func runStep(st cleanupStep, deadline time.Time, abort <-chan struct{}) (err err
 		return nil, false
 	}
 }
+
+type releaser interface{ Release() }
+
+// stayArmed keeps the watchdog's pipe open until this process exits but never releases it,
+// for a startup failure whose DNS rollback may itself have failed: the watchdog then checks.
+type stayArmed struct{ releaser }
+
+func (stayArmed) Release() {}
+
+// runShutdown runs sd with a second signal able to skip the steps after DNS.
+func runShutdown(sd *shutdown, wd releaser) {
+	abort, stop := watchSecondSignal()
+	defer stop()
+	finishShutdown(sd, abort, wd)
+}
+
+// finishShutdown keeps the watchdog armed when DNS is not confirmed restored: once this
+// process exits, it retries the restore for us.
+func finishShutdown(sd *shutdown, abort <-chan struct{}, wd releaser) {
+	if sd.run(abort) && wd != nil {
+		wd.Release()
+	}
+}

@@ -26,10 +26,3 @@ func watchSecondSignal() (abort <-chan struct{}, stop func()) {
 	}()
 	return done, func() { signal.Stop(ch); close(quit) }
 }
-
-// runShutdown runs sd with a second signal able to skip the steps after DNS.
-func runShutdown(sd *shutdown) bool {
-	abort, stop := watchSecondSignal()
-	defer stop()
-	return sd.run(abort)
-}

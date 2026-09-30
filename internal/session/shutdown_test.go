@@ -169,3 +169,43 @@ func TestLeakGuard_RegistersDNSRestoreFirst(t *testing.T) {
 		t.Fatalf("steps = %v; want DNS restored before anything else, then the stub closed", got)
 	}
 }
+
+type fakeWatchdog struct{ released int }
+
+func (f *fakeWatchdog) Release() { f.released++ }
+
+func TestFinishShutdown_ReleasesWatchdogAfterDNSRestored(t *testing.T) {
+	sd := newShutdown()
+	sd.restoreDNSFirst("restore system DNS", time.Second, func() error { return nil })
+	wd := &fakeWatchdog{}
+
+	finishShutdown(sd, nil, wd)
+
+	if wd.released != 1 {
+		t.Fatalf("releases = %d; want the watchdog told that cleanup is done", wd.released)
+	}
+}
+
+func TestFinishShutdown_KeepsWatchdogWhenDNSRestoreFailed(t *testing.T) {
+	sd := newShutdown()
+	sd.restoreDNSFirst("restore system DNS", time.Second, func() error { return errors.New("scutil: Permission denied") })
+	wd := &fakeWatchdog{}
+
+	captureStderr(t, func() { finishShutdown(sd, nil, wd) })
+
+	if wd.released != 0 {
+		t.Fatal("watchdog released although DNS still points at the stub; it must retry after this process exits")
+	}
+}
+
+func TestFinishShutdown_WithoutWatchdog(t *testing.T) {
+	finishShutdown(newShutdown(), nil, nil)
+}
+
+func TestStayArmed_NeverReleases(t *testing.T) {
+	wd := &fakeWatchdog{}
+	finishShutdown(newShutdown(), nil, stayArmed{wd})
+	if wd.released != 0 {
+		t.Fatal("a watchdog kept armed after a failed startup was released")
+	}
+}
