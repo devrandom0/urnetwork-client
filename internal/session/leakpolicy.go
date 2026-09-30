@@ -71,7 +71,7 @@ func planDNS(cfg config.VPNConfig) (dnsPlan, error) {
 	if mode == "" {
 		mode = config.DefaultDNSBootstrap
 	}
-	return dnsPlan{listen: netip.AddrPortFrom(prefix.Addr(), 53), upstreams: ups, mode: mode}, nil
+	return dnsPlan{listen: netip.AddrPortFrom(stubHost(prefix.Addr()), 53), upstreams: ups, mode: mode}, nil
 }
 
 func parseUpstream(s string) (netip.AddrPort, error) {

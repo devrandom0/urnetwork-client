@@ -135,18 +135,19 @@ func TestLeakPolicy_DefaultBlocksIPv6AndBindsStub(t *testing.T) {
 	if err != nil {
 		t.Fatalf("applyLeakPolicy: %v", err)
 	}
-	want := []string{"routes: ipv6 reject", "stub: start", "sysdns: apply 10.255.0.2"}
+	host := wantStubHost.String()
+	want := []string{"routes: ipv6 reject", "stub: start", "sysdns: apply " + host}
 	if got := f.log.all(); !slices.Equal(got, want) {
 		t.Fatalf("steps = %v; want %v", got, want)
 	}
 	o := f.stub.opts
-	if o.Listen.String() != "10.255.0.2:53" || !o.BindUpstream || !o.FilterAAAA || o.Control == nil {
-		t.Fatalf("stub options = %+v; want the TUN address, bound upstreams and AAAA filtering", o)
+	if o.Listen.String() != host+":53" || !o.BindUpstream || !o.FilterAAAA || o.Control == nil {
+		t.Fatalf("stub options = %+v; want %s:53, bound upstreams and AAAA filtering", o, host)
 	}
 	if got := addrStrings(o.Upstreams); !slices.Equal(got, []string{"1.1.1.1", "9.9.9.9"}) {
 		t.Fatalf("upstreams = %v; want the defaults when --dns is unset", got)
 	}
-	if g.StubAddr() != "10.255.0.2:53" {
+	if g.StubAddr() != host+":53" {
 		t.Fatalf("StubAddr = %q", g.StubAddr())
 	}
 }
@@ -172,7 +173,7 @@ func TestLeakPolicy_IPv6RouteFailureStopsBeforeDNS(t *testing.T) {
 	if _, err := apply(t, f, leakCfg("none")); err == nil {
 		t.Fatal("applyLeakPolicy = nil; want the IPv6 route error")
 	}
-	if f.log.has("stub: start") || f.log.has("sysdns: apply 10.255.0.2") {
+	if f.log.has("stub: start") || f.log.has("sysdns: apply "+wantStubHost.String()) {
 		t.Fatalf("steps = %v; nothing after the failed IPv6 step may run", f.log.all())
 	}
 }
@@ -184,7 +185,7 @@ func TestLeakPolicy_StubFailureLeavesSystemDNSAlone(t *testing.T) {
 	if _, err := apply(t, f, leakCfg("none")); err == nil {
 		t.Fatal("applyLeakPolicy = nil; want the bind error")
 	}
-	if f.log.has("sysdns: apply 10.255.0.2") {
+	if f.log.has("sysdns: apply " + wantStubHost.String()) {
 		t.Fatal("system DNS pointed at a stub that is not running")
 	}
 }

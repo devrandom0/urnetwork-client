@@ -55,9 +55,9 @@ With `--default_route`, DNS and IPv6 follow the tunnel. Without `--default_route
 
 ### DNS
 
-- A DNS stub listens on the TUN address, port 53, over UDP and TCP. The address comes from `--ip_cidr`, so it is `10.255.0.2:53` by default.
+- A DNS stub listens on port 53 over UDP and TCP. On Linux it uses the TUN address from `--ip_cidr`, so `10.255.0.2:53` by default. On macOS it uses `127.0.0.1:53`, because macOS sends queries for a resolver on the TUN address into the tunnel instead of to the local stub; the client does not start if another program already listens there.
 - For the session the system resolver points at the stub:
-  - macOS: a `scutil` dynamic-store entry, `State:/Network/Service/urnet-client`. Saved network settings are not changed and the entry is gone after a reboot. At startup the client checks that `scutil --dns` lists the stub first, and refuses to start otherwise.
+  - macOS: a `scutil` dynamic-store entry, `State:/Network/Service/urnet-client`, on `lo0`. Saved network settings are not changed and the entry is gone after a reboot. At startup the client checks that `scutil --dns` lists the stub first, and refuses to start otherwise.
   - Linux with systemd-resolved (`/etc/resolv.conf` is resolved's `stub-resolv.conf`): `resolvectl dns`, `resolvectl domain <tun> '~.'` and `resolvectl default-route <tun> true` on the TUN link, reverted on exit.
   - Other Linux, including containers: `/etc/resolv.conf` is copied to `/etc/resolv.conf.urnet-client.bak`, replaced with `nameserver <stub>`, and restored on exit. If `/etc/resolv.conf` is a symlink managed by another tool (NetworkManager, resolvconf, resolved without its stub file), the client refuses to start.
 - The process that points system DNS at its stub records its pid: the `UrnetPID` key in the `scutil` entry, a `# urnet-client pid=<pid>` line in `/etc/resolv.conf`, or `/run/urnet-client-dns.owner` with systemd-resolved. While that process is alive, a second `--default_route` run refuses to start with "another urnet-client (pid N) owns system DNS". Leftovers of a process that is gone are cleaned up at the next start, in every mode.

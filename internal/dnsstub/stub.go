@@ -28,7 +28,7 @@ const (
 
 // Options configures Start.
 type Options struct {
-	Listen       netip.AddrPort   // UDP and TCP address, normally <TUN address>:53
+	Listen       netip.AddrPort   // UDP and TCP address: <TUN address>:53 on Linux, 127.0.0.1:53 on macOS
 	Upstreams    []netip.AddrPort // tried in order
 	Control      func(network, address string, c syscall.RawConn) error
 	BindUpstream bool          // pass every upstream socket through Control from the start

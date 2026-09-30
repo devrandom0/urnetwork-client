@@ -20,9 +20,12 @@ const scutilService = "State:/Network/Service/urnet-client"
 
 const scutilRemoveScript = "remove " + scutilService + "/DNS\nremove " + scutilService + "/IPv4\n"
 
-// NewSystemDNS returns the macOS setter, which publishes the stub through scutil.
-func NewSystemDNS(tunName string) SystemDNS {
-	return &scutilDNS{tun: tunName, wait: 3 * time.Second, tick: 100 * time.Millisecond}
+// NewSystemDNS returns the macOS setter, which publishes the loopback stub through scutil.
+// The entry names lo0, not the TUN: mDNSResponder sends a resolver's queries out of the
+// interface its service names, so a TUN entry would push lookups into the tunnel, which
+// itself needs DNS to reach its providers.
+func NewSystemDNS(string) SystemDNS {
+	return &scutilDNS{wait: 3 * time.Second, tick: 100 * time.Millisecond}
 }
 
 // scutilOwnerKey holds the pid of the process that published the entry.
@@ -61,7 +64,6 @@ func dnsMarkers() ([]dnsMarker, error) {
 }
 
 type scutilDNS struct {
-	tun        string
 	applied    bool
 	wait, tick time.Duration
 }
@@ -80,7 +82,7 @@ func (s *scutilDNS) Apply(stub netip.Addr) error {
 		"d.init",
 		"d.add Addresses * " + stub.String(),
 		"d.add SubnetMasks * 255.255.255.255",
-		"d.add InterfaceName " + s.tun,
+		"d.add InterfaceName lo0",
 		"set " + scutilService + "/IPv4",
 		"",
 	}, "\n")

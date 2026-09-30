@@ -46,7 +46,7 @@ resolver #1
 `
 
 func testScutilDNS() *scutilDNS {
-	return &scutilDNS{tun: "utun9", wait: 30 * time.Millisecond, tick: 5 * time.Millisecond}
+	return &scutilDNS{wait: 30 * time.Millisecond, tick: 5 * time.Millisecond}
 }
 
 func TestScutilDNS_ApplyPublishesStubFirst(t *testing.T) {
@@ -65,12 +65,15 @@ func TestScutilDNS_ApplyPublishesStubFirst(t *testing.T) {
 		"d.add ServerAddresses * 10.255.0.2",
 		`d.add SupplementalMatchDomains * ""`,
 		"set State:/Network/Service/urnet-client/DNS",
-		"d.add InterfaceName utun9",
+		"d.add InterfaceName lo0",
 		"set State:/Network/Service/urnet-client/IPv4",
 	} {
 		if !strings.Contains(in[0], line+"\n") {
 			t.Fatalf("scutil script = %q; missing %q", in[0], line)
 		}
+	}
+	if strings.Contains(in[0], "utun") {
+		t.Fatal("an entry on the TUN makes mDNSResponder send the stub's queries into the tunnel")
 	}
 	if strings.Contains(in[0], "Router") || strings.Contains(in[0], "OverridePrimary") {
 		t.Fatal("the script must not make configd treat the tunnel as the primary service")
