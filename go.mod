@@ -7,6 +7,7 @@ toolchain go1.27.1
 require (
 	github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815
 	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/miekg/dns v1.1.73
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
 	github.com/urnetwork/connect v0.0.0-20260927145257-1f8ac317adb9
 	gopkg.in/yaml.v3 v3.0.1
