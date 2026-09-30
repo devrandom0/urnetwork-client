@@ -131,7 +131,10 @@ func (s *Server) serve(w dns.ResponseWriter, req *dns.Msg) {
 		return
 	}
 	_, overTCP := w.RemoteAddr().(*net.TCPAddr)
-	resp := s.answer(req, overTCP)
+	resp, path := s.answer(req, overTCP)
+	if logx.IsDebugEnabled() {
+		logx.Debug("%s\n", queryLogLine(w.RemoteAddr(), req, path))
+	}
 	if !overTCP {
 		resp.Truncate(udpLimit(req))
 	}
@@ -140,19 +143,28 @@ func (s *Server) serve(w dns.ResponseWriter, req *dns.Msg) {
 	}
 }
 
-func (s *Server) answer(req *dns.Msg, overTCP bool) *dns.Msg {
+// answer also reports its path for the query log: local, forward or servfail.
+func (s *Server) answer(req *dns.Msg, overTCP bool) (*dns.Msg, string) {
 	if resp := s.local(req); resp != nil {
-		return resp
+		return resp, "local"
 	}
 	resp, err := s.forward(req, overTCP)
 	if err != nil {
 		logx.Debug("dnsstub: no upstream answered: %v\n", err)
-		return new(dns.Msg).SetRcode(req, dns.RcodeServerFailure)
+		return new(dns.Msg).SetRcode(req, dns.RcodeServerFailure), "servfail"
 	}
 	if s.opts.FilterAAAA {
 		stripIPv6(resp)
 	}
-	return resp
+	return resp, "forward"
+}
+
+func queryLogLine(src net.Addr, req *dns.Msg, path string) string {
+	q := "(no question)"
+	if len(req.Question) > 0 {
+		q = req.Question[0].Name + " " + dns.TypeToString[req.Question[0].Qtype]
+	}
+	return fmt.Sprintf("dnsstub: %s %s %s", src, q, path)
 }
 
 // local answers without asking upstream: pinned control-plane names, and an empty AAAA

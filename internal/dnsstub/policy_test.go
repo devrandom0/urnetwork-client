@@ -166,3 +166,24 @@ func TestStub_KeepsIPv6InForwardedAnswersWhenIPv6On(t *testing.T) {
 		t.Fatalf("answers = %v; want AAAA passed with --enable_ipv6", r.Answer)
 	}
 }
+
+func TestAnswer_ReportsWhereTheAnswerCameFrom(t *testing.T) {
+	up := startUpstream(t, answerA("192.0.2.99"))
+	s := startStub(t, Options{
+		Upstreams: []netip.AddrPort{up.addr},
+		Pinned:    map[string][]netip.Addr{"api.example.test": {netip.MustParseAddr("192.0.2.50")}},
+	})
+	for name, want := range map[string]string{"api.example.test": "local", "other.example.test": "forward"} {
+		if _, path := s.answer(new(dns.Msg).SetQuestion(dns.Fqdn(name), dns.TypeA), false); path != want {
+			t.Fatalf("%s answered by %q, want %q", name, path, want)
+		}
+	}
+}
+
+func TestQueryLogLine(t *testing.T) {
+	req := new(dns.Msg).SetQuestion("example.test.", dns.TypeAAAA)
+	got := queryLogLine(&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 5353}, req, "local")
+	if got != "dnsstub: 127.0.0.1:5353 example.test. AAAA local" {
+		t.Fatalf("log line = %q", got)
+	}
+}
