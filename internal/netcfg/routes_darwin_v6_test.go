@@ -4,6 +4,8 @@ package netcfg
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -133,5 +135,36 @@ func TestDarwinKillSwitch_IPv6FailureAbortsBeforeIPv4(t *testing.T) {
 	}
 	if f.count("route -n delete default") != 0 {
 		t.Fatalf("calls = %v; the IPv4 default must stay untouched after the IPv6 step failed", f.Calls())
+	}
+}
+
+func TestDarwinKillSwitch_IPv6LogSurvivesIPv4Failure(t *testing.T) {
+	useFakeRunner(t).failOn("route -n add -blackhole default", "route: writing to routing socket: Invalid argument")
+	m := NewDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
+
+	if err := m.AddKillSwitchRoute(); err == nil {
+		t.Fatal("AddKillSwitchRoute = nil; want an error when the IPv4 blackhole fails")
+	}
+	if !m.killSwitchV6Added {
+		t.Fatal("killSwitchV6Added must stay true; the IPv6 blackhole was installed before the IPv4 failure")
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStdout := os.Stdout
+	os.Stdout = w
+	t.Cleanup(func() {
+		os.Stdout = origStdout
+		_ = r.Close()
+	})
+
+	m.Cleanup()
+	_ = w.Close()
+	out, _ := io.ReadAll(r)
+
+	if !strings.Contains(string(out), "IPv6 blackhole default preserved") {
+		t.Fatalf("Cleanup log = %q; want the IPv6 hint logged even though the IPv4 blackhole never installed", out)
 	}
 }
