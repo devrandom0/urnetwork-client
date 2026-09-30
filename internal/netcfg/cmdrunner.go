@@ -4,6 +4,7 @@ package netcfg
 import (
 	"os"
 	"os/exec"
+	"strings"
 )
 
 // commandRunner is the single choke point for OS commands so route and TUN logic can be
@@ -11,6 +12,8 @@ import (
 type commandRunner interface {
 	Run(name string, args ...string) error
 	Capture(name string, args ...string) (string, error)
+	// RunInput feeds stdin to the command and returns its combined output.
+	RunInput(stdin, name string, args ...string) (string, error)
 }
 
 type execRunner struct{}
@@ -32,6 +35,17 @@ func (execRunner) Capture(name string, args ...string) (string, error) {
 		return "", err
 	}
 	out, err := exec.Command(path, args...).CombinedOutput()
+	return string(out), err
+}
+
+func (execRunner) RunInput(stdin, name string, args ...string) (string, error) {
+	path, err := tools.resolve(name)
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.Command(path, args...)
+	cmd.Stdin = strings.NewReader(stdin)
+	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
 
