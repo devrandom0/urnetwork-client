@@ -277,6 +277,7 @@ jobs:
     needs: [test, release]
     if: >-
       !cancelled() && github.event_name != 'pull_request' && needs.test.result == 'success' &&
+      startsWith(github.ref, 'refs/heads/') &&
       (needs.release.result == 'success' ||
        (needs.release.result == 'skipped' && !(github.event_name == 'push' && github.ref == 'refs/heads/main')))
     name: Docker build (${{ matrix.arch }})
