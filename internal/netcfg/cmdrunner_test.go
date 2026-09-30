@@ -16,6 +16,7 @@ type fakeResult struct {
 type fakeRunner struct {
 	mu      sync.Mutex
 	calls   []string
+	inputs  []string
 	results map[string]fakeResult
 }
 
@@ -62,6 +63,27 @@ func (f *fakeRunner) count(line string) int {
 		}
 	}
 	return n
+}
+
+func (f *fakeRunner) RunInput(stdin, name string, args ...string) (string, error) {
+	f.mu.Lock()
+	f.inputs = append(f.inputs, stdin)
+	f.mu.Unlock()
+	return f.Capture(name, args...)
+}
+
+// Inputs returns the stdin of every RunInput call, in order.
+func (f *fakeRunner) Inputs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.inputs...)
+}
+
+func TestExecRunner_RunInputFeedsStdin(t *testing.T) {
+	out, err := execRunner{}.RunInput("hello from stdin\n", "cat")
+	if err != nil || out != "hello from stdin\n" {
+		t.Fatalf("RunInput = %q, %v; want stdin echoed by cat", out, err)
+	}
 }
 
 func TestRunCaptureUsesCommandRunner(t *testing.T) {
