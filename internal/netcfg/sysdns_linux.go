@@ -101,7 +101,43 @@ func (r *resolvedDNS) Apply(stub netip.Addr) error {
 	}
 	r.applied = true
 	logx.Info("DNS: systemd-resolved sends all lookups to the stub %s via %s\n", stub, r.tun)
+	r.warnOtherDomains()
 	return nil
+}
+
+// warnOtherDomains names links whose routing or search domains beat "~.": resolved sends
+// names under them to that link's own servers, outside the tunnel.
+func (r *resolvedDNS) warnOtherDomains() {
+	out, err := runCaptureStdout("resolvectl", "domain")
+	if err != nil {
+		logx.Debug("resolvectl domain: %v\n", err)
+		return
+	}
+	if others := otherLinkDomains(out, r.tun); len(others) > 0 {
+		logx.Warn("systemd-resolved sends names under these domains to other links' DNS servers, outside the tunnel: %s\n", strings.Join(others, "; "))
+	}
+}
+
+// otherLinkDomains parses `resolvectl domain` lines such as "Link 2 (eth0): lan ~corp" into
+// "eth0: lan ~corp", skipping tun and links without domains.
+func otherLinkDomains(out, tun string) []string {
+	var others []string
+	for _, ln := range strings.Split(out, "\n") {
+		head, domains, ok := strings.Cut(ln, ":")
+		domains = strings.TrimSpace(domains)
+		if !ok || domains == "" {
+			continue
+		}
+		name := strings.TrimSpace(head)
+		if lp, rp := strings.Index(head, "("), strings.LastIndex(head, ")"); lp >= 0 && rp > lp {
+			name = head[lp+1 : rp]
+		}
+		if name == tun {
+			continue
+		}
+		others = append(others, name+": "+domains)
+	}
+	return others
 }
 
 func (r *resolvedDNS) Restore() error {

@@ -33,11 +33,10 @@ type stubServer interface {
 }
 
 type leakDeps struct {
-	routes        leakRoutes
-	sysDNS        netcfg.SystemDNS
-	startStub     func(dnsstub.Options) (stubServer, error)
-	control       func(network, address string, c syscall.RawConn) error
-	ipv6Available func() bool
+	routes    leakRoutes
+	sysDNS    netcfg.SystemDNS
+	startStub func(dnsstub.Options) (stubServer, error)
+	control   func(network, address string, c syscall.RawConn) error
 }
 
 // dnsPlan is what --default_route needs for DNS: where the stub listens, where it forwards,
@@ -129,13 +128,10 @@ func applyLeakPolicy(ctx context.Context, cfg config.VPNConfig, pinned map[strin
 	if err != nil {
 		return nil, err
 	}
-	switch {
-	case cfg.EnableIPv6:
+	if cfg.EnableIPv6 {
 		err = d.routes.AddIPv6SplitDefault()
-	case d.ipv6Available():
+	} else {
 		err = d.routes.AddIPv6Reject()
-	default:
-		logx.Info("IPv6 is disabled in the kernel; no IPv6 reject routes needed\n")
 	}
 	if err != nil {
 		return nil, err

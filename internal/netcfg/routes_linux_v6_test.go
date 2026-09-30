@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -38,19 +37,6 @@ func TestLinuxBypassEndpoint_NoDeviceReturnsNothing(t *testing.T) {
 	}
 }
 
-func useIPv6Disabled(t *testing.T, content string) {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "disable_ipv6")
-	if content != "" {
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	old := ipv6DisabledPath
-	ipv6DisabledPath = path
-	t.Cleanup(func() { ipv6DisabledPath = old })
-}
-
 func TestLinuxIPv6Reject_InstallsUnreachableHalvesAndCleansUp(t *testing.T) {
 	f := useFakeRunner(t)
 	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
@@ -69,7 +55,7 @@ func TestLinuxIPv6Reject_InstallsUnreachableHalvesAndCleansUp(t *testing.T) {
 
 func TestLinuxIPv6Reject_FailureIsErrorAndNotCleanedUp(t *testing.T) {
 	f := useFakeRunner(t)
-	f.failOn("ip -6 route replace unreachable 8000::/1", "RTNETLINK answers: Permission denied")
+	f.failOn("ip -6 route replace unreachable 8000::/1", "RTNETLINK answers: Operation not permitted")
 	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
 
 	err := m.AddIPv6Reject()
@@ -100,7 +86,6 @@ func TestLinuxIPv6SplitDefault_RoutesHalvesIntoTUN(t *testing.T) {
 }
 
 func TestLinuxKillSwitch_InstallsIPv6BlackholeFirstAndKeepsIt(t *testing.T) {
-	useIPv6Disabled(t, "0\n")
 	f := useFakeRunner(t)
 	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
 
@@ -121,7 +106,6 @@ func TestLinuxKillSwitch_InstallsIPv6BlackholeFirstAndKeepsIt(t *testing.T) {
 }
 
 func TestLinuxKillSwitch_IPv6FailureAbortsBeforeIPv4(t *testing.T) {
-	useIPv6Disabled(t, "0\n")
 	f := useFakeRunner(t)
 	f.failOn("ip -6 route replace blackhole default metric 1", "RTNETLINK answers: Operation not permitted")
 	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
@@ -136,30 +120,58 @@ func TestLinuxKillSwitch_IPv6FailureAbortsBeforeIPv4(t *testing.T) {
 	}
 }
 
-func TestLinuxKillSwitch_SkipsIPv6WhenKernelHasItOff(t *testing.T) {
-	useIPv6Disabled(t, "1\n")
+func TestLinuxKillSwitch_ContinuesWhenKernelRefusesIPv6(t *testing.T) {
 	f := useFakeRunner(t)
+	f.failOn("ip -6 route replace blackhole default metric 1", "RTNETLINK answers: Address family not supported by protocol")
 	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
 
 	if err := m.AddKillSwitchRoute(); err != nil {
-		t.Fatalf("AddKillSwitchRoute: %v", err)
+		t.Fatalf("AddKillSwitchRoute = %v; with IPv6 off in the kernel there is no IPv6 to block", err)
 	}
-	for _, c := range f.Calls() {
-		if strings.HasPrefix(c, "ip -6") {
-			t.Fatalf("ran %q with IPv6 disabled in the kernel", c)
-		}
+	if m.killSwitchV6Added || f.count("ip route add blackhole default") != 1 {
+		t.Fatalf("calls = %v v6Added=%v; want only the IPv4 blackhole", f.Calls(), m.killSwitchV6Added)
 	}
 }
 
-func TestIPv6Available(t *testing.T) {
-	for _, tc := range []struct {
-		content string
-		want    bool
-	}{{"0\n", true}, {"1\n", false}, {"", false}} {
-		useIPv6Disabled(t, tc.content)
-		if got := IPv6Available(); got != tc.want {
-			t.Errorf("disable_ipv6=%q: IPv6Available = %v, want %v", tc.content, got, tc.want)
+func TestLinuxIPv6Reject_AlwaysAttemptedAndBenignWhenKernelRefusesIPv6(t *testing.T) {
+	for _, out := range []string{
+		"RTNETLINK answers: Address family not supported by protocol",
+		"RTNETLINK answers: Permission denied",
+	} {
+		t.Run(out, func(t *testing.T) {
+			f := useFakeRunner(t)
+			f.failOn("ip -6 route replace unreachable ::/1", out)
+			f.failOn("ip -6 route replace unreachable 8000::/1", out)
+			m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+
+			if err := m.AddIPv6Reject(); err != nil {
+				t.Fatalf("AddIPv6Reject = %v; the kernel has IPv6 off, so nothing can leak", err)
+			}
+			m.Cleanup()
+			if f.count("ip -6 route del unreachable ::/1") != 0 {
+				t.Fatalf("calls = %v; a route never installed must not be deleted", f.Calls())
+			}
+		})
+	}
+}
+
+func TestLinuxIPv6Halves_WarnsWhenReplacingForeignRoute(t *testing.T) {
+	f := useFakeRunner(t)
+	f.results["ip -6 route show exact ::/1"] = fakeResult{stdout: "::/1 dev wg0 metric 1024 pref medium\n"}
+	f.results["ip -6 route show exact 8000::/1"] = fakeResult{stdout: "unreachable 8000::/1 dev lo metric 1024 pref medium\n"}
+	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")
+
+	logged := captureStderr(t, func() {
+		if err := m.AddIPv6Reject(); err != nil {
+			t.Error(err)
 		}
+	})
+
+	if !strings.Contains(logged, "::/1 dev wg0") {
+		t.Fatalf("stderr = %q; want a WARN naming the foreign route being replaced", logged)
+	}
+	if strings.Contains(logged, "unreachable 8000::/1") {
+		t.Fatalf("stderr = %q; a leftover reject route is ours to take over quietly", logged)
 	}
 }
 
@@ -196,7 +208,6 @@ func TestLinuxDNSBypass_RemoveKeepsControlPlaneRoutes(t *testing.T) {
 }
 
 func TestLinuxKillSwitch_IPv6LogSurvivesIPv4Failure(t *testing.T) {
-	useIPv6Disabled(t, "0\n")
 	f := useFakeRunner(t)
 	f.failOn("ip route add blackhole default", "RTNETLINK answers: Operation not permitted")
 	m := NewLinuxRouteManager("tun0", "192.168.1.1", "eth0")

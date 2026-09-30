@@ -168,3 +168,34 @@ func TestDarwinKillSwitch_IPv6LogSurvivesIPv4Failure(t *testing.T) {
 		t.Fatalf("Cleanup log = %q; want the IPv6 hint logged even though the IPv4 blackhole never installed", out)
 	}
 }
+
+const darwinV6Table = `Routing tables
+
+Internet6:
+Destination                             Gateway                                 Flags               Netif Expire
+default                                 fe80::1%en0                             UGcg                  en0
+::/1                                    fe80::99%en0                            UGSc                  en0
+::1                                     ::1                                     UHL                   lo0
+8000::/1                                ::1                                     UGRSc                 lo0
+`
+
+func TestDarwinIPv6Halves_WarnsWhenChangingForeignRoute(t *testing.T) {
+	f := useFakeRunner(t)
+	f.failOn("route -n add -inet6 -reject ::/1 ::1", "route: writing to routing socket: File exists")
+	f.failOn("route -n add -inet6 -reject 8000::/1 ::1", "route: writing to routing socket: File exists")
+	f.results["netstat -rn -f inet6"] = fakeResult{stdout: darwinV6Table}
+	m := NewDarwinRouteManager("utun9", "10.255.0.1", "192.168.1.1")
+
+	logged := captureStderr(t, func() {
+		if err := m.AddIPv6Reject(); err != nil {
+			t.Error(err)
+		}
+	})
+
+	if !strings.Contains(logged, "::/1 via fe80::99%en0 on en0") {
+		t.Fatalf("stderr = %q; want a WARN naming the foreign route being changed", logged)
+	}
+	if strings.Contains(logged, "8000::/1") {
+		t.Fatalf("stderr = %q; a leftover reject route is ours to take over quietly", logged)
+	}
+}

@@ -104,6 +104,7 @@ func TestResolvedDNS_ApplyAndRestoreCommands(t *testing.T) {
 		"resolvectl dns urnet0 10.255.0.2",
 		"resolvectl domain urnet0 ~.",
 		"resolvectl default-route urnet0 true",
+		"resolvectl domain",
 		"resolvectl revert urnet0",
 	}
 	got := f.Calls()
@@ -204,5 +205,40 @@ func TestRecoverStaleDNS_RevertsDeadResolvedOwner(t *testing.T) {
 	}
 	if _, err := os.Lstat(resolvedOwnerPath); !os.IsNotExist(err) {
 		t.Fatal("stale owner file not removed")
+	}
+}
+
+func TestResolvedDNS_WarnsAboutOtherLinksRoutingDomains(t *testing.T) {
+	f := useFakeRunner(t)
+	f.results["resolvectl domain"] = fakeResult{stdout: "Global:\nLink 2 (eth0): lan ~corp.example\nLink 3 (wlan0):\nLink 7 (urnet0): ~.\n"}
+	r := testResolvedDNS(t)
+
+	logged := captureStderr(t, func() {
+		if err := r.Apply(netip.MustParseAddr("10.255.0.2")); err != nil {
+			t.Error(err)
+		}
+	})
+
+	if !strings.Contains(logged, "eth0: lan ~corp.example") {
+		t.Fatalf("stderr = %q; want a WARN naming the link and domains that bypass the stub", logged)
+	}
+	if strings.Contains(logged, "urnet0") || strings.Contains(logged, "wlan0") {
+		t.Fatalf("stderr = %q; only other links with domains matter", logged)
+	}
+}
+
+func TestResolvedDNS_NoWarningWithoutOtherDomains(t *testing.T) {
+	f := useFakeRunner(t)
+	f.results["resolvectl domain"] = fakeResult{stdout: "Global:\nLink 2 (eth0):\nLink 7 (urnet0): ~.\n"}
+	r := testResolvedDNS(t)
+
+	logged := captureStderr(t, func() {
+		if err := r.Apply(netip.MustParseAddr("10.255.0.2")); err != nil {
+			t.Error(err)
+		}
+	})
+
+	if strings.Contains(logged, "WARN") {
+		t.Fatalf("stderr = %q; want no warning", logged)
 	}
 }

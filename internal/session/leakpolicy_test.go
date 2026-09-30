@@ -93,12 +93,11 @@ type leakFixture struct {
 	sysDNS  *fakeSysDNS
 	stub    *fakeStub
 	stubErr error
-	v6      bool
 }
 
 func newLeakFixture() *leakFixture {
 	l := &leakLog{}
-	return &leakFixture{log: l, routes: &fakeLeakRoutes{log: l}, sysDNS: &fakeSysDNS{log: l}, v6: true}
+	return &leakFixture{log: l, routes: &fakeLeakRoutes{log: l}, sysDNS: &fakeSysDNS{log: l}}
 }
 
 func (f *leakFixture) deps() leakDeps {
@@ -113,8 +112,7 @@ func (f *leakFixture) deps() leakDeps {
 			f.stub = &fakeStub{log: f.log, opts: o}
 			return f.stub, nil
 		},
-		control:       func(string, string, syscall.RawConn) error { return nil },
-		ipv6Available: func() bool { return f.v6 },
+		control: func(string, string, syscall.RawConn) error { return nil },
 	}
 }
 
@@ -164,18 +162,6 @@ func TestLeakPolicy_EnableIPv6RoutesIPv6AndKeepsAAAA(t *testing.T) {
 
 	if !f.log.has("routes: ipv6 via tun") || f.log.has("routes: ipv6 reject") || f.stub.opts.FilterAAAA {
 		t.Fatalf("steps = %v filterAAAA=%v; want IPv6 routed into the TUN and AAAA passed", f.log.all(), f.stub.opts.FilterAAAA)
-	}
-}
-
-func TestLeakPolicy_NoRejectRoutesWhenKernelHasNoIPv6(t *testing.T) {
-	f := newLeakFixture()
-	f.v6 = false
-
-	if _, err := apply(t, f, leakCfg("none")); err != nil {
-		t.Fatal(err)
-	}
-	if f.log.has("routes: ipv6 reject") {
-		t.Fatal("reject routes installed although the kernel has IPv6 off")
 	}
 }
 

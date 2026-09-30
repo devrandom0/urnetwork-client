@@ -151,11 +151,13 @@ func (m *LinuxRouteManager) AddKillSwitchRoute() error {
 // addKillSwitchV6 installs an IPv6 blackhole default with metric 1 instead of deleting the
 // IPv6 default: router advertisements would reinstall a deleted default within minutes.
 func (m *LinuxRouteManager) addKillSwitchV6() error {
-	if !IPv6Available() {
+	out, err := runCapture("ip", "-6", "route", "replace", "blackhole", "default", "metric", "1")
+	if err != nil && ipv6Refused(out) {
+		logx.Info("kill switch: the kernel has IPv6 off; no IPv6 blackhole needed\n")
 		return nil
 	}
-	if err := run("ip", "-6", "route", "replace", "blackhole", "default", "metric", "1"); err != nil {
-		return fmt.Errorf("kill switch: install IPv6 blackhole default route: %w", err)
+	if err != nil {
+		return fmt.Errorf("kill switch: install IPv6 blackhole default route: %w %s", err, strings.TrimSpace(out))
 	}
 	m.killSwitchV6Added = true
 	return nil
@@ -173,6 +175,8 @@ func (m *LinuxRouteManager) AddIPv6SplitDefault() error {
 }
 
 // addV6Halves uses replace so a reject route left by a crashed run does not block startup.
+// It is always attempted: disable_ipv6 on "all" does not stop an interface that has IPv6
+// enabled on its own, so only the kernel refusing the route proves IPv6 is off.
 func (m *LinuxRouteManager) addV6Halves(routeType string, via ...string) error {
 	for _, dst := range []string{"::/1", "8000::/1"} {
 		route := []string{dst}
@@ -180,12 +184,32 @@ func (m *LinuxRouteManager) addV6Halves(routeType string, via ...string) error {
 			route = []string{routeType, dst}
 		}
 		route = append(route, via...)
-		if err := run("ip", append([]string{"-6", "route", "replace"}, route...)...); err != nil {
-			return fmt.Errorf("IPv6 route %s not installed; IPv6 traffic would leak outside the tunnel: %w", strings.Join(route, " "), err)
+		m.warnForeignV6(dst)
+		out, err := runCapture("ip", append([]string{"-6", "route", "replace"}, route...)...)
+		if err != nil && ipv6Refused(out) {
+			logx.Info("IPv6 is disabled in the kernel; no IPv6 route %s needed\n", dst)
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("IPv6 route %s not installed; IPv6 traffic would leak outside the tunnel: %w %s", strings.Join(route, " "), err, strings.TrimSpace(out))
 		}
 		m.addedV6 = append(m.addedV6, route)
 	}
 	return nil
+}
+
+// warnForeignV6 names a route that replace is about to overwrite and that another tool,
+// such as a second VPN, installed; its traffic moves into our reject or TUN route.
+func (m *LinuxRouteManager) warnForeignV6(dst string) {
+	out, err := runCaptureStdout("ip", "-6", "route", "show", "exact", dst)
+	if err != nil {
+		return
+	}
+	for _, ln := range strings.Split(strings.TrimSpace(out), "\n") {
+		if !v6RouteIsOurs(ln, m.tunName) {
+			logx.Warn("replacing IPv6 route %q, which urnet-client did not install\n", strings.TrimSpace(ln))
+		}
+	}
 }
 
 func (m *LinuxRouteManager) AddExclude(dest string) {

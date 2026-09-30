@@ -306,6 +306,7 @@ func (m *DarwinRouteManager) addV6Halves(spec func(dst string) []string) error {
 		args := spec(dst)
 		out, err := runCapture("route", append([]string{"-n", "add"}, args...)...)
 		if err != nil && strings.Contains(out, "File exists") {
+			m.warnForeignV6(dst)
 			_, err = runCapture("route", append([]string{"-n", "change"}, args...)...)
 		}
 		if err != nil {
@@ -314,6 +315,26 @@ func (m *DarwinRouteManager) addV6Halves(spec func(dst string) []string) error {
 		m.addedV6 = append(m.addedV6, dst)
 	}
 	return nil
+}
+
+// warnForeignV6 names a route that `route change` is about to overwrite and that another
+// tool, such as a second VPN, installed; its traffic moves into our reject or TUN route.
+func (m *DarwinRouteManager) warnForeignV6(dst string) {
+	out, err := runCaptureStdout("netstat", "-rn", "-f", "inet6")
+	if err != nil {
+		return
+	}
+	for _, ln := range strings.Split(out, "\n") {
+		f := strings.Fields(ln)
+		if len(f) < 4 || f[0] != dst {
+			continue
+		}
+		gw, flags, netif := f[1], f[2], f[3]
+		if strings.ContainsAny(flags, "RB") || netif == m.tunName {
+			continue
+		}
+		logx.Warn("changing IPv6 route %s via %s on %s, which urnet-client did not install\n", dst, gw, netif)
+	}
 }
 
 // Cleanup removes all routes applied by this manager and brings the TUN interface down.

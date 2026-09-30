@@ -96,11 +96,10 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 	var stubAddr string
 	if cfg.DefaultRoute {
 		guard, err := applyLeakPolicy(ctx, cfg, pinned, &counters, leakDeps{
-			routes:        rm,
-			sysDNS:        netcfg.NewSystemDNS(tunName),
-			startStub:     startDNSStub,
-			control:       socks.InterfaceControl(tunName),
-			ipv6Available: netcfg.IPv6Available,
+			routes:    rm,
+			sysDNS:    netcfg.NewSystemDNS(tunName),
+			startStub: startDNSStub,
+			control:   socks.InterfaceControl(tunName),
 		})
 		if err != nil {
 			return err
