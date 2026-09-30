@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 	"strings"
+	"sync"
 
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
@@ -17,14 +18,18 @@ type LinuxRouteManager struct {
 	origGw  string // original default gateway IP
 	origDev string // original default gateway device
 
-	addedBypass  []string // host IPs routed via original gateway (bypass)
-	addedExclude []string // exclude destinations routed via original gateway or unreachable
-	addedExtra   []string // extra destinations routed through TUN
-	addedDNSTun  []string // DNS server IPs routed through TUN
-	addedSplits  []string // split-default destinations installed through the TUN
+	addedBypass    []string   // control-plane host IPs routed via original gateway
+	addedDNSBypass []string   // DNS server IPs routed via original gateway
+	mu             sync.Mutex // guards addedDNSBypass; RemoveDNSBypass runs on the bootstrap goroutine
+	addedExclude   []string   // exclude destinations routed via original gateway or unreachable
+	addedExtra     []string   // extra destinations routed through TUN
+	addedDNSTun    []string   // DNS server IPs routed through TUN
+	addedSplits    []string   // split-default destinations installed through the TUN
+	addedV6        [][]string // `ip -6 route del` arguments for each IPv6 route we own
 
-	killSwitch      bool // whether kill-switch mode is active
-	killSwitchAdded bool // whether the blackhole default was successfully installed
+	killSwitch        bool // whether kill-switch mode is active
+	killSwitchAdded   bool // whether the blackhole default was successfully installed
+	killSwitchV6Added bool // whether the IPv6 blackhole default was installed
 }
 
 // NewLinuxRouteManager creates a route manager for the named TUN interface.
@@ -104,6 +109,9 @@ func (m *LinuxRouteManager) AddSplitDefault() error {
 // On failure the original default is restored and an error is returned so startup aborts.
 func (m *LinuxRouteManager) AddKillSwitchRoute() error {
 	m.killSwitch = true
+	if err := m.addKillSwitchV6(); err != nil {
+		return err
+	}
 	var restore []string
 	switch {
 	case m.origGw != "" && m.origDev != "":
@@ -132,6 +140,46 @@ func (m *LinuxRouteManager) AddKillSwitchRoute() error {
 		return fmt.Errorf("kill switch: install blackhole default route: %w; restoring the default route also failed, run: %s", err, manual)
 	}
 	return fmt.Errorf("kill switch: install blackhole default route: %w; original default route restored", err)
+}
+
+// addKillSwitchV6 installs an IPv6 blackhole default with metric 1 instead of deleting the
+// IPv6 default: router advertisements would reinstall a deleted default within minutes.
+func (m *LinuxRouteManager) addKillSwitchV6() error {
+	if !IPv6Available() {
+		return nil
+	}
+	if err := run("ip", "-6", "route", "replace", "blackhole", "default", "metric", "1"); err != nil {
+		return fmt.Errorf("kill switch: install IPv6 blackhole default route: %w", err)
+	}
+	m.killSwitchV6Added = true
+	return nil
+}
+
+// AddIPv6Reject makes every IPv6 destination outside connected and link-local prefixes fail
+// at once with "no route to host", so apps fall back to IPv4 without waiting.
+func (m *LinuxRouteManager) AddIPv6Reject() error {
+	return m.addV6Halves("unreachable")
+}
+
+// AddIPv6SplitDefault routes all of IPv6 into the TUN (--enable_ipv6).
+func (m *LinuxRouteManager) AddIPv6SplitDefault() error {
+	return m.addV6Halves("", "dev", m.tunName)
+}
+
+// addV6Halves uses replace so a reject route left by a crashed run does not block startup.
+func (m *LinuxRouteManager) addV6Halves(routeType string, via ...string) error {
+	for _, dst := range []string{"::/1", "8000::/1"} {
+		route := []string{dst}
+		if routeType != "" {
+			route = []string{routeType, dst}
+		}
+		route = append(route, via...)
+		if err := run("ip", append([]string{"-6", "route", "replace"}, route...)...); err != nil {
+			return fmt.Errorf("IPv6 route %s not installed; IPv6 traffic would leak outside the tunnel: %w", strings.Join(route, " "), err)
+		}
+		m.addedV6 = append(m.addedV6, route)
+	}
+	return nil
 }
 
 func (m *LinuxRouteManager) AddExclude(dest string) {
@@ -185,9 +233,22 @@ func (m *LinuxRouteManager) AddDNSServerRoutes(ips []string, bypass bool) {
 			ok = m.addRoute(ip, "dev", m.origDev)
 		}
 		if ok {
-			m.addedBypass = append(m.addedBypass, ip)
+			m.mu.Lock()
+			m.addedDNSBypass = append(m.addedDNSBypass, ip)
+			m.mu.Unlock()
 		}
 	}
+}
+
+// RemoveDNSBypass deletes the DNS bypass routes. The dns_bootstrap=cache goroutine and
+// Cleanup may both call it; the mutex makes each route go exactly once.
+func (m *LinuxRouteManager) RemoveDNSBypass() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ip := range m.addedDNSBypass {
+		_ = run("ip", "route", "del", ip)
+	}
+	m.addedDNSBypass = nil
 }
 
 // SetDNS is a no-op on Linux. DNS management on Linux is left to the caller.
@@ -200,6 +261,10 @@ func (m *LinuxRouteManager) Cleanup() {
 	}
 	for _, ip := range m.addedBypass {
 		_ = run("ip", "route", "del", ip)
+	}
+	m.RemoveDNSBypass()
+	for _, r := range m.addedV6 {
+		_ = run("ip", append([]string{"-6", "route", "del"}, r...)...)
 	}
 	for _, r := range m.addedExclude {
 		_ = run("ip", "route", "del", r)
@@ -217,6 +282,9 @@ func (m *LinuxRouteManager) Cleanup() {
 	if m.killSwitchAdded {
 		if m.killSwitch {
 			logx.Info("kill switch: blackhole default route preserved; all traffic is blocked until you run: ip route del blackhole default && ip route add default via <gateway>\n")
+			if m.killSwitchV6Added {
+				logx.Info("kill switch: IPv6 blackhole default preserved; to unblock IPv6 run: ip -6 route del blackhole default metric 1\n")
+			}
 		} else {
 			_ = run("ip", "route", "del", "blackhole", "default")
 			if m.origGw != "" && m.origDev != "" {
