@@ -79,9 +79,6 @@ func startStub(t *testing.T, opts Options) *Server {
 	if opts.Control == nil {
 		opts.Control = allowControl
 	}
-	if opts.Timeout == 0 {
-		opts.Timeout = 500 * time.Millisecond
-	}
 	s, err := Start(opts)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -204,7 +201,7 @@ func TestStub_TruncatesToClientUDPBuffer(t *testing.T) {
 
 func TestStub_FallsBackToNextUpstream(t *testing.T) {
 	up := startUpstream(t, answerA("192.0.2.2"))
-	s := startStub(t, Options{Upstreams: []netip.AddrPort{closedUDPPort(t), up.addr}, Timeout: 300 * time.Millisecond})
+	s := startStub(t, Options{Upstreams: []netip.AddrPort{closedUDPPort(t), up.addr}, Budget: 300 * time.Millisecond})
 
 	if r := query(t, s, "udp", "example.test", dns.TypeA); len(r.Answer) != 1 {
 		t.Fatalf("answer = %v; want the second upstream's record", r.Answer)
@@ -212,7 +209,7 @@ func TestStub_FallsBackToNextUpstream(t *testing.T) {
 }
 
 func TestStub_ServfailWhenNoUpstreamAnswers(t *testing.T) {
-	s := startStub(t, Options{Upstreams: []netip.AddrPort{closedUDPPort(t)}, Timeout: 300 * time.Millisecond})
+	s := startStub(t, Options{Upstreams: []netip.AddrPort{closedUDPPort(t)}, Budget: 300 * time.Millisecond})
 
 	if r := query(t, s, "udp", "example.test", dns.TypeA); r.Rcode != dns.RcodeServerFailure {
 		t.Fatalf("rcode = %s, want SERVFAIL", dns.RcodeToString[r.Rcode])

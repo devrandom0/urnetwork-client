@@ -18,8 +18,12 @@ import (
 )
 
 const (
-	defaultTimeout = 2 * time.Second
-	pinnedTTL      = 60
+	// defaultBudget stays under the ~1s after which mDNSResponder retries a silent resolver
+	// and then falls back to the LAN one; a fast SERVFAIL keeps it on the stub.
+	defaultBudget = time.Second
+	pinnedTTL     = 60
+	maxTCPConns   = 64
+	localAddrTTL  = 3 * time.Second
 )
 
 // Options configures Start.
@@ -28,7 +32,7 @@ type Options struct {
 	Upstreams    []netip.AddrPort // tried in order
 	Control      func(network, address string, c syscall.RawConn) error
 	BindUpstream bool          // pass every upstream socket through Control from the start
-	Timeout      time.Duration // per upstream exchange; zero means defaultTimeout
+	Budget       time.Duration // total for one query across all upstreams; zero means defaultBudget
 	FilterAAAA   bool          // answer AAAA with an empty NOERROR while IPv6 is blocked
 	// Pinned answers A queries for the control-plane hosts with the addresses resolved at
 	// startup, so reconnecting never depends on the tunnel it is trying to rebuild.
@@ -38,12 +42,13 @@ type Options struct {
 
 // Server is a running stub. Close stops it.
 type Server struct {
-	opts   Options
-	pinned map[string][]netip.Addr
-	addr   netip.AddrPort
-	bound  atomic.Bool
-	udp    *dns.Server
-	tcp    *dns.Server
+	opts    Options
+	ifaddrs *localAddrCache
+	pinned  map[string][]netip.Addr
+	addr    netip.AddrPort
+	bound   atomic.Bool
+	udp     *dns.Server
+	tcp     *dns.Server
 }
 
 // Start binds UDP and TCP on opts.Listen before it returns, so a port conflict fails startup.
@@ -54,8 +59,8 @@ func Start(opts Options) (*Server, error) {
 	if opts.Control == nil {
 		return nil, errors.New("dnsstub: Control is required to pin upstream sockets to the tunnel")
 	}
-	if opts.Timeout <= 0 {
-		opts.Timeout = defaultTimeout
+	if opts.Budget <= 0 {
+		opts.Budget = defaultBudget
 	}
 	if opts.LocalAddrs == nil {
 		opts.LocalAddrs = net.InterfaceAddrs
@@ -64,10 +69,15 @@ func Start(opts Options) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dnsstub: listen on %s: %w", opts.Listen, err)
 	}
-	s := &Server{opts: opts, pinned: normalizePinned(opts.Pinned), addr: unmapped(pc.LocalAddr().(*net.UDPAddr).AddrPort())}
+	s := &Server{
+		opts:    opts,
+		ifaddrs: &localAddrCache{list: opts.LocalAddrs, now: time.Now, ttl: localAddrTTL},
+		pinned:  normalizePinned(opts.Pinned),
+		addr:    unmapped(pc.LocalAddr().(*net.UDPAddr).AddrPort()),
+	}
 	s.bound.Store(opts.BindUpstream)
 	s.udp = &dns.Server{PacketConn: pc, Handler: dns.HandlerFunc(s.serve)}
-	s.tcp = &dns.Server{Listener: ln, Handler: dns.HandlerFunc(s.serve)}
+	s.tcp = &dns.Server{Listener: newGuardedListener(ln, s.allowed, maxTCPConns), Handler: dns.HandlerFunc(s.serve)}
 	if err := s.activate(); err != nil {
 		_ = pc.Close()
 		_ = ln.Close()
@@ -111,10 +121,13 @@ func (s *Server) activate() error {
 	return nil
 }
 
+func (s *Server) allowed(ip netip.Addr) bool { return sourceAllowed(ip, s.ifaddrs.get) }
+
+// serve drops disallowed sources without a reply: a REFUSED answer would confirm the stub to
+// a scanner and, for spoofed UDP sources, reflect traffic at a victim.
 func (s *Server) serve(w dns.ResponseWriter, req *dns.Msg) {
-	if !sourceAllowed(addrIP(w.RemoteAddr()), s.opts.LocalAddrs) {
-		logx.Debug("dnsstub: refused query from %s\n", w.RemoteAddr())
-		_ = w.WriteMsg(new(dns.Msg).SetRcode(req, dns.RcodeRefused))
+	if !s.allowed(addrIP(w.RemoteAddr())) {
+		logx.Debug("dnsstub: dropped query from %s\n", w.RemoteAddr())
 		return
 	}
 	_, overTCP := w.RemoteAddr().(*net.TCPAddr)
@@ -135,6 +148,9 @@ func (s *Server) answer(req *dns.Msg, overTCP bool) *dns.Msg {
 	if err != nil {
 		logx.Debug("dnsstub: no upstream answered: %v\n", err)
 		return new(dns.Msg).SetRcode(req, dns.RcodeServerFailure)
+	}
+	if s.opts.FilterAAAA {
+		stripIPv6(resp)
 	}
 	return resp
 }
@@ -172,10 +188,17 @@ func localReply(req *dns.Msg) *dns.Msg {
 // forward keeps the client's transport: the TCP retry after a truncated UDP answer has to
 // reach the upstream over TCP as well, or it would come back truncated again.
 func (s *Server) forward(req *dns.Msg, overTCP bool) (*dns.Msg, error) {
-	c := s.client(overTCP)
+	deadline := time.Now().Add(s.opts.Budget)
 	var errs []error
-	for _, up := range s.opts.Upstreams {
-		resp, _, err := c.Exchange(req, up.String())
+	for i, up := range s.opts.Upstreams {
+		// Each upstream gets an equal share of what is left, so a silent first one cannot
+		// use up the time the next one needs.
+		share := time.Until(deadline) / time.Duration(len(s.opts.Upstreams)-i)
+		if share <= 0 {
+			errs = append(errs, fmt.Errorf("%s: DNS budget of %v used up", up, s.opts.Budget))
+			break
+		}
+		resp, _, err := s.client(overTCP, share).Exchange(req, up.String())
 		if err == nil {
 			return resp, nil
 		}
@@ -184,13 +207,13 @@ func (s *Server) forward(req *dns.Msg, overTCP bool) (*dns.Msg, error) {
 	return nil, errors.Join(errs...)
 }
 
-func (s *Server) client(overTCP bool) *dns.Client {
-	c := &dns.Client{Net: "udp", UDPSize: dns.MaxMsgSize, Timeout: s.opts.Timeout}
+func (s *Server) client(overTCP bool, timeout time.Duration) *dns.Client {
+	c := &dns.Client{Net: "udp", UDPSize: dns.MaxMsgSize, Timeout: timeout}
 	if overTCP {
 		c.Net = "tcp"
 	}
 	if s.bound.Load() {
-		c.Dialer = &net.Dialer{Timeout: s.opts.Timeout, Control: s.opts.Control}
+		c.Dialer = &net.Dialer{Timeout: timeout, Control: s.opts.Control}
 	}
 	return c
 }

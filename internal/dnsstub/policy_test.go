@@ -107,3 +107,62 @@ func TestSourceAllowed(t *testing.T) {
 		})
 	}
 }
+
+func v6Answers(w dns.ResponseWriter, req *dns.Msg, _ bool) {
+	m := new(dns.Msg).SetReply(req)
+	name := req.Question[0].Name
+	hdr := func(t uint16) dns.RR_Header {
+		return dns.RR_Header{Name: name, Rrtype: t, Class: dns.ClassINET, Ttl: 60}
+	}
+	m.Answer = append(m.Answer,
+		aRecord(name, "192.0.2.6"),
+		&dns.AAAA{Hdr: hdr(dns.TypeAAAA), AAAA: net.ParseIP("2001:db8::6")},
+		&dns.HTTPS{SVCB: dns.SVCB{Hdr: hdr(dns.TypeHTTPS), Priority: 1, Target: ".", Value: []dns.SVCBKeyValue{
+			&dns.SVCBAlpn{Alpn: []string{"h2"}},
+			&dns.SVCBIPv4Hint{Hint: []net.IP{net.ParseIP("192.0.2.6").To4()}},
+			&dns.SVCBIPv6Hint{Hint: []net.IP{net.ParseIP("2001:db8::6")}},
+		}}},
+	)
+	m.Extra = append(m.Extra, &dns.AAAA{Hdr: hdr(dns.TypeAAAA), AAAA: net.ParseIP("2001:db8::7")})
+	_ = w.WriteMsg(m)
+}
+
+func hasIPv6(m *dns.Msg) string {
+	for _, rr := range append(append(append([]dns.RR{}, m.Answer...), m.Ns...), m.Extra...) {
+		switch v := rr.(type) {
+		case *dns.AAAA:
+			return v.String()
+		case *dns.HTTPS:
+			for _, kv := range v.Value {
+				if kv.Key() == dns.SVCB_IPV6HINT {
+					return v.String()
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func TestStub_StripsIPv6FromForwardedAnswersWhenIPv6Off(t *testing.T) {
+	up := startUpstream(t, v6Answers)
+	s := startStub(t, Options{Upstreams: []netip.AddrPort{up.addr}, FilterAAAA: true})
+
+	for _, qtype := range []uint16{dns.TypeANY, dns.TypeHTTPS} {
+		r := query(t, s, "tcp", "example.test", qtype)
+		if rr := hasIPv6(r); rr != "" {
+			t.Fatalf("%s reply still carries %q; apps would try IPv6 into the reject routes", dns.TypeToString[qtype], rr)
+		}
+		if len(r.Answer) != 2 {
+			t.Fatalf("%s answers = %v; want the A and HTTPS records kept", dns.TypeToString[qtype], r.Answer)
+		}
+	}
+}
+
+func TestStub_KeepsIPv6InForwardedAnswersWhenIPv6On(t *testing.T) {
+	up := startUpstream(t, v6Answers)
+	s := startStub(t, Options{Upstreams: []netip.AddrPort{up.addr}})
+
+	if r := query(t, s, "tcp", "example.test", dns.TypeANY); hasIPv6(r) == "" {
+		t.Fatalf("answers = %v; want AAAA passed with --enable_ipv6", r.Answer)
+	}
+}
