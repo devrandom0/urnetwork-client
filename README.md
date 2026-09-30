@@ -101,9 +101,9 @@ Detailed documentation is in [docs/README.md](docs/README.md):
 `make test`, `make test-race` and `make lint` already pass `-tags safefiletest`, which builds the
 `internal/safefile` test seam (`SetEUIDForTesting`) that `internal/auth` and `internal/config`
 tests use to exercise root-only behavior; it is excluded from `go build` so release binaries never
-carry it. Running `go test`/`go vet` directly, or the phase1 gate scripts outside this repo, needs
-the same flag (or `GOFLAGS=-tags=safefiletest` in the environment) to exercise those tests; without
-it they are skipped, not failed.
+carry it. Running `go test`/`go vet` directly needs the same flag (or `GOFLAGS=-tags=safefiletest`
+in the environment); without it those tests are skipped, not failed, and `TestSafefiletestTagCanary`
+in `internal/safefile` fails with a clear message to say so.
 
 ## Security note
 
