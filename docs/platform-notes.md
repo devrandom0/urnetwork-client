@@ -78,6 +78,10 @@ sudo ./urnet-client vpn \
   --location_query="country:Germany"
 ```
 
+## Stopping the client
+
+On Ctrl-C, SIGTERM or SIGHUP the client restores system DNS first, then stops SOCKS, the connect client and the DNS stub, removes its routes and closes the TUN. Each step has its own deadline (3 seconds for DNS, 5 for the connect client and for the routes) and the whole cleanup is capped at 15 seconds; a step that misses its deadline is logged and skipped. A second Ctrl-C during cleanup still lets the DNS restore finish, then skips the remaining steps. SIGQUIT (`Ctrl-\`) is not handled: it prints a goroutine dump and exits without cleanup.
+
 ## Crash recovery
 
 If the client is killed (for example `kill -9` or a power cut) it cannot undo its changes. Run:

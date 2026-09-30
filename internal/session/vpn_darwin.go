@@ -40,11 +40,14 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 		devName = ""
 		logx.Warn("--tun provided without a valid name (got %q); using auto utun\n", rawTun)
 	}
+	sd := newShutdown()
+	defer runShutdown(sd)
+
 	dev, err := tunnel.Open(devName)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = dev.Close() }()
+	sd.add("close TUN", closeTUNTimeout, dev.Close)
 	actualName := dev.Name()
 	if actualName == "" {
 		actualName = tunName
@@ -70,9 +73,9 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 		logx.Warn("failed to detect default gateway: %v\n", gwErr)
 	}
 
-	// Set up route manager; Cleanup runs on exit via defer.
+	// Set up route manager; its Cleanup runs during shutdown.
 	rm := netcfg.NewDarwinRouteManager(actualName, peerIP, defGw)
-	defer rm.Cleanup()
+	sd.add("remove routes", routeCleanupTimeout, func() error { rm.Cleanup(); return nil })
 
 	// Install routes based on mode.
 	if cfg.DefaultRoute {
@@ -116,11 +119,11 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 		if err != nil {
 			return err
 		}
-		defer guard.Close()
+		guard.register(sd)
 		stubAddr = guard.StubAddr()
 	}
 
 	// Run shared dataplane + SOCKS + stats.
-	runCore(ctx, dev, actualName, cfg, appVersion, &counters, stubAddr, func() {})
+	runCore(ctx, dev, actualName, cfg, appVersion, &counters, stubAddr, sd)
 	return nil
 }

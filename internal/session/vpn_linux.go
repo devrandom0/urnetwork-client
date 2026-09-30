@@ -39,11 +39,14 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 		tunName = "urnet0"
 	}
 
+	sd := newShutdown()
+	defer runShutdown(sd)
+
 	dev, err := tunnel.Open(tunName)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = dev.Close() }()
+	sd.add("close TUN", closeTUNTimeout, dev.Close)
 	logx.Info("TUN %s created\n", tunName)
 
 	if err := netcfg.ConfigureLinuxTUN(tunName, cfg.IPCIDR, cfg.MTU, cfg.EnableIPv6); err != nil {
@@ -64,9 +67,9 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 		}
 	}
 
-	// Set up route manager; Cleanup runs on exit via defer.
+	// Set up route manager; its Cleanup runs during shutdown.
 	rm := netcfg.NewLinuxRouteManager(tunName, origGw, origDev)
-	defer rm.Cleanup()
+	sd.add("remove routes", routeCleanupTimeout, func() error { rm.Cleanup(); return nil })
 
 	// Install routes.
 	var counters tunnel.Counters
@@ -104,11 +107,11 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 		if err != nil {
 			return err
 		}
-		defer guard.Close()
+		guard.register(sd)
 		stubAddr = guard.StubAddr()
 	}
 
 	// Run shared dataplane + SOCKS + stats.
-	runCore(ctx, dev, tunName, cfg, appVersion, &counters, stubAddr, func() {})
+	runCore(ctx, dev, tunName, cfg, appVersion, &counters, stubAddr, sd)
 	return nil
 }

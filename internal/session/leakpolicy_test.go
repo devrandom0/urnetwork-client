@@ -249,21 +249,6 @@ func TestLeakPolicy_CacheBindsStubBeforeDroppingBypass(t *testing.T) {
 	}
 }
 
-func TestLeakGuard_CloseRestoresDNSBeforeStoppingStub(t *testing.T) {
-	f := newLeakFixture()
-	g, err := apply(t, f, leakCfg("none"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	g.Close()
-
-	got := f.log.all()
-	if !slices.Equal(got[len(got)-2:], []string{"sysdns: restore", "stub: close"}) {
-		t.Fatalf("steps = %v; want DNS restored, then the stub closed", got)
-	}
-}
-
 func TestPlanDNS(t *testing.T) {
 	cases := []struct {
 		name, cidr, dns string

@@ -15,7 +15,7 @@ import (
 )
 
 // runCore selects providers, runs the dataplane between dev and the provider, prints stats
-// and serves the optional SOCKS proxy until ctx ends, then runs onBeforeExit.
+// and serves the optional SOCKS proxy until ctx ends. Their cleanup goes into sd.
 func runCore(
 	ctx context.Context,
 	dev tunnel.Device,
@@ -24,7 +24,7 @@ func runCore(
 	appVersion string,
 	counters *tunnel.Counters,
 	stubAddr string,
-	onBeforeExit func(),
+	sd *shutdown,
 ) {
 	gen := urapi.NewGenerator(ctx, urapi.GeneratorConfig{
 		APIURL:     cfg.APIURL,
@@ -36,6 +36,7 @@ func runCore(
 	policy := tunnel.NewInboundPolicy(cfg.AllowInboundSrcList, cfg.AllowInboundLocal, cfg.IPCIDR)
 	dp := tunnel.NewDataplane(dev, policy, cfg.EnableIPv6, counters)
 	mc := urapi.NewMultiClient(ctx, gen, dp.Receive)
+	sd.add("close connect client", clientCloseTimeout, mc.Close)
 	go dp.PumpOutbound(mc.SendPacket)
 
 	if cfg.StatsInterval > 0 && logx.IsInfoEnabled() {
@@ -43,13 +44,12 @@ func runCore(
 	}
 
 	// Optional SOCKS5 proxy bound to the VPN interface
-	var stopSocks func() error
 	if cfg.SOCKSListen != "" {
 		warnIfSocksDNSUnset(tunIfName, cfg.DNSList, stubAddr)
 		if s, err := socks.StartSocks5(ctx, socksOptionsFromVPN(cfg, tunIfName, stubAddr)); err != nil {
 			logx.Warn("failed to start socks at %s: %v\n", cfg.SOCKSListen, err)
 		} else {
-			stopSocks = s
+			sd.add("stop SOCKS", stopListenerTimeout, s)
 			logx.Info("SOCKS5 listening at %s (bound to %s)\n", cfg.SOCKSListen, tunIfName)
 		}
 	}
@@ -58,16 +58,7 @@ func runCore(
 		fmt.Println("VPN dataplane running; press Ctrl-C to exit.")
 	}
 
-	// Wait for termination via context cancellation
 	<-ctx.Done()
-
-	// Cleanup order: stop socks, then OS-specific cleanup
-	if stopSocks != nil {
-		_ = stopSocks()
-	}
-	if onBeforeExit != nil {
-		onBeforeExit()
-	}
 }
 
 // warnIfSocksDNSUnset logs once at startup when SOCKS hostname lookups will be resolved

@@ -2,11 +2,14 @@
 package netcfg
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
+	"time"
+
+	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 // commandRunner is the single choke point for OS commands so route and TUN logic can be
@@ -21,43 +24,69 @@ type commandRunner interface {
 
 type execRunner struct{}
 
-func (execRunner) Run(name string, args ...string) error {
+// commandTimeout bounds every route, ip, ifconfig, scutil and resolvectl call, so one hung
+// tool cannot stall startup or the cleanup that restores DNS.
+var commandTimeout = 5 * time.Second
+
+// command also bounds the wait for pipes a tool's own children might keep open.
+func command(name string, args ...string) (*exec.Cmd, context.CancelFunc, error) {
 	path, err := tools.resolve(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.WaitDelay = time.Second
+	return cmd, cancel, nil
+}
+
+// Run captures the tool's output instead of sharing the process's stdout and stderr: a
+// terminal or pipe that stops reading would block the tool, and with it the caller.
+func (execRunner) Run(name string, args ...string) error {
+	cmd, cancel, err := command(name, args...)
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(path, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	defer cancel()
+	out, err := cmd.CombinedOutput()
+	text := strings.TrimSpace(string(out))
+	if err != nil && text != "" {
+		return fmt.Errorf("%w: %s", err, text)
+	}
+	if text != "" {
+		logx.Debug("%s: %s\n", name, text)
+	}
+	return err
 }
 
 func (execRunner) Capture(name string, args ...string) (string, error) {
-	path, err := tools.resolve(name)
+	cmd, cancel, err := command(name, args...)
 	if err != nil {
 		return "", err
 	}
-	out, err := exec.Command(path, args...).CombinedOutput()
+	defer cancel()
+	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
 
 func (execRunner) RunInput(stdin, name string, args ...string) (string, error) {
-	path, err := tools.resolve(name)
+	cmd, cancel, err := command(name, args...)
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command(path, args...)
+	defer cancel()
 	cmd.Stdin = strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
 
 func (execRunner) CaptureStdout(name string, args ...string) (string, error) {
-	path, err := tools.resolve(name)
+	cmd, cancel, err := command(name, args...)
 	if err != nil {
 		return "", err
 	}
-	out, err := exec.Command(path, args...).Output()
+	defer cancel()
+	out, err := cmd.Output()
 	// Output() doesn't parse stdout, but on failure its ExitError carries no stderr text at
 	// all by default; fold it into the error so a route/ip/ifconfig failure stays diagnosable.
 	var exitErr *exec.ExitError

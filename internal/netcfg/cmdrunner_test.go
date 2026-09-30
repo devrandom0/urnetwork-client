@@ -2,9 +2,12 @@ package netcfg
 
 import (
 	"errors"
+	"io"
+	"os"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 type fakeResult struct {
@@ -137,5 +140,54 @@ func TestExecRunner_CaptureStdoutIncludesStderrInError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "something went wrong") {
 		t.Fatalf("err = %q, want it to include the command's stderr", err)
+	}
+}
+
+func useCommandTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := commandTimeout
+	commandTimeout = d
+	t.Cleanup(func() { commandTimeout = old })
+}
+
+func TestExecRunner_HungCommandTimesOut(t *testing.T) {
+	useCommandTimeout(t, 100*time.Millisecond)
+	for name, call := range map[string]func() error{
+		"Run":           func() error { return execRunner{}.Run("sleep", "10") },
+		"Capture":       func() error { _, err := execRunner{}.Capture("sleep", "10"); return err },
+		"CaptureStdout": func() error { _, err := execRunner{}.CaptureStdout("sleep", "10"); return err },
+		"RunInput":      func() error { _, err := execRunner{}.RunInput("", "sleep", "10"); return err },
+	} {
+		t.Run(name, func(t *testing.T) {
+			start := time.Now()
+			err := call()
+			if err == nil || time.Since(start) > 3*time.Second {
+				t.Fatalf("%s = %v after %v; a hung tool must be killed at the timeout", name, err, time.Since(start))
+			}
+		})
+	}
+}
+
+func TestExecRunner_RunKeepsToolOutputOffStdout(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	runErr := execRunner{}.Run("sh", "-c", "echo route noise")
+	os.Stdout = orig
+	_ = w.Close()
+	out, _ := io.ReadAll(r)
+
+	if runErr != nil || len(out) != 0 {
+		t.Fatalf("Run = %v, stdout %q; tool output must not share the process's stdout", runErr, out)
+	}
+}
+
+func TestExecRunner_RunErrorCarriesToolOutput(t *testing.T) {
+	err := execRunner{}.Run("sh", "-c", "echo route: writing to routing socket: File exists >&2; exit 1")
+	if err == nil || !strings.Contains(err.Error(), "File exists") {
+		t.Fatalf("Run = %v; want the tool's own message in the error", err)
 	}
 }

@@ -48,3 +48,9 @@ func NewMultiClient(ctx context.Context, gen *Generator, receive func(packet []b
 func (m *MultiClient) SendPacket(packet []byte) {
 	m.mc.SendPacket(connect.TransferPath{}, protocol.ProvideMode_Network, packet, -1)
 }
+
+// Close stops the client's transports and provider windows.
+func (m *MultiClient) Close() error {
+	m.mc.Close()
+	return nil
+}

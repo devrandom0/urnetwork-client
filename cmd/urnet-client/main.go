@@ -6,19 +6,29 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"syscall"
 
 	"github.com/docopt/docopt-go"
 
 	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/logx"
+	"github.com/devrandom0/urnetwork-client/internal/session"
 )
 
 var Version = "dev"
 
-// shutdownSignals end a run through context cancellation so the deferred route, DNS and TUN
-// cleanup runs; SIGHUP arrives when the controlling terminal closes.
-var shutdownSignals = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT}
+var shutdownSignals = session.ShutdownSignals
+
+// notifyShutdown cancels ctx on the first shutdown signal and then gives the signals back
+// their default action, so a second one can end a run that is stuck; the VPN's cleanup
+// catches that second signal itself while it restores DNS.
+func notifyShutdown(parent context.Context) (context.Context, context.CancelFunc) {
+	ctx, stop := signal.NotifyContext(parent, shutdownSignals...)
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
+	return ctx, stop
+}
 
 func usageText() string {
 	return fmt.Sprintf(`urnet-client (experimental)
@@ -131,7 +141,7 @@ func main() {
 		}
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals...)
+	ctx, stop := notifyShutdown(context.Background())
 	defer stop()
 
 	var runErr error

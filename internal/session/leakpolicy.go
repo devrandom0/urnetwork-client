@@ -113,12 +113,10 @@ type leakGuard struct {
 
 func (g *leakGuard) StubAddr() string { return g.stub.Addr().String() }
 
-// Close restores system DNS before stopping the stub, so no lookup meets a dead resolver.
-func (g *leakGuard) Close() {
-	if err := g.sysDNS.Restore(); err != nil {
-		logx.Error("restore system DNS: %v\n", err)
-	}
-	_ = g.stub.Close()
+// register makes system DNS the first thing restored, so no lookup meets a dead resolver.
+func (g *leakGuard) register(sd *shutdown) {
+	sd.restoreDNSFirst("restore system DNS", dnsRestoreTimeout, g.sysDNS.Restore)
+	sd.add("stop DNS stub", stopStubTimeout, g.stub.Close)
 }
 
 // applyLeakPolicy runs after the IPv4 split routes are in place. Every step fails closed and
