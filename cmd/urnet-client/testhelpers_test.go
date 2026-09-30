@@ -17,7 +17,7 @@ func vpnTestOpts(overrides map[string]interface{}) docopt.Opts {
 		"--connect_url":         config.DefaultConnectURL,
 		"--ip_cidr":             "10.255.0.2/24",
 		"--mtu":                 "1420",
-		"--dns_bootstrap":       "bypass",
+		"--dns_bootstrap":       "none",
 		"--stats_interval":      "5",
 		"--default_route":       false,
 		"--debug":               false,
