@@ -5,7 +5,6 @@ package netcfg
 import (
 	"fmt"
 	"net/netip"
-	"os"
 	"strings"
 	"sync"
 
@@ -25,7 +24,7 @@ type darwinSplitRoute struct {
 	usedCIDR bool   // true = added with CIDR form; false = -net/-netmask form
 }
 
-// DarwinRouteManager implements RouteManager for macOS using `route` and `networksetup`.
+// DarwinRouteManager implements RouteManager for macOS using `route`.
 // All route additions are recorded so Cleanup can reverse them precisely.
 type DarwinRouteManager struct {
 	tunName string // TUN interface name (e.g. utun3)
@@ -45,10 +44,9 @@ type DarwinRouteManager struct {
 	killSwitch        bool // whether kill-switch mode is active
 	killSwitchAdded   bool // whether the blackhole default was successfully installed
 	killSwitchV6Added bool // whether the IPv6 blackhole default was installed
-
-	dnsConfigured bool   // whether SetDNS changed the system DNS
-	dnsService    string // network service name passed to networksetup
 }
+
+var _ RouteManager = (*DarwinRouteManager)(nil)
 
 // NewDarwinRouteManager creates a route manager for the given TUN interface.
 // peerIP is the peer/gateway address for the utun (derived from --ip_cidr).
@@ -226,21 +224,6 @@ func (m *DarwinRouteManager) AddDNSServerRoutes(ips []string, bypass bool) {
 	}
 }
 
-// SetDNS configures system-wide DNS resolvers via networksetup.
-func (m *DarwinRouteManager) SetDNS(servers []string, service string) error {
-	if service == "" || len(servers) == 0 {
-		return nil
-	}
-	args := append([]string{"-setdnsservers", service}, servers...)
-	if err := runSudo("networksetup", args...); err != nil {
-		return err
-	}
-	m.dnsConfigured = true
-	m.dnsService = service
-	logx.Info("DNS set for service %s -> %v\n", service, servers)
-	return nil
-}
-
 // RemoveDNSBypass removes all DNS server bypass routes immediately.
 // Called from the dns_bootstrap=cache goroutine and from Cleanup; the mutex makes
 // the two safe to run concurrently and ensures each route is deleted exactly once.
@@ -330,8 +313,7 @@ func (m *DarwinRouteManager) addV6Halves(spec func(dst string) []string) error {
 	return nil
 }
 
-// Cleanup removes all routes and DNS configuration applied by this manager
-// and brings the TUN interface down.
+// Cleanup removes all routes applied by this manager and brings the TUN interface down.
 func (m *DarwinRouteManager) Cleanup() {
 	// Split-default routes
 	if len(m.addedSplits) > 0 {
@@ -384,12 +366,6 @@ func (m *DarwinRouteManager) Cleanup() {
 	// IPv6 reject/split-default routes
 	for _, dst := range m.addedV6 {
 		_ = runSudo("route", "-n", "delete", "-inet6", dst)
-	}
-	// DNS service
-	if m.dnsConfigured {
-		if err := runSudo("networksetup", "-setdnsservers", m.dnsService, "Empty"); err != nil {
-			fmt.Fprintf(os.Stderr, "warn: failed to clear DNS for %s: %v\n", m.dnsService, err)
-		}
 	}
 	// Bring interface down
 	_ = runSudo("ifconfig", m.tunName, "down")

@@ -9,6 +9,7 @@ import (
 	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 	"github.com/devrandom0/urnetwork-client/internal/netcfg"
+	"github.com/devrandom0/urnetwork-client/internal/socks"
 	"github.com/devrandom0/urnetwork-client/internal/tunnel"
 )
 
@@ -26,6 +27,10 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 	// TUN-less mode: SOCKS-only when TUN is disabled or not specified.
 	if IsTUNDisabled(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
 		return runSocksOnly(ctx, cfg)
+	}
+
+	if err := netcfg.RecoverStaleDNS(); err != nil {
+		return err
 	}
 
 	// If tun name looks like a flag (missing value), use a safe default.
@@ -64,14 +69,16 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 	defer rm.Cleanup()
 
 	// Install routes.
+	var counters tunnel.Counters
+	pinned := endpointPins{}
 	if cfg.DefaultRoute {
 		if cfg.EnableKillSwitch {
 			if err := rm.AddKillSwitchRoute(); err != nil {
 				return err
 			}
 		}
-		rm.AddBypassEndpoint(cfg.APIURL)
-		rm.AddBypassEndpoint(cfg.ConnectURL)
+		pinned.add(rm.AddBypassEndpoint(cfg.APIURL))
+		pinned.add(rm.AddBypassEndpoint(cfg.ConnectURL))
 		if err := rm.AddSplitDefault(); err != nil {
 			return err
 		}
@@ -86,8 +93,23 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 		rm.AddDNSServerRoutes(config.SplitCSV(cfg.DNSList), false)
 	}
 
+	var stubAddr string
+	if cfg.DefaultRoute {
+		guard, err := applyLeakPolicy(ctx, cfg, pinned, &counters, leakDeps{
+			routes:        rm,
+			sysDNS:        netcfg.NewSystemDNS(tunName),
+			startStub:     startDNSStub,
+			control:       socks.InterfaceControl(tunName),
+			ipv6Available: netcfg.IPv6Available,
+		})
+		if err != nil {
+			return err
+		}
+		defer guard.Close()
+		stubAddr = guard.StubAddr()
+	}
+
 	// Run shared dataplane + SOCKS + stats.
-	var counters tunnel.Counters
-	runCore(ctx, dev, tunName, cfg, appVersion, &counters, "", func() {})
+	runCore(ctx, dev, tunName, cfg, appVersion, &counters, stubAddr, func() {})
 	return nil
 }

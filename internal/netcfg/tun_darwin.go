@@ -61,29 +61,3 @@ func DefaultGateway() (string, string, error) {
 	}
 	return gw, iface, nil
 }
-
-// SystemDNSResolvers parses `scutil --dns` and returns unique IPv4 resolver IPs.
-func SystemDNSResolvers() ([]string, error) {
-	out, err := runCapture("scutil", "--dns")
-	if err != nil {
-		return nil, err
-	}
-	lines := strings.Split(out, "\n")
-	seen := map[string]bool{}
-	var res []string
-	for _, ln := range lines {
-		ln = strings.TrimSpace(ln)
-		// Lines look like: 'nameserver[0] : 192.168.1.1'
-		if strings.HasPrefix(ln, "nameserver[") {
-			parts := strings.Split(ln, ":")
-			if len(parts) >= 2 {
-				ip := strings.TrimSpace(parts[1])
-				if ip != "" && strings.Count(ip, ".") == 3 && !seen[ip] {
-					seen[ip] = true
-					res = append(res, ip)
-				}
-			}
-		}
-	}
-	return res, nil
-}

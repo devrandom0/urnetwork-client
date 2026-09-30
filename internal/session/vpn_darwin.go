@@ -5,11 +5,11 @@ package session
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/devrandom0/urnetwork-client/internal/config"
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 	"github.com/devrandom0/urnetwork-client/internal/netcfg"
+	"github.com/devrandom0/urnetwork-client/internal/socks"
 	"github.com/devrandom0/urnetwork-client/internal/tunnel"
 )
 
@@ -29,6 +29,10 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 	// If TUN is disabled or not specified (and not a missing-arg case), run SOCKS-only.
 	if IsTUNDisabled(tunName) || (rawTun == "" && !tunLikelyMissingArg) {
 		return runSocksOnly(ctx, cfg)
+	}
+
+	if err := netcfg.RecoverStaleDNS(); err != nil {
+		return err
 	}
 
 	devName := tunName
@@ -58,6 +62,7 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 
 	// Packet counters (shared with the DNS cache goroutine).
 	var counters tunnel.Counters
+	pinned := endpointPins{}
 
 	// Detect original default gateway before altering routes.
 	defGw, _, gwErr := netcfg.DefaultGateway()
@@ -76,8 +81,8 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 				return err
 			}
 		}
-		rm.AddBypassEndpoint(cfg.APIURL)
-		rm.AddBypassEndpoint(cfg.ConnectURL)
+		pinned.add(rm.AddBypassEndpoint(cfg.APIURL))
+		pinned.add(rm.AddBypassEndpoint(cfg.ConnectURL))
 		if err := rm.AddSplitDefault(); err != nil {
 			return err
 		}
@@ -96,38 +101,27 @@ func Run(ctx context.Context, cfg config.VPNConfig, appVersion string) error {
 		rm.AddExtraRoute(r)
 	}
 
-	// DNS configuration.
-	if cfg.DNSList != "" {
-		if cfg.DNSService != "" {
-			if err := rm.SetDNS(config.SplitCSV(cfg.DNSList), cfg.DNSService); err != nil {
-				logx.Warn("failed to set DNS via networksetup for %s: %v\n", cfg.DNSService, err)
-			}
-		} else {
-			logx.Warn("--dns provided without --dns_service; skipping DNS change on macOS\n")
-		}
-		bypass := cfg.DefaultRoute && (cfg.DNSBootstrap == "bypass" || cfg.DNSBootstrap == "cache")
-		rm.AddDNSServerRoutes(config.SplitCSV(cfg.DNSList), bypass)
-	} else if cfg.DefaultRoute && defGw != "" && (cfg.DNSBootstrap == "bypass" || cfg.DNSBootstrap == "cache") {
-		// No --dns: bypass current system resolvers so DNS works during default-route switch.
-		if resolvers, err := netcfg.SystemDNSResolvers(); err == nil {
-			rm.AddDNSServerRoutes(resolvers, true)
-			if len(resolvers) > 0 {
-				logx.Info("Kept existing DNS resolvers via %s: %v\n", defGw, resolvers)
-			}
-		} else {
-			logx.Warn("failed to detect system DNS resolvers: %v\n", err)
-		}
-	}
 	if !cfg.DefaultRoute && cfg.DNSList != "" {
 		rm.AddDNSServerRoutes(config.SplitCSV(cfg.DNSList), false)
 	}
 
-	// DNS cache bootstrap: remove DNS bypass once the tunnel has traffic.
-	if cfg.DefaultRoute && cfg.DNSBootstrap == "cache" {
-		go netcfg.RemoveDNSBypassWhenWarm(ctx, rm, &counters.PktsIn, &counters.PktsOut, 3*time.Second, 200*time.Millisecond)
+	var stubAddr string
+	if cfg.DefaultRoute {
+		guard, err := applyLeakPolicy(ctx, cfg, pinned, &counters, leakDeps{
+			routes:        rm,
+			sysDNS:        netcfg.NewSystemDNS(actualName),
+			startStub:     startDNSStub,
+			control:       socks.InterfaceControl(actualName),
+			ipv6Available: func() bool { return true },
+		})
+		if err != nil {
+			return err
+		}
+		defer guard.Close()
+		stubAddr = guard.StubAddr()
 	}
 
 	// Run shared dataplane + SOCKS + stats.
-	runCore(ctx, dev, actualName, cfg, appVersion, &counters, "", func() {})
+	runCore(ctx, dev, actualName, cfg, appVersion, &counters, stubAddr, func() {})
 	return nil
 }

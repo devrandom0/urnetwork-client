@@ -32,6 +32,8 @@ type LinuxRouteManager struct {
 	killSwitchV6Added bool // whether the IPv6 blackhole default was installed
 }
 
+var _ RouteManager = (*LinuxRouteManager)(nil)
+
 // NewLinuxRouteManager creates a route manager for the named TUN interface.
 // origGw and origDev are the pre-VPN default gateway IP and device (may be empty).
 func NewLinuxRouteManager(tunName, origGw, origDev string) *LinuxRouteManager {
@@ -250,9 +252,6 @@ func (m *LinuxRouteManager) RemoveDNSBypass() {
 	}
 	m.addedDNSBypass = nil
 }
-
-// SetDNS is a no-op on Linux. DNS management on Linux is left to the caller.
-func (m *LinuxRouteManager) SetDNS(_ []string, _ string) error { return nil }
 
 // Cleanup removes all routes added during this session and brings the TUN interface down.
 func (m *LinuxRouteManager) Cleanup() {
