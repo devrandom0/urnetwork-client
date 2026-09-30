@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
 
 // tunCIDRParts extracts the host IP and derives a peer/gateway IP from an ip/prefix CIDR.
@@ -35,11 +33,10 @@ func ConfigureDarwinTUN(name, ipCIDR string, mtu int, enableIPv6 bool) (string, 
 	if err := runSudo("ifconfig", name, "inet", tunIP, peerIP, "mtu", strconv.Itoa(mtu), "up"); err != nil {
 		return "", fmt.Errorf("configure TUN %s: %w", name, err)
 	}
-	if err := runSudo("ifconfig", name, "inet6", "fd00::2/120"); err != nil {
-		if enableIPv6 {
+	if enableIPv6 {
+		if err := runSudo("ifconfig", name, "inet6", tunIPv6CIDR); err != nil {
 			return "", fmt.Errorf("configure TUN %s IPv6 address: %w", name, err)
 		}
-		logx.Debug("IPv6 address on %s not set (%v); continuing because --enable_ipv6 is off\n", name, err)
 	}
 	return peerIP, nil
 }

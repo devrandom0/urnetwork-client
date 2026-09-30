@@ -21,16 +21,33 @@ func TestConfigureDarwinTUN_FailsOnIfconfigError(t *testing.T) {
 	}
 }
 
-func TestConfigureDarwinTUN_ReturnsPeerAndToleratesIPv6WhenDisabled(t *testing.T) {
+func TestConfigureDarwinTUN_NoIPv6AddressWhenDisabled(t *testing.T) {
 	f := useFakeRunner(t)
-	f.failOn("ifconfig utun9 inet6 fd00::2/120", "ifconfig: inet6: bad value")
 
 	peer, err := ConfigureDarwinTUN("utun9", "10.255.0.2/24", 1420, false)
+
 	if err != nil || peer != "10.255.0.1" {
 		t.Fatalf("got peer=%q err=%v; want 10.255.0.1, nil", peer, err)
 	}
+	for _, c := range f.Calls() {
+		if strings.Contains(c, "inet6") {
+			t.Fatalf("ran %q with --enable_ipv6 off; the TUN must get no IPv6 address", c)
+		}
+	}
+}
+
+func TestConfigureDarwinTUN_IPv6AddressRequiredWhenEnabled(t *testing.T) {
+	f := useFakeRunner(t)
+	if _, err := ConfigureDarwinTUN("utun9", "10.255.0.2/24", 1420, true); err != nil {
+		t.Fatalf("IPv6 enabled: %v", err)
+	}
+	if f.count("ifconfig utun9 inet6 fd00::2/120") != 1 {
+		t.Fatalf("calls = %v; want the IPv6 address assigned", f.Calls())
+	}
+
+	f.failOn("ifconfig utun9 inet6 fd00::2/120", "ifconfig: inet6: bad value")
 	if _, err := ConfigureDarwinTUN("utun9", "10.255.0.2/24", 1420, true); err == nil {
-		t.Fatal("IPv6 enabled: want error")
+		t.Fatal("IPv6 enabled: want error when the IPv6 address cannot be set")
 	}
 }
 
