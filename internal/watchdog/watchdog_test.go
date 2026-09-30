@@ -5,7 +5,16 @@ import (
 	"os"
 	"slices"
 	"testing"
+	"time"
 )
+
+// fastRetries makes the recovery retries instant for the duration of a test.
+func fastRetries(t *testing.T) {
+	t.Helper()
+	orig := retryDelays
+	retryDelays = []time.Duration{time.Millisecond, time.Millisecond}
+	t.Cleanup(func() { retryDelays = orig })
+}
 
 type recorder struct{ owners []int }
 
@@ -49,13 +58,49 @@ func TestServe_EOFRecoversForTheOwner(t *testing.T) {
 	}
 }
 
-func TestServe_ReturnsRecoveryError(t *testing.T) {
+func TestServe_ReturnsRecoveryErrorAfterThreeAttempts(t *testing.T) {
+	fastRetries(t)
 	r, w, _ := os.Pipe()
 	_ = w.Close()
 	want := errors.New("scutil: Permission denied")
+	calls := 0
 
-	if err := Serve(r, 42, func(int) error { return want }); !errors.Is(err, want) {
+	err := Serve(r, 42, func(int) error { calls++; return want })
+	if !errors.Is(err, want) {
 		t.Fatalf("Serve = %v; want the recovery error", err)
+	}
+	if calls != 3 {
+		t.Fatalf("recovery attempts = %d; want 3", calls)
+	}
+}
+
+// Right after a crash scutil or resolvectl can time out once or twice; one failed attempt
+// must not leave DNS pointing at the dead VPN's stub.
+func TestServe_RetriesATransientRecoveryFailure(t *testing.T) {
+	fastRetries(t)
+	r, w, _ := os.Pipe()
+	_ = w.Close()
+	calls := 0
+
+	err := Serve(r, 42, func(int) error {
+		calls++
+		if calls < 3 {
+			return errors.New("scutil timed out after 3s")
+		}
+		return nil
+	})
+	if err != nil || calls != 3 {
+		t.Fatalf("Serve = %v after %d attempts; want success on the third", err, calls)
+	}
+}
+
+func TestRetryDelays_BoundTheWholeRecovery(t *testing.T) {
+	var total time.Duration
+	for _, d := range retryDelays {
+		total += d
+	}
+	if len(retryDelays) != 2 || total > 20*time.Second {
+		t.Fatalf("retry delays = %v; want 3 attempts within about 20s", retryDelays)
 	}
 }
 

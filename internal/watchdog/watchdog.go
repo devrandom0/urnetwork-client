@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/devrandom0/urnetwork-client/internal/logx"
 )
@@ -125,5 +126,23 @@ func Serve(r io.Reader, owner int, recover func(owner int) error) error {
 		}
 	}
 	logx.Warn("watchdog: pid %d exited without restoring system DNS; recovering\n", owner)
-	return recover(owner)
+	return recoverWithRetries(owner, recover)
+}
+
+// retryDelays are the pauses between recovery attempts. Right after a crash scutil or
+// resolvectl can time out once; three attempts, with each command's own timeout, still end
+// within about 20 seconds.
+var retryDelays = []time.Duration{3 * time.Second, 8 * time.Second}
+
+func recoverWithRetries(owner int, recover func(owner int) error) error {
+	err := recover(owner)
+	for i, d := range retryDelays {
+		if err == nil {
+			return nil
+		}
+		logx.Warn("watchdog: recovery attempt %d for pid %d failed: %v; retrying in %s\n", i+1, owner, err, d)
+		time.Sleep(d)
+		err = recover(owner)
+	}
+	return err
 }

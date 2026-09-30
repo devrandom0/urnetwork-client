@@ -82,7 +82,7 @@ Run `./dist/urnet-client --help` for full command help.
 
 ## Troubleshooting
 
-With `--default_route` a watchdog process restores DNS by itself if the VPN dies without cleaning up. If DNS still does not work after the VPN exited, for example after a power cut, run:
+Stop the VPN with Ctrl-C or `kill` (SIGTERM), never `kill -9`, which skips its cleanup. With `--default_route` a watchdog process restores DNS by itself if the VPN dies without cleaning up. If you did use `kill -9`, or DNS still does not work after the VPN exited, for example after a power cut, run:
 
 ```bash
 sudo urnet-client recover

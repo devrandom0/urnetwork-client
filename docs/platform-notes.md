@@ -84,7 +84,9 @@ On Ctrl-C, SIGTERM or SIGHUP the client restores system DNS first, then stops SO
 
 ## Crash recovery
 
-With `--default_route` the client starts a small watchdog process before it changes system DNS: the same binary, shown in `ps` as `urnet-client __dns-watchdog --owner <pid>`. It gets no environment and no secrets, ignores Ctrl-C, SIGHUP and SIGTERM, and logs to the same place as the client. If the client dies without cleaning up, even from `kill -9`, the watchdog notices at once, restores system DNS and removes the IPv6 reject routes, then exits. It only acts while the DNS settings still name its client's pid, so it never touches a newer run. After a normal exit the client tells it to quit without doing anything. A power cut or `kill -9` of both processes still leaves the changes behind.
+With `--default_route` the client starts a small watchdog process before it changes system DNS: the same binary, shown in `ps` as `urnet-client __dns-watchdog --owner <pid>`. It gets no environment and no secrets, ignores Ctrl-C, SIGHUP, SIGTERM and SIGPIPE, and logs to `--log_file` or the terminal the client logs to; when the client's output goes to a pipe (`| tee`, a capturing script) the watchdog logs nothing, so a reader that exits cannot stop it. The client itself also keeps running and cleaning up when that reader goes away. If the client dies without cleaning up, even from `kill -9`, the watchdog notices at once, restores system DNS and removes the IPv6 reject routes, then exits. A failed attempt is retried twice, 3 and 8 seconds apart. It only acts while the DNS settings still name its client's pid, so it never touches a newer run. After a normal exit the client tells it to quit without doing anything. A power cut or `kill -9` of both processes still leaves the changes behind.
+
+Stop the client with Ctrl-C or `kill` (SIGTERM), never `kill -9`: SIGKILL skips the client's own cleanup and leaves everything to the watchdog. If you did use `kill -9`, or DNS does not work after the client is gone, run `sudo urnet-client recover`.
 
 If the changes are still there, for example after a power cut, run:
 
