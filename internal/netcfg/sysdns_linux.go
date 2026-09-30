@@ -3,13 +3,21 @@
 package netcfg
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/devrandom0/urnetwork-client/internal/logx"
+	"github.com/devrandom0/urnetwork-client/internal/safefile"
 )
+
+// resolvedOwnerPath records which process gave its TUN link the "~." DNS route; resolved
+// itself keeps no trace of who set it. /run is cleared at boot, like the link settings.
+var resolvedOwnerPath = "/run/urnet-client-dns.owner"
 
 var haveTool = func(name string) bool {
 	_, err := tools.resolve(name)
@@ -21,15 +29,46 @@ var haveTool = func(name string) bool {
 // gets /etc/resolv.conf rewritten.
 func NewSystemDNS(tunName string) SystemDNS {
 	if haveTool("resolvectl") && usesResolvedStub(resolvConfPath) {
-		return &resolvedDNS{tun: tunName}
+		return &resolvedDNS{tun: tunName, owner: resolvedOwnerPath}
 	}
 	return &resolvConfDNS{path: resolvConfPath, backup: resolvConfBackupPath}
 }
 
-// RecoverStaleDNS undoes a resolv.conf change left by a run that died before its cleanup.
-// systemd-resolved needs nothing: its per-link settings vanish with the TUN.
+// RecoverStaleDNS undoes DNS changes left by a run that died before its cleanup, and refuses
+// while the run that made them is still alive.
 func RecoverStaleDNS() error {
+	if err := recoverStaleResolved(resolvedOwnerPath); err != nil {
+		return err
+	}
 	return (&resolvConfDNS{path: resolvConfPath, backup: resolvConfBackupPath}).recoverStale()
+}
+
+// recoverStaleResolved drops a dead run's owner file. Its per-link settings normally vanish
+// with its TUN; the revert covers a TUN that outlived it.
+func recoverStaleResolved(owner string) error {
+	b, err := safefile.ReadFile(owner, 4<<10)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read %s: %w", owner, err)
+	}
+	if err := liveOwnerErr(parseOwnerPID(string(b))); err != nil {
+		return err
+	}
+	if tun := ownerTUN(string(b)); tun != "" {
+		_ = run("resolvectl", "revert", tun)
+	}
+	return os.Remove(owner)
+}
+
+func ownerTUN(s string) string {
+	for _, f := range strings.Fields(s) {
+		if v, ok := strings.CutPrefix(f, "tun="); ok {
+			return v
+		}
+	}
+	return ""
 }
 
 func usesResolvedStub(path string) bool {
@@ -38,8 +77,8 @@ func usesResolvedStub(path string) bool {
 }
 
 type resolvedDNS struct {
-	tun     string
-	applied bool
+	tun, owner string
+	applied    bool
 }
 
 // Apply makes the TUN link the catch-all ("~.") default route for DNS, so resolved sends
@@ -56,6 +95,10 @@ func (r *resolvedDNS) Apply(stub netip.Addr) error {
 			return fmt.Errorf("resolvectl %s: %w", strings.Join(s, " "), err)
 		}
 	}
+	if err := safefile.WriteFile(r.owner, []byte(ownerRecord()+" tun="+r.tun+"\n")); err != nil {
+		_ = run("resolvectl", "revert", r.tun)
+		return fmt.Errorf("record DNS owner in %s: %w", r.owner, err)
+	}
 	r.applied = true
 	logx.Info("DNS: systemd-resolved sends all lookups to the stub %s via %s\n", stub, r.tun)
 	return nil
@@ -66,5 +109,9 @@ func (r *resolvedDNS) Restore() error {
 		return nil
 	}
 	r.applied = false
-	return run("resolvectl", "revert", r.tun)
+	err := run("resolvectl", "revert", r.tun)
+	if rmErr := os.Remove(r.owner); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+		err = errors.Join(err, rmErr)
+	}
+	return err
 }

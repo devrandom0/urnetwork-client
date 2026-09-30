@@ -3,9 +3,11 @@
 package netcfg
 
 import (
+	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -14,7 +16,12 @@ func useResolvConfIn(t *testing.T, dir string) {
 	oldPath, oldBackup := resolvConfPath, resolvConfBackupPath
 	resolvConfPath = filepath.Join(dir, "etc", "resolv.conf")
 	resolvConfBackupPath = resolvConfPath + ".urnet-client.bak"
-	t.Cleanup(func() { resolvConfPath, resolvConfBackupPath = oldPath, oldBackup })
+	oldOwner := resolvedOwnerPath
+	resolvedOwnerPath = filepath.Join(dir, "run", "urnet-client-dns.owner")
+	t.Cleanup(func() { resolvConfPath, resolvConfBackupPath, resolvedOwnerPath = oldPath, oldBackup, oldOwner })
+	if err := os.MkdirAll(filepath.Dir(resolvedOwnerPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Dir(resolvConfPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -76,9 +83,15 @@ func TestNewSystemDNS_NeedsResolvectlForResolvedMode(t *testing.T) {
 	}
 }
 
+func testResolvedDNS(t *testing.T) *resolvedDNS {
+	t.Helper()
+	useResolvConfIn(t, t.TempDir())
+	return &resolvedDNS{tun: "urnet0", owner: resolvedOwnerPath}
+}
+
 func TestResolvedDNS_ApplyAndRestoreCommands(t *testing.T) {
 	f := useFakeRunner(t)
-	r := &resolvedDNS{tun: "urnet0"}
+	r := testResolvedDNS(t)
 
 	if err := r.Apply(netip.MustParseAddr("10.255.0.2")); err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -135,5 +148,61 @@ func TestRecoverStaleDNS_RestoresResolvConfBackup(t *testing.T) {
 
 	if got, _ := os.ReadFile(resolvConfPath); string(got) != "nameserver 192.168.1.1\n" {
 		t.Fatalf("resolv.conf = %q; want the backup restored", got)
+	}
+}
+
+func TestResolvedDNS_OwnerFileLivesForTheSession(t *testing.T) {
+	useFakeRunner(t)
+	r := testResolvedDNS(t)
+
+	if err := r.Apply(netip.MustParseAddr("10.255.0.2")); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	got, err := os.ReadFile(r.owner)
+	if err != nil || string(got) != fmt.Sprintf("pid=%d tun=urnet0\n", os.Getpid()) {
+		t.Fatalf("owner file = %q, %v; want this pid and the TUN", got, err)
+	}
+	if err := r.Restore(); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	if _, err := os.Lstat(r.owner); !os.IsNotExist(err) {
+		t.Fatal("owner file still exists after Restore; the next start would see a leftover")
+	}
+}
+
+func TestRecoverStaleDNS_RefusesLiveResolvedOwner(t *testing.T) {
+	f := useFakeRunner(t)
+	useResolvConfIn(t, t.TempDir())
+	if err := os.WriteFile(resolvedOwnerPath, []byte("pid=4242 tun=urnet7\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	usePIDAlive(t, true)
+
+	err := RecoverStaleDNS()
+
+	if err == nil || !strings.Contains(err.Error(), "another urnet-client (pid 4242) owns system DNS") {
+		t.Fatalf("RecoverStaleDNS = %v; want a refusal naming the live owner", err)
+	}
+	if len(f.Calls()) != 0 {
+		t.Fatalf("calls = %v; a live instance's link settings must stay", f.Calls())
+	}
+}
+
+func TestRecoverStaleDNS_RevertsDeadResolvedOwner(t *testing.T) {
+	f := useFakeRunner(t)
+	useResolvConfIn(t, t.TempDir())
+	if err := os.WriteFile(resolvedOwnerPath, []byte("pid=4242 tun=urnet7\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	usePIDAlive(t, false)
+
+	if err := RecoverStaleDNS(); err != nil {
+		t.Fatalf("RecoverStaleDNS: %v", err)
+	}
+	if f.count("resolvectl revert urnet7") != 1 {
+		t.Fatalf("calls = %v; want the dead owner's link reverted", f.Calls())
+	}
+	if _, err := os.Lstat(resolvedOwnerPath); !os.IsNotExist(err) {
+		t.Fatal("stale owner file not removed")
 	}
 }

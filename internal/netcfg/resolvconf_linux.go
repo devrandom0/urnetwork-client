@@ -41,7 +41,7 @@ func (r *resolvConfDNS) Apply(stub netip.Addr) error {
 	if err := safefile.WriteFile(r.backup, orig); err != nil {
 		return fmt.Errorf("back up %s: %w", r.path, err)
 	}
-	content := fmt.Sprintf("# Written by urnet-client for this VPN session; the original is in %s\nnameserver %s\n", r.backup, stub)
+	content := fmt.Sprintf("# Written by urnet-client for this VPN session; the original is in %s\n# urnet-client %s\nnameserver %s\n", r.backup, ownerRecord(), stub)
 	if err := safefile.Overwrite(r.path, []byte(content)); err != nil {
 		return r.recoverFailedWrite(err, orig)
 	}
@@ -70,10 +70,16 @@ func (r *resolvConfDNS) Restore() error {
 	return r.restoreBackup()
 }
 
-// recoverStale restores a backup left by a run that died before Restore.
+// recoverStale restores a backup left by a run that died before Restore, unless the run that
+// wrote r.path is still alive.
 func (r *resolvConfDNS) recoverStale() error {
 	if _, err := os.Lstat(r.backup); errors.Is(err, fs.ErrNotExist) {
 		return nil
+	}
+	if cur, err := safefile.ReadFile(r.path, maxResolvConfSize); err == nil {
+		if err := liveOwnerErr(parseOwnerPID(string(cur))); err != nil {
+			return err
+		}
 	}
 	logx.Warn("restoring %s from %s, left by an earlier urnet-client run\n", r.path, r.backup)
 	return r.restoreBackup()

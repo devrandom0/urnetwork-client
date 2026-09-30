@@ -3,7 +3,9 @@
 package netcfg
 
 import (
+	"fmt"
 	"net/netip"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -151,5 +153,47 @@ func TestDefaultResolver(t *testing.T) {
 	}
 	if got := defaultResolver("DNS configuration\n\nresolver #1\n  domain : local\nresolver #2\n  nameserver[0] : 10.0.0.1\n"); got != "" {
 		t.Fatalf("defaultResolver = %q; want empty when resolver #1 has no nameserver", got)
+	}
+}
+
+func TestScutilDNS_ApplyRecordsOwnerPID(t *testing.T) {
+	f := useFakeRunner(t)
+	f.results["scutil --dns"] = fakeResult{out: scutilDNSWithStub}
+
+	if err := testScutilDNS().Apply(netip.MustParseAddr("10.255.0.2")); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	if want := fmt.Sprintf("d.add UrnetPID # %d\n", os.Getpid()); !strings.Contains(f.Inputs()[0], want) {
+		t.Fatalf("scutil script = %q; missing %q", f.Inputs()[0], want)
+	}
+}
+
+const scutilShowOwned = "<dictionary> {\n  ServerAddresses : <array> {\n    0 : 10.255.0.2\n  }\n  UrnetPID : 4242\n}\n"
+
+func TestRecoverStaleDNS_RefusesLiveOwner(t *testing.T) {
+	f := useFakeRunner(t)
+	f.results["scutil"] = fakeResult{out: scutilShowOwned}
+	usePIDAlive(t, true)
+
+	err := RecoverStaleDNS()
+
+	if err == nil || !strings.Contains(err.Error(), "another urnet-client (pid 4242) owns system DNS") {
+		t.Fatalf("RecoverStaleDNS = %v; want a refusal naming the live owner", err)
+	}
+	if in := f.Inputs(); len(in) != 1 {
+		t.Fatalf("scutil inputs = %q; a live instance's entry must not be removed", in)
+	}
+}
+
+func TestRecoverStaleDNS_RemovesEntryOfDeadOwner(t *testing.T) {
+	f := useFakeRunner(t)
+	f.results["scutil"] = fakeResult{out: scutilShowOwned}
+	usePIDAlive(t, false)
+
+	_ = RecoverStaleDNS()
+
+	if in := f.Inputs(); len(in) != 2 || in[1] != scutilRemoveScript {
+		t.Fatalf("scutil inputs = %q; want the dead owner's entry removed", in)
 	}
 }

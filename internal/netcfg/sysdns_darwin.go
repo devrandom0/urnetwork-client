@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,8 +25,12 @@ func NewSystemDNS(tunName string) SystemDNS {
 	return &scutilDNS{tun: tunName, wait: 3 * time.Second, tick: 100 * time.Millisecond}
 }
 
+// scutilOwnerKey holds the pid of the process that published the entry.
+const scutilOwnerKey = "UrnetPID"
+
 // RecoverStaleDNS removes the scutil entry left by a run that died before its cleanup; while
-// it exists every lookup goes to a stub that is no longer running.
+// it exists every lookup goes to a stub that is no longer running. It refuses while the
+// process that published the entry is still alive.
 func RecoverStaleDNS() error {
 	out, err := cmdRunner.RunInput("show "+scutilService+"/DNS\n", "scutil")
 	if err != nil {
@@ -32,6 +38,9 @@ func RecoverStaleDNS() error {
 	}
 	if strings.Contains(out, "No such key") {
 		return nil
+	}
+	if err := liveOwnerErr(scutilOwnerPID(out)); err != nil {
+		return err
 	}
 	logx.Warn("removing DNS settings left by an earlier urnet-client run\n")
 	return removeScutilService()
@@ -52,6 +61,7 @@ func (s *scutilDNS) Apply(stub netip.Addr) error {
 		"d.add ServerAddresses * " + stub.String(),
 		`d.add SupplementalMatchDomains * ""`,
 		"d.add SearchOrder # 1",
+		"d.add " + scutilOwnerKey + " # " + strconv.Itoa(os.Getpid()),
 		"set " + scutilService + "/DNS",
 		"d.init",
 		"d.add Addresses * " + stub.String(),
@@ -125,6 +135,19 @@ func defaultResolver(out string) string {
 		}
 	}
 	return ""
+}
+
+// scutilOwnerPID reads the "UrnetPID : <n>" line of `scutil show`; 0 when absent.
+func scutilOwnerPID(show string) int {
+	for _, ln := range strings.Split(show, "\n") {
+		k, v, ok := strings.Cut(strings.TrimSpace(ln), ":")
+		if ok && strings.TrimSpace(k) == scutilOwnerKey {
+			if pid, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+				return pid
+			}
+		}
+	}
+	return 0
 }
 
 func removeScutilService() error {

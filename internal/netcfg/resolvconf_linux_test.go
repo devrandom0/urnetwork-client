@@ -4,6 +4,7 @@ package netcfg
 
 import (
 	"errors"
+	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -178,5 +179,59 @@ func TestResolvConf_RecoverStaleNoopWithoutBackup(t *testing.T) {
 	}
 	if got := readTestFile(t, r.path); got != origResolvConf {
 		t.Fatalf("resolv.conf changed to %q", got)
+	}
+}
+
+func TestResolvConf_ApplyRecordsOwnerPID(t *testing.T) {
+	r := tempResolvConf(t)
+
+	if err := r.Apply(netip.MustParseAddr("10.255.0.2")); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	if got := readTestFile(t, r.path); !strings.Contains(got, fmt.Sprintf("# urnet-client pid=%d\n", os.Getpid())) {
+		t.Fatalf("resolv.conf = %q; want the owner pid recorded", got)
+	}
+}
+
+func TestResolvConf_RecoverStaleRefusesLiveOwner(t *testing.T) {
+	r := tempResolvConf(t)
+	if err := os.WriteFile(r.backup, []byte(origResolvConf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	live := "# urnet-client pid=4242\nnameserver 10.255.0.2\n"
+	if err := os.WriteFile(r.path, []byte(live), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	usePIDAlive(t, true)
+
+	err := r.recoverStale()
+
+	if err == nil || !strings.Contains(err.Error(), "another urnet-client (pid 4242) owns system DNS") {
+		t.Fatalf("recoverStale = %v; want a refusal naming the live owner", err)
+	}
+	if got := readTestFile(t, r.path); got != live {
+		t.Fatalf("resolv.conf = %q; a live instance's file must stay", got)
+	}
+	if _, err := os.Lstat(r.backup); err != nil {
+		t.Fatalf("backup removed: %v", err)
+	}
+}
+
+func TestResolvConf_RecoverStaleRestoresDeadOwner(t *testing.T) {
+	r := tempResolvConf(t)
+	if err := os.WriteFile(r.backup, []byte(origResolvConf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(r.path, []byte("# urnet-client pid=4242\nnameserver 10.255.0.2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	usePIDAlive(t, false)
+
+	if err := r.recoverStale(); err != nil {
+		t.Fatalf("recoverStale: %v", err)
+	}
+	if got := readTestFile(t, r.path); got != origResolvConf {
+		t.Fatalf("resolv.conf = %q; want the original restored", got)
 	}
 }
