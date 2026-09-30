@@ -8,8 +8,9 @@ import (
 )
 
 type fakeResult struct {
-	out string
-	err error
+	out    string // combined stdout+stderr, scripted for Capture
+	stdout string // stdout only, scripted for CaptureStdout
+	err    error
 }
 
 // fakeRunner records every command and returns scripted results; safe for concurrent use.
@@ -47,6 +48,15 @@ func (f *fakeRunner) Capture(name string, args ...string) (string, error) {
 	f.calls = append(f.calls, line)
 	r := f.results[line]
 	return r.out, r.err
+}
+
+func (f *fakeRunner) CaptureStdout(name string, args ...string) (string, error) {
+	line := strings.Join(append([]string{name}, args...), " ")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, line)
+	r := f.results[line]
+	return r.stdout, r.err
 }
 
 func (f *fakeRunner) Calls() []string {
@@ -95,5 +105,27 @@ func TestRunCaptureUsesCommandRunner(t *testing.T) {
 	}
 	if got := f.Calls(); len(got) != 1 || got[0] != "echo hi" {
 		t.Fatalf("calls = %v", got)
+	}
+}
+
+func TestRunCaptureStdoutIgnoresStderr(t *testing.T) {
+	f := useFakeRunner(t)
+	f.results["echo hi"] = fakeResult{stdout: "stdout-only", out: "stdout-only\nstderr junk"}
+	out, err := runCaptureStdout("echo", "hi")
+	if err != nil || out != "stdout-only" {
+		t.Fatalf("runCaptureStdout = %q, %v; want stdout only, not the combined output", out, err)
+	}
+}
+
+// TestExecRunner_CaptureStdoutIncludesStderrInError doesn't parse the command's stdout, but a
+// failure with no stderr text at all makes a route/ip/ifconfig failure much harder to diagnose,
+// so the trimmed stderr is folded into the error message.
+func TestExecRunner_CaptureStdoutIncludesStderrInError(t *testing.T) {
+	_, err := execRunner{}.CaptureStdout("sh", "-c", "echo out; echo something went wrong >&2; exit 1")
+	if err == nil {
+		t.Fatal("want an error from a nonzero exit")
+	}
+	if !strings.Contains(err.Error(), "something went wrong") {
+		t.Fatalf("err = %q, want it to include the command's stderr", err)
 	}
 }

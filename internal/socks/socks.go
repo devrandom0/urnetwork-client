@@ -10,7 +10,6 @@ import (
 	"io"
 	"net"
 	"net/netip"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -498,9 +497,11 @@ type udpAssociation struct {
 
 func (a *udpAssociation) touch() { a.lastActive.Store(time.Now().UnixNano()) }
 
-// closeWhenIdle closes ctrl, which tears the association down, once no datagram has been
-// relayed for timeout. It returns when done is closed.
-func (a *udpAssociation) closeWhenIdle(ctrl net.Conn, timeout time.Duration, done <-chan struct{}) {
+// closeWhenIdle tears the association down once no datagram has been relayed for timeout: it
+// closes the relay's packet conns before ctrl, so a caller observing ctrl's EOF can be sure the
+// relay is already dead instead of racing runUDPAssociate's own deferred cleanup. It returns
+// when done is closed.
+func (a *udpAssociation) closeWhenIdle(ctrl net.Conn, conns []net.PacketConn, timeout time.Duration, done <-chan struct{}) {
 	check := time.NewTicker(max(timeout/4, 10*time.Millisecond))
 	defer check.Stop()
 	for {
@@ -509,6 +510,9 @@ func (a *udpAssociation) closeWhenIdle(ctrl net.Conn, timeout time.Duration, don
 			return
 		case <-check.C:
 			if time.Since(time.Unix(0, a.lastActive.Load())) >= timeout {
+				for _, pc := range conns {
+					_ = pc.Close()
+				}
 				_ = ctrl.Close()
 				return
 			}
@@ -623,7 +627,7 @@ func (s *socksServer) runUDPAssociate(ctx context.Context, ctrl net.Conn, req so
 	}
 	done := make(chan struct{})
 	defer close(done)
-	wg.Go(func() { assoc.closeWhenIdle(ctrl, s.opts.UDPIdleTimeout, done) })
+	wg.Go(func() { assoc.closeWhenIdle(ctrl, conns, s.opts.UDPIdleTimeout, done) })
 	wg.Go(func() { s.relayFromClient(ctx, pcClient, pcVPN, pcSys, assoc) })
 	for _, pc := range conns[1:] {
 		wg.Go(func() { relayToClient(pc, pcClient, assoc) })
@@ -714,37 +718,3 @@ func addrIP(a net.Addr) net.IP {
 }
 
 var errBindInterface = errors.New("bind to VPN interface failed")
-
-const (
-	darwinIPBoundIF     = 25  // IP_BOUND_IF
-	darwinIPv6BoundIF   = 125 // IPV6_BOUND_IF
-	linuxSOBindToDevice = 25  // SO_BINDTODEVICE, needs CAP_NET_RAW
-)
-
-// bindFDToInterface pins a socket to ifName. Any failure is returned so the caller refuses
-// the request; silently continuing would send VPN traffic out the normal default route.
-func bindFDToInterface(fd int, network, ifName string) error {
-	if strings.TrimSpace(ifName) == "" {
-		return nil
-	}
-	ifi, err := net.InterfaceByName(ifName)
-	if err != nil {
-		return fmt.Errorf("%w: %s: %v", errBindInterface, ifName, err)
-	}
-	switch runtime.GOOS {
-	case "darwin":
-		level, opt := syscall.IPPROTO_IP, darwinIPBoundIF
-		if strings.HasSuffix(network, "6") {
-			level, opt = syscall.IPPROTO_IPV6, darwinIPv6BoundIF
-		}
-		err = syscall.SetsockoptInt(fd, level, opt, ifi.Index)
-	case "linux":
-		err = syscall.SetsockoptString(fd, syscall.SOL_SOCKET, linuxSOBindToDevice, ifName)
-	default:
-		err = fmt.Errorf("not supported on %s", runtime.GOOS)
-	}
-	if err != nil {
-		return fmt.Errorf("%w: %s: %v", errBindInterface, ifName, err)
-	}
-	return nil
-}

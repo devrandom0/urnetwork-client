@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 )
 
 var (
@@ -21,14 +20,6 @@ var (
 	fileOwner = statOwner
 	fchown    = func(f *os.File, uid, gid int) error { return f.Chown(uid, gid) }
 )
-
-func statOwner(fi fs.FileInfo) (uid, gid uint32, ok bool) {
-	st, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok {
-		return 0, 0, false
-	}
-	return st.Uid, st.Gid, true
-}
 
 // parseSudoUID returns -1 when SUDO_UID is unset or not a uid.
 func parseSudoUID(s string) int {
@@ -122,24 +113,27 @@ func trustedSymlinkErr(path, link string, fi fs.FileInfo, dir string, lstat func
 	return nil
 }
 
-// parentDirErr refuses an ancestor whose owner could swap the directory below it.
+// parentDirErr refuses an ancestor whose owner could swap the directory below it. It guards
+// both writes and, as root, reads, so its wording must not name either operation specifically.
 func parentDirErr(path string, uid uint32, mode fs.FileMode, euid, sudoUID int) error {
 	trusted := uid == 0 || int(uid) == euid || (euid == 0 && sudoUID >= 0 && int(uid) == sudoUID)
 	if !trusted {
-		return fmt.Errorf("%s is owned by uid %d, not root or the current user; refusing to write below it", path, uid)
+		return fmt.Errorf("%s is owned by uid %d, not root or the current user; refusing to use paths below it", path, uid)
 	}
 	if mode.Perm()&0o022 != 0 && (uid != 0 || mode&fs.ModeSticky == 0) {
-		return fmt.Errorf("%s is writable by group or others; refusing to write below it", path)
+		return fmt.Errorf("%s is writable by group or others; refusing to use paths below it", path)
 	}
 	return nil
 }
 
+// leafDirErr is the same rule as parentDirErr for the target directory itself, shared by the
+// same read and write callers.
 func leafDirErr(path string, uid uint32, mode fs.FileMode, euid int) error {
 	if euid != 0 && uid != 0 && int(uid) != euid {
-		return fmt.Errorf("%s is owned by uid %d, not the current user (uid %d); refusing to write there", path, uid, euid)
+		return fmt.Errorf("%s is owned by uid %d, not the current user (uid %d); refusing to use it", path, uid, euid)
 	}
 	if mode.Perm()&0o022 != 0 && (uid != 0 || mode&fs.ModeSticky == 0) {
-		return fmt.Errorf("%s is writable by group or others; refusing to write there", path)
+		return fmt.Errorf("%s is writable by group or others; refusing to use it", path)
 	}
 	return nil
 }
@@ -274,7 +268,7 @@ func WriteFile(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	f, err := d.root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	f, err := d.root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|noFollowFlag, 0o600)
 	if err != nil {
 		return err
 	}
@@ -319,7 +313,7 @@ func OpenAppend(path string) (*os.File, error) {
 	name := filepath.Base(path)
 	// O_NONBLOCK keeps a FIFO planted at path from blocking the open; it is cleared once the
 	// descriptor is known to be a regular file.
-	const flags = os.O_WRONLY | os.O_APPEND | syscall.O_NOFOLLOW | syscall.O_NONBLOCK
+	const flags = os.O_WRONLY | os.O_APPEND | noFollowFlag | nonblockFlag
 	created := true
 	f, err := d.root.OpenFile(name, flags|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, fs.ErrExist) {
@@ -346,8 +340,8 @@ func checkOpened(f *os.File, path, name string, d *dir, created bool) error {
 	if entry, err := d.root.Lstat(name); err != nil || !os.SameFile(fi, entry) {
 		return fmt.Errorf("%s is a symlink or was replaced while opening; refusing to append to it", path)
 	}
-	if st, ok := fi.Sys().(*syscall.Stat_t); ok && st.Nlink > 1 {
-		return fmt.Errorf("%s has %d hard links; refusing to append to it", path, st.Nlink)
+	if nlink, ok := nlinkOf(fi); ok && nlink > 1 {
+		return fmt.Errorf("%s has %d hard links; refusing to append to it", path, nlink)
 	}
 	uid, _, err := ownerOf(fi, path)
 	if err != nil {
@@ -356,7 +350,7 @@ func checkOpened(f *os.File, path, name string, d *dir, created bool) error {
 	if err := appendOwnerErr(path, uid, d.uid, geteuid(), parseSudoUID(os.Getenv("SUDO_UID"))); err != nil {
 		return err
 	}
-	if err := syscall.SetNonblock(int(f.Fd()), false); err != nil {
+	if err := clearNonblock(f); err != nil {
 		return err
 	}
 	if created {
@@ -392,17 +386,49 @@ func checkRegular(f *os.File, path string) (fs.FileInfo, error) {
 }
 
 // ReadFile reads path, refusing special files and files larger than limit bytes. As root it
-// also refuses a symlink at path; other users may point their config at a dotfile manager's link.
+// also refuses a symlink anywhere in path's parent directory chain, or an ancestor directory
+// owned by anyone but root or the sudo-invoking user, the same rule WriteFile applies before
+// writing; it then refuses a symlink at path itself. Other users may point their config at a
+// dotfile manager's link, so non-root always follows both the parent chain and the leaf.
 func ReadFile(path string, limit int64) ([]byte, error) {
-	flags := os.O_RDONLY | syscall.O_NONBLOCK
-	root := geteuid() == 0
-	if root {
-		flags |= syscall.O_NOFOLLOW
+	cleaned, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
 	}
-	f, err := os.OpenFile(path, flags, 0)
-	if root && errors.Is(err, syscall.ELOOP) {
+	if geteuid() == 0 {
+		return readFileAsRoot(cleaned, limit)
+	}
+	f, err := os.OpenFile(cleaned, os.O_RDONLY|nonblockFlag, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	fi, err := checkRegular(f, cleaned)
+	if err != nil {
+		return nil, err
+	}
+	return readLimited(f, fi, cleaned, limit)
+}
+
+// readFileAsRoot pins path's directory the same way WriteFile's openDir does (refusing an
+// untrusted symlink or ancestor owner in the chain, closing the check-then-open race a plain
+// symlink check leaves open), then opens the leaf through that pinned directory.
+func readFileAsRoot(path string, limit int64) ([]byte, error) {
+	d, err := openDir(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	defer d.close()
+	name := filepath.Base(path)
+	// os.Root.OpenFile reports a symlink leaf as an unexported "path escapes from parent"
+	// error rather than syscall.ELOOP, so check the entry first for a message that names the
+	// problem; the SameFile check below still catches one planted after this Lstat.
+	if fi, err := d.root.Lstat(name); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
 		return nil, fmt.Errorf("%s is a symlink; refusing to follow it as root", path)
+	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
 	}
+	f, err := d.root.OpenFile(name, os.O_RDONLY|noFollowFlag|nonblockFlag, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -411,6 +437,15 @@ func ReadFile(path string, limit int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// os.Root follows symlinks that stay inside the directory even with O_NOFOLLOW, so the
+	// opened file must be the entry itself (mirrors checkOpened on the append path).
+	if entry, err := d.root.Lstat(name); err != nil || !os.SameFile(fi, entry) {
+		return nil, fmt.Errorf("%s is a symlink or was replaced while opening; refusing to read it", path)
+	}
+	return readLimited(f, fi, path, limit)
+}
+
+func readLimited(f *os.File, fi fs.FileInfo, path string, limit int64) ([]byte, error) {
 	if fi.Size() > limit {
 		return nil, fmt.Errorf("%s is larger than %d bytes", path, limit)
 	}

@@ -1,3 +1,5 @@
+//go:build safefiletest
+
 package safefile
 
 // SetEUIDForTesting makes the package act as if it runs with the given effective uid, so

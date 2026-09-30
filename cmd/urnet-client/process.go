@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 
 	"github.com/docopt/docopt-go"
 
@@ -123,6 +122,9 @@ func startBackground(opts docopt.Opts, argv []string, spawn func([]string, []sec
 
 // spawnBackground detaches a child copy of this process (dropping --background) and returns its PID.
 func spawnBackground(argv []string, secrets []secretArg) (int, error) {
+	if err := backgroundSupported(); err != nil {
+		return 0, err
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return 0, err
@@ -130,7 +132,7 @@ func spawnBackground(argv []string, secrets []secretArg) (int, error) {
 	args, secretEnv := scrubSecretArgs(argv, secrets)
 	cmd := exec.Command(exe, args...)
 	cmd.Env = append(os.Environ(), secretEnv...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = detachedProcAttr()
 	devnull, _ := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	cmd.Stdin = devnull
 	cmd.Stdout = devnull

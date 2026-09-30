@@ -42,8 +42,10 @@ func ConfigureDarwinTUN(name, ipCIDR string, mtu int, enableIPv6 bool) (string, 
 }
 
 // DefaultGateway returns the IPv4 default gateway and interface (e.g., 192.168.1.1, en0) on macOS.
+// It reads stdout only: route's stderr can carry unrelated warnings whose text would otherwise
+// be mistaken for another gateway/interface line by the parser below.
 func DefaultGateway() (string, string, error) {
-	out, err := runCapture("route", "-n", "get", "default")
+	out, err := runCaptureStdout("route", "-n", "get", "default")
 	if err != nil {
 		return "", "", fmt.Errorf("route get default failed: %w", err)
 	}

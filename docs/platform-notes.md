@@ -17,6 +17,12 @@
 - Some environments may need policy routing for strict interface binding.
 - With `--default_route`, DNS goes to the client's stub through systemd-resolved when `/etc/resolv.conf` is its stub file, otherwise by rewriting `/etc/resolv.conf` (backup in `/etc/resolv.conf.urnet-client.bak`).
 
+## Windows
+
+Not a supported runtime target: there is no VPN, route or privileged-tool support. The module
+does build with `GOOS=windows` (CI checks this), so the codebase stays portable, but the binary
+has no working commands beyond argument parsing.
+
 ## Current limitations
 
 - UDP over SOCKS is available, but app support varies.

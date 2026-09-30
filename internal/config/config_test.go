@@ -9,7 +9,6 @@ import (
 	"github.com/docopt/docopt-go"
 
 	"github.com/devrandom0/urnetwork-client/internal/logx"
-	"github.com/devrandom0/urnetwork-client/internal/safefile"
 	"github.com/devrandom0/urnetwork-client/internal/socks"
 )
 
@@ -213,37 +212,6 @@ func TestParseConfigs_SocksAuthFromFlagsAndEnv(t *testing.T) {
 	}
 	if got := ParseSOCKSConfig(opts).Auth; got != (socks.SocksAuth{User: "alice", Pass: "from-env"}) {
 		t.Fatalf("socks Auth = %+v", got)
-	}
-}
-
-func TestLoadConfigFile_RefusesSymlink(t *testing.T) {
-	real := filepath.Join(t.TempDir(), "real.yaml")
-	if err := os.WriteFile(real, []byte("debug: true\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	link := filepath.Join(t.TempDir(), "urnet.yaml")
-	if err := os.Symlink(real, link); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(safefile.SetEUIDForTesting(0))
-	if _, err := loadConfigFile(link); err == nil {
-		t.Fatal("loadConfigFile followed a symlink as root")
-	}
-}
-
-func TestLoadConfigFile_FollowsSymlinkWhenNotRoot(t *testing.T) {
-	real := filepath.Join(t.TempDir(), "real.yaml")
-	if err := os.WriteFile(real, []byte("debug: true\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	link := filepath.Join(t.TempDir(), "urnet.yaml")
-	if err := os.Symlink(real, link); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(safefile.SetEUIDForTesting(4242))
-	cf, err := loadConfigFile(link)
-	if err != nil || !cf.Debug {
-		t.Fatalf("got %+v, %v", cf, err)
 	}
 }
 

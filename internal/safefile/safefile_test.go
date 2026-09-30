@@ -559,6 +559,7 @@ func symlinkTo(t *testing.T, content string) string {
 
 func TestReadFile_RefusesSymlink(t *testing.T) {
 	useEUID(t, 0)
+	useOwner(t, func(fs.FileInfo) (uint32, uint32, bool) { return 0, 0, true })
 	link := symlinkTo(t, "secret")
 	_, err := ReadFile(link, 16)
 	if err == nil {
@@ -617,6 +618,136 @@ func TestReadFile_RefusesFIFOWithoutHanging(t *testing.T) {
 			t.Error("ReadFile accepted a FIFO")
 		}
 	})
+}
+
+func TestReadFile_RootAcceptsRootOwnedSymlinkedParentDir(t *testing.T) {
+	useEUID(t, 0)
+	useOwner(t, func(fs.FileInfo) (uint32, uint32, bool) { return 0, 0, true })
+	realDir := realTempDir(t)
+	if err := os.WriteFile(filepath.Join(realDir, "jwt"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(realTempDir(t), "home")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Fatal(err)
+	}
+	b, err := ReadFile(filepath.Join(linkDir, "jwt"), 16)
+	if err != nil || string(b) != "secret" {
+		t.Fatalf("root-owned symlinks such as macOS /tmp and /var must be followed as root: %q, %v", b, err)
+	}
+}
+
+func TestReadFile_RootRefusesSymlinkedParentDir(t *testing.T) {
+	useEUID(t, 0)
+	useOwner(t, func(fi fs.FileInfo) (uint32, uint32, bool) {
+		if fi.Mode()&fs.ModeSymlink != 0 {
+			return 4343, 4343, true
+		}
+		return 0, 0, true
+	})
+	realDir := realTempDir(t)
+	if err := os.WriteFile(filepath.Join(realDir, "jwt"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(realTempDir(t), "home")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadFile(filepath.Join(linkDir, "jwt"), 16); err == nil {
+		t.Fatal("a root run read through a symlinked parent directory")
+	}
+}
+
+func TestReadFile_FollowsSymlinkedParentDirWhenNotRoot(t *testing.T) {
+	useEUID(t, 4242)
+	realDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(realDir, "jwt"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(t.TempDir(), "home")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Fatal(err)
+	}
+	b, err := ReadFile(filepath.Join(linkDir, "jwt"), 16)
+	if err != nil || string(b) != "secret" {
+		t.Fatalf("a non-root read must follow a symlinked parent directory: %q, %v", b, err)
+	}
+}
+
+// TestReadFile_RootChecksSamePathItOpens guards against the symlink check running on
+// filepath.Abs(path) (which lexically cancels out "link/..") while the actual open used the
+// raw, uncleaned path: the kernel still walks through the untrusted symlink that the lexical
+// cleanup made invisible to the check.
+func TestReadFile_RootChecksSamePathItOpens(t *testing.T) {
+	useEUID(t, 0)
+	useOwner(t, func(fi fs.FileInfo) (uint32, uint32, bool) {
+		if fi.Mode()&fs.ModeSymlink != 0 {
+			return 4343, 4343, true
+		}
+		return 0, 0, true
+	})
+	home := realTempDir(t)
+	outside := realTempDir(t)
+	if err := os.WriteFile(filepath.Join(outside, "jwt"), []byte("evil-secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	trap := filepath.Join(outside, "trap")
+	if err := os.Mkdir(trap, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(trap, filepath.Join(home, "link")); err != nil {
+		t.Fatal(err)
+	}
+	// Not filepath.Join: it would lexically clean away "link/..", hiding the exact bug this
+	// guards against (the check ran on the cleaned path while the kernel opened the raw one).
+	raw := home + "/link/../jwt"
+	if b, err := ReadFile(raw, 16); err == nil {
+		t.Fatalf("ReadFile returned %q through an untrusted symlink via a link/.. path", b)
+	}
+}
+
+// TestReadFile_RootRefusesUntrustedAncestorOwner exercises the same ancestor-ownership rule
+// WriteFile's openDir applies, now reused for reads: a root read through a directory owned by
+// neither root nor the sudo-invoking user must be refused even with no symlink involved.
+func TestReadFile_RootRefusesUntrustedAncestorOwner(t *testing.T) {
+	useEUID(t, 0)
+	useOwner(t, func(fs.FileInfo) (uint32, uint32, bool) { return 4343, 4343, true })
+	path := filepath.Join(realTempDir(t), "jwt")
+	if err := os.WriteFile(path, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ReadFile(path, 16)
+	if err == nil {
+		t.Fatal("root read through a directory owned by an untrusted non-root, non-sudo user")
+	}
+	// parentDirErr is shared with WriteFile; its wording must not claim a read is a write.
+	if strings.Contains(err.Error(), "write") {
+		t.Fatalf("err = %q, a read failure must not say \"write\"", err)
+	}
+}
+
+// TestReadFile_RootTrustsSudoUserDir covers the motivating case for reusing WriteFile's
+// ancestor rule: root running via sudo must still read the invoking user's own JWT/config.
+func TestReadFile_RootTrustsSudoUserDir(t *testing.T) {
+	useEUID(t, 0)
+	t.Setenv("SUDO_UID", "1234")
+	// Only the pinned target directory (seen as "." through os.Root) is the sudo user's;
+	// ancestors such as /tmp must read as root-owned or a world-writable one (e.g. Linux's
+	// sticky /tmp) would be refused for an unrelated reason.
+	useOwner(t, func(fi fs.FileInfo) (uint32, uint32, bool) {
+		if fi.Name() == "." {
+			return 1234, 1234, true
+		}
+		return 0, 0, true
+	})
+	path := filepath.Join(realTempDir(t), "jwt")
+	if err := os.WriteFile(path, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b, err := ReadFile(path, 16)
+	if err != nil || string(b) != "secret" {
+		t.Fatalf("root running via sudo must read the invoking user's own files: %q, %v", b, err)
+	}
 }
 
 func nonblocking(t *testing.T, f *os.File) bool {
