@@ -3,6 +3,7 @@
 package netcfg
 
 import (
+	"errors"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -98,6 +99,56 @@ func TestResolvConf_ApplyRefusesSymlink(t *testing.T) {
 	}
 	if _, err := os.Lstat(r.backup); !os.IsNotExist(err) {
 		t.Fatal("backup written although Apply failed")
+	}
+}
+
+func TestResolvConf_RecoverFailedWriteRestoresOriginalAndDropsBackup(t *testing.T) {
+	r := tempResolvConf(t)
+	if err := os.WriteFile(r.backup, []byte(origResolvConf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Simulates the state safefile.Overwrite can leave behind: it truncated r.path and wrote the
+	// stub before some later step (e.g. Sync) failed.
+	if err := os.WriteFile(r.path, []byte("nameserver 10.255.0.2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeErr := errors.New("simulated write failure")
+
+	err := r.recoverFailedWrite(writeErr, []byte(origResolvConf))
+
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("recoverFailedWrite = %v; want it to wrap %v", err, writeErr)
+	}
+	if got := readTestFile(t, r.path); got != origResolvConf {
+		t.Fatalf("resolv.conf = %q; want the original restored", got)
+	}
+	if _, err := os.Lstat(r.backup); !os.IsNotExist(err) {
+		t.Fatal("backup still exists although the recovery write succeeded")
+	}
+}
+
+func TestResolvConf_RecoverFailedWriteKeepsBackupWhenRestoreAlsoFails(t *testing.T) {
+	r := tempResolvConf(t)
+	if err := os.WriteFile(r.backup, []byte(origResolvConf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// safefile.Overwrite never creates a missing file, so removing r.path is a real, deterministic
+	// way to make the recovery write fail too, without needing a fault-injection seam.
+	if err := os.Remove(r.path); err != nil {
+		t.Fatal(err)
+	}
+	writeErr := errors.New("simulated write failure")
+
+	err := r.recoverFailedWrite(writeErr, []byte(origResolvConf))
+
+	if err == nil || !errors.Is(err, writeErr) {
+		t.Fatalf("recoverFailedWrite = %v; want it to wrap %v", err, writeErr)
+	}
+	if !strings.Contains(err.Error(), r.backup) {
+		t.Fatalf("recoverFailedWrite = %v; want it to name the backup %s", err, r.backup)
+	}
+	if _, err := os.Lstat(r.backup); err != nil {
+		t.Fatalf("backup removed although the recovery write failed: %v", err)
 	}
 }
 

@@ -43,12 +43,23 @@ func (r *resolvConfDNS) Apply(stub netip.Addr) error {
 	}
 	content := fmt.Sprintf("# Written by urnet-client for this VPN session; the original is in %s\nnameserver %s\n", r.backup, stub)
 	if err := safefile.Overwrite(r.path, []byte(content)); err != nil {
-		_ = os.Remove(r.backup)
-		return fmt.Errorf("point %s at the DNS stub: %w", r.path, err)
+		return r.recoverFailedWrite(err, orig)
 	}
 	r.applied = true
 	logx.Info("DNS: %s points at the stub %s\n", r.path, stub)
 	return nil
+}
+
+// recoverFailedWrite runs when writing the DNS stub into r.path fails; safefile.Overwrite may
+// have already truncated r.path before the failure, so the backup is the only copy of the
+// original left. It puts the original back before dropping the backup, and only drops the
+// backup once that restore is confirmed, so a crash never leaves both r.path and the backup bad.
+func (r *resolvConfDNS) recoverFailedWrite(writeErr error, orig []byte) error {
+	if err := safefile.Overwrite(r.path, orig); err != nil {
+		return fmt.Errorf("point %s at the DNS stub: %w; the original is preserved in %s", r.path, writeErr, r.backup)
+	}
+	_ = os.Remove(r.backup)
+	return fmt.Errorf("point %s at the DNS stub: %w", r.path, writeErr)
 }
 
 func (r *resolvConfDNS) Restore() error {
