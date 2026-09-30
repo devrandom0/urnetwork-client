@@ -467,9 +467,11 @@ type udpAssociation struct {
 
 func (a *udpAssociation) touch() { a.lastActive.Store(time.Now().UnixNano()) }
 
-// closeWhenIdle closes ctrl, which tears the association down, once no datagram has been
-// relayed for timeout. It returns when done is closed.
-func (a *udpAssociation) closeWhenIdle(ctrl net.Conn, timeout time.Duration, done <-chan struct{}) {
+// closeWhenIdle tears the association down once no datagram has been relayed for timeout: it
+// closes the relay's packet conns before ctrl, so a caller observing ctrl's EOF can be sure the
+// relay is already dead instead of racing runUDPAssociate's own deferred cleanup. It returns
+// when done is closed.
+func (a *udpAssociation) closeWhenIdle(ctrl net.Conn, conns []net.PacketConn, timeout time.Duration, done <-chan struct{}) {
 	check := time.NewTicker(max(timeout/4, 10*time.Millisecond))
 	defer check.Stop()
 	for {
@@ -478,6 +480,9 @@ func (a *udpAssociation) closeWhenIdle(ctrl net.Conn, timeout time.Duration, don
 			return
 		case <-check.C:
 			if time.Since(time.Unix(0, a.lastActive.Load())) >= timeout {
+				for _, pc := range conns {
+					_ = pc.Close()
+				}
 				_ = ctrl.Close()
 				return
 			}
@@ -592,7 +597,7 @@ func (s *socksServer) runUDPAssociate(ctx context.Context, ctrl net.Conn, req so
 	}
 	done := make(chan struct{})
 	defer close(done)
-	wg.Go(func() { assoc.closeWhenIdle(ctrl, s.opts.UDPIdleTimeout, done) })
+	wg.Go(func() { assoc.closeWhenIdle(ctrl, conns, s.opts.UDPIdleTimeout, done) })
 	wg.Go(func() { s.relayFromClient(ctx, pcClient, pcVPN, pcSys, assoc) })
 	for _, pc := range conns[1:] {
 		wg.Go(func() { relayToClient(pc, pcClient, assoc) })
