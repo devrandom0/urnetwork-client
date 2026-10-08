@@ -1,3 +1,5 @@
+## [3.0.1](https://github.com/devrandom0/urnetwork-client/compare/v3.0.0...v3.0.1) (2026-10-08)
+
 ## [3.0.0](https://github.com/devrandom0/urnetwork-client/compare/v2.0.0...v3.0.0) (2026-09-28)
 
 ### ⚠ BREAKING CHANGES
