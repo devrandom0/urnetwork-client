@@ -78,8 +78,8 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/theodorsm/covert-dtls v1.5.1 h1:qTp59YIwGpY4eDJbR237R1MAahWLZNryDNknFRGR0FU=
 github.com/theodorsm/covert-dtls v1.5.1/go.mod h1:MTb9IO4aqSxrcrh569UGO4PlC1Yel37M440z+gcm13E=
-github.com/urnetwork/connect v0.0.0-20261008142910-ed70779ca914 h1:CPmSmaR839SzKD16bZMs7vlQWzeXAgDZPI/7oJU9deY=
-github.com/urnetwork/connect v0.0.0-20261008142910-ed70779ca914/go.mod h1:VWW5oK27pM7UjHjMgjGREkfRzA1/RiDIZU2W3M9hIRo=
+github.com/urnetwork/connect v0.0.0-20261010232752-aea217bef520 h1:OC68t922Sr+Y+Bvdv0A8QPr9KAiQ1fX9xS5V3LUvY5c=
+github.com/urnetwork/connect v0.0.0-20261010232752-aea217bef520/go.mod h1:ijBmhQcFTkLp9/fbXTfDBZg1bjfjoT7T9SqSCbmwsQ0=
 github.com/urnetwork/glog v1.2.9 h1:T1GwVZ91FyZvfGPCIAG3KkeVNJViS/oJhi1aCCxPPY8=
 github.com/urnetwork/glog v1.2.9/go.mod h1:MijG6ltedvutOUlWzst3mYwyRnrct9dqoThPOoN0qp0=
 github.com/wlynxg/anet v0.0.5 h1:J3VJGi1gvo0JwZ/P1/Yc/8p63SoW98B5dHkYDmpgvvU=
