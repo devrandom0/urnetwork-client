@@ -9,15 +9,17 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/miekg/dns v1.1.73
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
-	github.com/urnetwork/connect v0.0.0-20260927145257-1f8ac317adb9
+	github.com/urnetwork/connect v0.0.0-20261008142910-ed70779ca914
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
+	github.com/andybalholm/brotli v1.0.6 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/pion/datachannel v1.6.2 // indirect
 	github.com/pion/dtls/v3 v3.1.5 // indirect
 	github.com/pion/ice/v4 v4.4.1 // indirect
@@ -36,6 +38,8 @@ require (
 	github.com/pion/webrtc/v4 v4.2.18 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.61.0 // indirect
+	github.com/refraction-networking/utls v1.8.2 // indirect
+	github.com/theodorsm/covert-dtls v1.5.1 // indirect
 	github.com/urnetwork/glog v0.0.0 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
