@@ -1,3 +1,63 @@
+## [4.0.0](https://github.com/devrandom0/urnetwork-client/compare/v3.0.2...v4.0.0) (2026-10-12)
+
+### ⚠ BREAKING CHANGES
+
+* --dns_bootstrap defaults to none instead of bypass.
+With --default_route the system DNS is replaced by the client's stub
+for the session. IPv6 is blocked when --enable_ipv6 is off instead of
+leaking outside the tunnel. --dns_service is ignored.
+
+### Features
+
+* add DNS stub forwarder with tunnel-bound upstreams ([4b451ad](https://github.com/devrandom0/urnetwork-client/commit/4b451addce8e689a6fafe8be77192ea05b33862d))
+* add enable_ipv6 key and make none the DNS bootstrap default ([5cde9a5](https://github.com/devrandom0/urnetwork-client/commit/5cde9a508186eb5b028ce3e1a95bd09ffdf5f482))
+* add recover command to undo a dead run's DNS and routes ([133060e](https://github.com/devrandom0/urnetwork-client/commit/133060e00878e0d66352401a473f24f170ca3644))
+* add safefile.Overwrite for bind-mounted files ([7212786](https://github.com/devrandom0/urnetwork-client/commit/7212786b284155c96e3c5779156eafa4eb536ac1))
+* add the leak policy orchestrator with fail-closed rollback ([c659284](https://github.com/devrandom0/urnetwork-client/commit/c659284ec3f5b8752cf863023d443e06a1349b1a))
+* apply the IPv6 and DNS leak policy with --default_route ([096d484](https://github.com/devrandom0/urnetwork-client/commit/096d4846ed6234aed20136d202984e57c8f59237))
+* block IPv6 and send DNS through the tunnel by default ([75ec6cf](https://github.com/devrandom0/urnetwork-client/commit/75ec6cf8b80645a0f6963a1d3471e06dccf0a7cd))
+* block or tunnel IPv6 routes on Linux ([9c06a36](https://github.com/devrandom0/urnetwork-client/commit/9c06a36c899e3bf650db81d1cb4731ddf82cbbd3))
+* block or tunnel IPv6 routes on macOS ([9c0ec07](https://github.com/devrandom0/urnetwork-client/commit/9c0ec07b6f7080cc3f10cfc44324c09105f8d5e9))
+* filter AAAA and pin control-plane names in the DNS stub ([7484ea4](https://github.com/devrandom0/urnetwork-client/commit/7484ea4a6d5039f7ef9de0f06d46d3d86b6ad3b3))
+* let SOCKS resolve through the DNS stub, A records only ([0bc4e82](https://github.com/devrandom0/urnetwork-client/commit/0bc4e82a4c99c90d21f372d712d5adbc1bab43b7))
+* make GOOS=windows go build ./... succeed ([79dcac2](https://github.com/devrandom0/urnetwork-client/commit/79dcac24f1d32700b3cceda1bc95a91561b75e34))
+* point resolv.conf at the DNS stub with a crash-safe backup ([e6a464a](https://github.com/devrandom0/urnetwork-client/commit/e6a464afa52304f029dc4f04417da6d4a0595024))
+* publish the DNS stub to macOS through scutil ([4a5d07e](https://github.com/devrandom0/urnetwork-client/commit/4a5d07eaaefa3615c37b9cb19919231e06f4bf70))
+* restore DNS from a watchdog when the VPN dies ([3a92569](https://github.com/devrandom0/urnetwork-client/commit/3a92569fa1a00d010dc4e87a63bc43ca14b7bb3b))
+* return routed control-plane addresses from AddBypassEndpoint ([9bd4ab2](https://github.com/devrandom0/urnetwork-client/commit/9bd4ab2e5ebe3e4ec5ea5cb59c59058e51133809))
+* route Linux DNS to the stub via systemd-resolved or resolv.conf ([c47eb1d](https://github.com/devrandom0/urnetwork-client/commit/c47eb1daef2833d12fa4b4aae325c05d0cd8b185))
+
+### Bug Fixes
+
+* always try IPv6 reject routes and warn on foreign DNS paths ([0b82508](https://github.com/devrandom0/urnetwork-client/commit/0b825080294768910363903775b4cb6c4821bd5d))
+* assign the TUN IPv6 address only with --enable_ipv6 ([d233311](https://github.com/devrandom0/urnetwork-client/commit/d23331178ec5c5185302ca8a56f64804218cbf82))
+* bound stub latency, harden its listeners, strip IPv6 hints ([f0fc3d0](https://github.com/devrandom0/urnetwork-client/commit/f0fc3d028ac23a4dd453ceefebac62f588a44c7e))
+* bound the wait for a provider window and log stub queries ([0957202](https://github.com/devrandom0/urnetwork-client/commit/095720281e66c60d32122fb61aaac815cc0f4ad1))
+* close UDP relay sockets before ctrl in closeWhenIdle ([bd1c8f3](https://github.com/devrandom0/urnetwork-client/commit/bd1c8f3b4e4466805b50e3cc81610a25adb7153f))
+* drop outbound IPv6 packets when IPv6 is off ([13dd3bc](https://github.com/devrandom0/urnetwork-client/commit/13dd3bc08e1ca5d1417d53f7c3ccac1e0897d92e))
+* gate safefile test hook behind safefiletest build tag ([fd73a64](https://github.com/devrandom0/urnetwork-client/commit/fd73a64d20ffd2bf761a92a33697e902a1e8132d))
+* keep docker-build off tag refs entirely ([6d7898f](https://github.com/devrandom0/urnetwork-client/commit/6d7898f405ee96282284b29cb5438126d18fe28c))
+* keep resolv.conf backup when the DNS-stub write fails ([4033c12](https://github.com/devrandom0/urnetwork-client/commit/4033c128d83e917e1aa58e426c0d4d34ff7c9738))
+* log the IPv6 kill switch hint even if the IPv4 blackhole fails ([07fddc6](https://github.com/devrandom0/urnetwork-client/commit/07fddc601a823c65c35a4401e16599db6095999a))
+* make InterfaceControl reject an empty interface name ([3d52d73](https://github.com/devrandom0/urnetwork-client/commit/3d52d733cbd2a84ea0116afedf5b3566184c01b9))
+* make lint reproducible on macOS ([8f7a280](https://github.com/devrandom0/urnetwork-client/commit/8f7a280e09329e5d773fd4444ba558f26e20647b))
+* make parentDirErr/leafDirErr wording operation-neutral ([a3e8f58](https://github.com/devrandom0/urnetwork-client/commit/a3e8f58a9965108fdf1894579485cca7336eeaf7))
+* name timed-out tools and warn when recover cannot list routes ([8d91f27](https://github.com/devrandom0/urnetwork-client/commit/8d91f276ec35c7627e0cd2b1bd3661dfcb772d1a))
+* open the cleaned path ReadFile's symlink check validated ([b220ce3](https://github.com/devrandom0/urnetwork-client/commit/b220ce3db165333d96705387ecab409e5381ee1c))
+* parse DefaultGateway from stdout only ([528e2ac](https://github.com/devrandom0/urnetwork-client/commit/528e2ac5d3d809dfc3dd8ae5088053f41b637f8e))
+* pin ReadFile's directory as root to close a TOCTOU ([0e4a89c](https://github.com/devrandom0/urnetwork-client/commit/0e4a89c8c4e2cb36271cce83e821a4a1db797364))
+* rate-limit slow-send warnings and state the real drop reason ([36338c0](https://github.com/devrandom0/urnetwork-client/commit/36338c0c5aacdb2842ea9a5db2567d41a258f113))
+* record the DNS owner pid and never recover a live instance ([98bae8a](https://github.com/devrandom0/urnetwork-client/commit/98bae8a537b20ef48f7b61ebedd6de226293797e))
+* refuse --background cleanly on windows ([29a52e8](https://github.com/devrandom0/urnetwork-client/commit/29a52e87464b3ca96bb921d66a874d936368a0ed))
+* refuse symlinked parent dirs on root ReadFile ([cf62b06](https://github.com/devrandom0/urnetwork-client/commit/cf62b06c4de1c7a5bea77eac7a50877abc2b80ef))
+* remove the dead tags: v* CI trigger ([f1e4dd0](https://github.com/devrandom0/urnetwork-client/commit/f1e4dd0a27dcfaf00a16815b66c59d92f3fdc933))
+* restore DNS first and bound every cleanup step ([1bdad5b](https://github.com/devrandom0/urnetwork-client/commit/1bdad5b8eb5e97b2ac403fcc77a0a64b6f7cac6b))
+* retry watchdog DNS recovery and warn against kill -9 ([a8f6d06](https://github.com/devrandom0/urnetwork-client/commit/a8f6d060b21811c1c222bb94012daabdf23065f0))
+* serve the macOS DNS stub on loopback, not the TUN ([de0dbdd](https://github.com/devrandom0/urnetwork-client/commit/de0dbddadb4949f35ec1bc3986f73c995be72232))
+* surface stderr in CaptureStdout failures ([29804a7](https://github.com/devrandom0/urnetwork-client/commit/29804a762853496f626977e45b185b6e91406e88))
+* survive a dead log reader during DNS cleanup and recovery ([94c142b](https://github.com/devrandom0/urnetwork-client/commit/94c142b353ed7af8f2821e2e1c1016d704b388be))
+* validate DNS config early and pin only routed endpoints ([acd2663](https://github.com/devrandom0/urnetwork-client/commit/acd26635385317aa6a6e14c9cc6503f3bb753140))
+
 ## [3.0.2](https://github.com/devrandom0/urnetwork-client/compare/v3.0.1...v3.0.2) (2026-10-08)
 
 ## [3.0.1](https://github.com/devrandom0/urnetwork-client/compare/v3.0.0...v3.0.1) (2026-10-08)
