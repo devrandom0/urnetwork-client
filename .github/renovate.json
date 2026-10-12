@@ -8,7 +8,7 @@
   "rebaseWhen": "auto",
   "timezone": "UTC",
   "schedule": [
-    "after 02:00 and before 03:00 every day"
+    "after 02:00 and before 03:00"
   ],
   "semanticCommits": "enabled",
   "semanticCommitType": "chore",
