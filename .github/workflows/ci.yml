@@ -581,7 +581,7 @@ jobs:
       - name: Semantic Release
         id: semrel
         if: steps.skip_check.outputs.skip != 'true'
-        uses: cycjimmy/semantic-release-action@v8.0.0
+        uses: cycjimmy/semantic-release-action@v8.1.2
         with:
           semantic_version: 25.0.9
           extra_plugins: |
