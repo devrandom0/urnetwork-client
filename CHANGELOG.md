@@ -1,3 +1,5 @@
+## [4.0.3](https://github.com/devrandom0/urnetwork-client/compare/v4.0.2...v4.0.3) (2026-10-16)
+
 ## [4.0.2](https://github.com/devrandom0/urnetwork-client/compare/v4.0.1...v4.0.2) (2026-10-12)
 
 ### Bug Fixes
