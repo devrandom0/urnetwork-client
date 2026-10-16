@@ -9,7 +9,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/miekg/dns v1.1.73
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
-	github.com/urnetwork/connect v0.0.0-20261012192150-ce63fe2e4c7f
+	github.com/urnetwork/connect v0.0.0-20261016103115-75965f44e42c
 	gopkg.in/yaml.v3 v3.0.1
 )
 
