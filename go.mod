@@ -1,15 +1,13 @@
 module github.com/devrandom0/urnetwork-client
 
-go 1.26.3
-
-toolchain go1.27.2
+go 1.27.3
 
 require (
 	github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/miekg/dns v1.1.73
 	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
-	github.com/urnetwork/connect v0.0.0-20261016103115-75965f44e42c
+	github.com/urnetwork/connect v0.0.0-20261021055606-f1837db6df36
 	gopkg.in/yaml.v3 v3.0.1
 )
 
