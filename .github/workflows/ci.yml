@@ -29,7 +29,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.14.0
+          version: v2.15.0
       - name: Commit message lint (Conventional Commits)
         run: |
           chmod +x scripts/commit-msg-lint.sh
@@ -123,7 +123,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.14.0
+          version: v2.15.0
       - name: Test
         run: go test -tags safefiletest -race -count=1 ./...
 
